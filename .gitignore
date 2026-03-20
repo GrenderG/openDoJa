@@ -1,0 +1,29 @@
+# IntelliJ IDEA / JetBrains
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Java / JVM build output
+*.class
+*.jar
+*.war
+*.ear
+*.hprof
+hs_err_pid*
+replay_pid*
+target/
+build/
+out/
+
+# Project-local runtime state
+.opendoja/
+
+# Reverse-engineering inputs and local task logs
+resources/
+tasks/
+COMPATIBILITY_NOTES.md
+DECOMPILED_GAME_PORTING.md
+IMPLEMENTATION_PLAN.md
+PROGRESS_LOG.md
+REVERSE_ENGINEERING.md

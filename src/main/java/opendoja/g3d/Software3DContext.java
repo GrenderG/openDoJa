@@ -1,0 +1,1085 @@
+package opendoja.g3d;
+
+import com.nttdocomo.opt.ui.j3d.PrimitiveArray;
+
+import java.awt.AlphaComposite;
+import java.awt.Color;
+import java.awt.Composite;
+import java.awt.Graphics2D;
+import java.awt.Rectangle;
+import java.awt.Shape;
+import java.awt.geom.Path2D;
+import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+public final class Software3DContext {
+    private static final boolean DEBUG_3D = Boolean.getBoolean("opendoja.debug3d");
+    private static volatile boolean debugProjectionLogged;
+    private static volatile boolean debugFigureStatsLogged;
+    private static final float DEPTH_EPSILON = 0.000001f;
+    private static final int RASTER_SUBPIXEL_SHIFT = 4;
+    private static final int RASTER_SUBPIXEL_SCALE = 1 << RASTER_SUBPIXEL_SHIFT;
+    private static final int CULL_SIGN = Integer.getInteger("opendoja.cullSign", 1);
+    private static final boolean CULL_FIGURES = Boolean.getBoolean("opendoja.cullFigures");
+    private static final boolean CLIP_SCREEN_PLANES = Boolean.getBoolean("opendoja.clipScreenPlanes");
+    private static final float UI_FIGURE_VERTEX_SCALE = Float.parseFloat(System.getProperty("opendoja.uiFigureVertexScale", "0.015625"));
+
+    private Rectangle uiClip;
+    private float[] uiTransform = identity();
+    private boolean uiPerspective;
+    private float uiOrthoWidth = 400f;
+    private float uiOrthoHeight = 400f;
+    private PerspectiveMode uiPerspectiveMode = PerspectiveMode.FIELD_OF_VIEW;
+    private float uiPerspectiveNear = 1f;
+    private float uiPerspectiveFar = 32767f;
+    private float uiPerspectiveAngleDegrees = 60f;
+    private float uiPerspectiveWidth = 240f;
+    private float uiPerspectiveHeight = 240f;
+    private float uiAmbient = 1f;
+
+    private Rectangle optClip;
+    private float[] optViewTransform = identity();
+    private int optScreenCenterX;
+    private int optScreenCenterY;
+    private float optScaleX = 1f;
+    private float optScaleY = 1f;
+    private float optFocal = 240f;
+    private boolean optLightingEnabled;
+    private boolean optSemiTransparent;
+    private SoftwareTexture[] primitiveTextures = new SoftwareTexture[0];
+    private int primitiveTextureIndex;
+
+    public void setUiClip(int x, int y, int width, int height) {
+        this.uiClip = new Rectangle(x, y, width, height);
+    }
+
+    public void setUiParallelView(int width, int height) {
+        this.uiPerspective = false;
+        this.uiOrthoWidth = java.lang.Math.max(1f, width);
+        this.uiOrthoHeight = java.lang.Math.max(1f, height);
+    }
+
+    public void setUiPerspectiveView(float a, float b, int c, int d) {
+        this.uiPerspective = true;
+        this.uiPerspectiveMode = PerspectiveMode.WIDTH_HEIGHT;
+        this.uiPerspectiveNear = normalizeNear(a);
+        this.uiPerspectiveFar = normalizeFar(uiPerspectiveNear, b);
+        this.uiPerspectiveWidth = java.lang.Math.max(1f, c);
+        this.uiPerspectiveHeight = java.lang.Math.max(1f, d);
+    }
+
+    public void setUiPerspectiveView(float a, float b, float c) {
+        this.uiPerspective = true;
+        this.uiPerspectiveMode = PerspectiveMode.FIELD_OF_VIEW;
+        this.uiPerspectiveNear = normalizeNear(a);
+        this.uiPerspectiveFar = normalizeFar(uiPerspectiveNear, b);
+        this.uiPerspectiveAngleDegrees = normalizePerspectiveDegrees(c);
+    }
+
+    public void setUiTransform(float[] matrix) {
+        this.uiTransform = matrix == null ? identity() : matrix.clone();
+    }
+
+    public void addUiLight(int mode, float intensity, int color) {
+        if (mode == 128) {
+            this.uiAmbient = java.lang.Math.max(0f, intensity);
+        }
+    }
+
+    public void resetUiLights() {
+        this.uiAmbient = 1f;
+    }
+
+    public void setOptViewTransform(float[] matrix) {
+        this.optViewTransform = matrix == null ? identity() : matrix.clone();
+    }
+
+    public void setOptScreenCenter(int x, int y) {
+        this.optScreenCenterX = x;
+        this.optScreenCenterY = y;
+    }
+
+    public void setOptScreenScale(int x, int y) {
+        this.optScaleX = x == 0 ? 1f : x / 4096f;
+        this.optScaleY = y == 0 ? 1f : y / 4096f;
+    }
+
+    public void setOptScreenView(int x, int y) {
+        this.optScreenCenterX = x;
+        this.optScreenCenterY = y;
+    }
+
+    public void setOptPerspective(int near, int far, int width) {
+        this.optFocal = java.lang.Math.max(32f, width);
+    }
+
+    public void setOptPerspective(int near, int far, int width, int height) {
+        this.optFocal = java.lang.Math.max(32f, java.lang.Math.max(width, height));
+    }
+
+    public void enableOptLight(boolean enabled) {
+        this.optLightingEnabled = enabled;
+    }
+
+    public void enableOptSemiTransparent(boolean enabled) {
+        this.optSemiTransparent = enabled;
+    }
+
+    public void setOptClip(int x, int y, int width, int height) {
+        this.optClip = new Rectangle(x, y, width, height);
+    }
+
+    public void setPrimitiveTextures(SoftwareTexture[] textures) {
+        this.primitiveTextures = textures == null ? new SoftwareTexture[0] : textures.clone();
+        if (primitiveTextureIndex >= this.primitiveTextures.length) {
+            primitiveTextureIndex = 0;
+        }
+    }
+
+    public void setPrimitiveTexture(int index) {
+        this.primitiveTextureIndex = index;
+    }
+
+    public void renderUiFigure(Graphics2D g, BufferedImage target, int originX, int originY, int surfaceWidth, int surfaceHeight,
+                               MascotFigure figure, float[] objectTransform, int blendMode, float transparency) {
+        if (figure == null || figure.model() == null) {
+            return;
+        }
+        Projection projection = uiPerspective ? createUiProjection(surfaceWidth, surfaceHeight) : null;
+        renderModel(g, target, originX, originY, surfaceWidth, surfaceHeight, figure, objectTransform == null ? uiTransform : multiply(uiTransform, objectTransform), projection, uiClip, surfaceWidth / 2f, surfaceHeight / 2f, uiOrthoWidth, uiOrthoHeight, blendMode, transparency, uiAmbient, UI_FIGURE_VERTEX_SCALE);
+    }
+
+    public void renderUiPrimitive(Graphics2D g, BufferedImage target, int originX, int originY, int surfaceWidth, int surfaceHeight,
+                                  int primitiveType, int primitiveParam, int primitiveCount, int[] vertexArray, int[] colorArray,
+                                  int[] textureCoordArray, SoftwareTexture texture, float[] objectTransform, int blendMode, float transparency) {
+        Projection projection = uiPerspective ? createUiProjection(surfaceWidth, surfaceHeight) : null;
+        renderPrimitiveBuffer(g, target, originX, originY, surfaceWidth, surfaceHeight, primitiveType, primitiveParam, primitiveCount, vertexArray, colorArray, textureCoordArray, texture, objectTransform == null ? uiTransform : multiply(uiTransform, objectTransform), projection, uiClip, surfaceWidth / 2f, surfaceHeight / 2f, uiOrthoWidth, uiOrthoHeight, blendMode, transparency);
+    }
+
+    public void renderOptFigure(Graphics2D g, BufferedImage target, int originX, int originY, int surfaceWidth, int surfaceHeight, MascotFigure figure) {
+        if (figure == null || figure.model() == null) {
+            return;
+        }
+        renderModel(g, target, originX, originY, surfaceWidth, surfaceHeight, figure, optViewTransform, createFocalProjection(optFocal), optClip, optScreenCenterX == 0 ? surfaceWidth / 2f : optScreenCenterX, optScreenCenterY == 0 ? surfaceHeight / 2f : optScreenCenterY, surfaceWidth / java.lang.Math.max(0.25f, optScaleX), surfaceHeight / java.lang.Math.max(0.25f, optScaleY), optSemiTransparent ? 32 : 0, optSemiTransparent ? 0.5f : 1f, optLightingEnabled ? 0.9f : 1f, 1f);
+    }
+
+    public void renderOptPrimitives(Graphics2D g, BufferedImage target, int originX, int originY, int surfaceWidth, int surfaceHeight,
+                                    PrimitiveArray primitives, int attr) {
+        if (primitives == null) {
+            return;
+        }
+        SoftwareTexture texture = primitiveTextures.length == 0 ? null : primitiveTextures[java.lang.Math.max(0, java.lang.Math.min(primitiveTextureIndex, primitiveTextures.length - 1))];
+        renderPrimitiveBuffer(g, target, originX, originY, surfaceWidth, surfaceHeight, primitives.getType(), primitives.getParam(), primitives.size(), primitives.getVertexArray(), primitives.getColorArray(), primitives.getTextureCoordArray(), texture, optViewTransform, createFocalProjection(optFocal), optClip, optScreenCenterX == 0 ? surfaceWidth / 2f : optScreenCenterX, optScreenCenterY == 0 ? surfaceHeight / 2f : optScreenCenterY, surfaceWidth / java.lang.Math.max(0.25f, optScaleX), surfaceHeight / java.lang.Math.max(0.25f, optScaleY), attr, optSemiTransparent ? 0.5f : 1f);
+    }
+
+    private void renderModel(Graphics2D g, BufferedImage target, int originX, int originY, int surfaceWidth, int surfaceHeight,
+                             MascotFigure figure, float[] transform, Projection projection, Rectangle clip,
+                             float centerX, float centerY, float orthoWidth, float orthoHeight,
+                             int blendMode, float transparency, float lightScale, float vertexScale) {
+        MbacModel model = figure.model();
+        int patternMask = figure.patternMask();
+        float[] vertices = figure.vertices();
+        List<ProjectedPolygon> projected = new ArrayList<>();
+        if (DEBUG_3D && !debugProjectionLogged && projection != null) {
+            float minX = Float.POSITIVE_INFINITY;
+            float maxX = Float.NEGATIVE_INFINITY;
+            float minY = Float.POSITIVE_INFINITY;
+            float maxY = Float.NEGATIVE_INFINITY;
+            float minZ = Float.POSITIVE_INFINITY;
+            float maxZ = Float.NEGATIVE_INFINITY;
+            for (int i = 0; i + 2 < vertices.length; i += 3) {
+                float[] point = transformPoint(transform, vertices[i], vertices[i + 1], vertices[i + 2]);
+                minX = java.lang.Math.min(minX, point[0]);
+                maxX = java.lang.Math.max(maxX, point[0]);
+                minY = java.lang.Math.min(minY, point[1]);
+                maxY = java.lang.Math.max(maxY, point[1]);
+                minZ = java.lang.Math.min(minZ, point[2]);
+                maxZ = java.lang.Math.max(maxZ, point[2]);
+            }
+            debugProjectionLogged = true;
+            System.err.printf(
+                    "3D debug projection=%s near=%f far=%f scaleX=%f scaleY=%f depthOffset=%f transformedX=[%f,%f] transformedY=[%f,%f] transformedZ=[%f,%f] matrix=[%f,%f,%f,%f | %f,%f,%f,%f | %f,%f,%f,%f]%n",
+                    uiPerspectiveMode,
+                    projection.near(),
+                    projection.far(),
+                    projection.scaleX(),
+                    projection.scaleY(),
+                    projection.depthOffset(),
+                    minX,
+                    maxX,
+                    minY,
+                    maxY,
+                    minZ,
+                    maxZ,
+                    transform[0],
+                    transform[1],
+                    transform[2],
+                    transform[3],
+                    transform[4],
+                    transform[5],
+                    transform[6],
+                    transform[7],
+                    transform[8],
+                    transform[9],
+                    transform[10],
+                    transform[11]
+            );
+        }
+        int consideredPolygons = 0;
+        int clippedPolygons = 0;
+        float projectedMinX = Float.POSITIVE_INFINITY;
+        float projectedMaxX = Float.NEGATIVE_INFINITY;
+        float projectedMinY = Float.POSITIVE_INFINITY;
+        float projectedMaxY = Float.NEGATIVE_INFINITY;
+        for (MbacModel.Polygon polygon : model.polygons()) {
+            int polyPattern = polygon.patternMask();
+            if (polyPattern != 0 && (polyPattern & patternMask) != polyPattern) {
+                continue;
+            }
+            consideredPolygons++;
+            int[] indices = polygon.indices();
+            float[] transformed = new float[indices.length * 3];
+            for (int i = 0; i < indices.length; i++) {
+                int index = indices[i] * 3;
+                float[] point = transformPoint(transform, vertices[index] * vertexScale, vertices[index + 1] * vertexScale, vertices[index + 2] * vertexScale);
+                int destination = i * 3;
+                transformed[destination] = point[0];
+                transformed[destination + 1] = point[1];
+                transformed[destination + 2] = point[2];
+            }
+            float[] textureCoords = polygon.textureCoords();
+            if (projection != null) {
+                ClippedPolygon clipped = clipPerspectivePolygon(transformed, textureCoords, projection, centerX, centerY, surfaceWidth, surfaceHeight);
+                if (clipped == null) {
+                    continue;
+                }
+                if (clipped.points().length != transformed.length) {
+                    clippedPolygons++;
+                }
+                transformed = clipped.points();
+                textureCoords = clipped.textureCoords();
+            }
+            int vertexCount = transformed.length / 3;
+            float[] xs = new float[vertexCount];
+            float[] ys = new float[vertexCount];
+            float[] depthValues = new float[vertexCount];
+            float avgDepth = 0f;
+            for (int i = 0; i < vertexCount; i++) {
+                int source = i * 3;
+                float pointX = transformed[source];
+                float pointY = transformed[source + 1];
+                float pointZ = transformed[source + 2];
+                if (projection != null) {
+                    float cameraDepth = pointZ + projection.depthOffset();
+                    xs[i] = originX + centerX + (pointX * projection.scaleX() / cameraDepth);
+                    ys[i] = originY + centerY + (pointY * projection.scaleY() / cameraDepth);
+                    depthValues[i] = 1.0f / java.lang.Math.max(0.0001f, cameraDepth);
+                    avgDepth += cameraDepth;
+                } else {
+                    xs[i] = originX + centerX + (pointX * (surfaceWidth / java.lang.Math.max(1f, orthoWidth)));
+                    ys[i] = originY + centerY + (pointY * (surfaceHeight / java.lang.Math.max(1f, orthoHeight)));
+                    depthValues[i] = -pointZ;
+                    avgDepth += pointZ;
+                }
+                projectedMinX = java.lang.Math.min(projectedMinX, xs[i]);
+                projectedMaxX = java.lang.Math.max(projectedMaxX, xs[i]);
+                projectedMinY = java.lang.Math.min(projectedMinY, ys[i]);
+                projectedMaxY = java.lang.Math.max(projectedMaxY, ys[i]);
+            }
+            avgDepth /= vertexCount;
+            int effectiveBlendMode = blendMode | polygon.blendMode();
+            SoftwareTexture polygonTexture = textureCoords == null ? null : figure.texture(polygon.textureIndex());
+            if (polygonTexture != null) {
+                int modulationColor = scaleColor(0xFFFFFFFF, effectiveBlendMode, transparency, lightScale);
+                addProjectedFaces(projected, xs, ys, depthValues, modulationColor, avgDepth, polygonTexture, textureCoords,
+                        projection != null, polygon.doubleSided() || !CULL_FIGURES, polygon.transparent());
+                continue;
+            }
+            int color = scaleColor(polygon.color(), effectiveBlendMode, transparency, lightScale);
+            addProjectedFaces(projected, xs, ys, depthValues, color, avgDepth, null, null,
+                    projection != null, polygon.doubleSided() || !CULL_FIGURES, false);
+        }
+        if (DEBUG_3D && !debugFigureStatsLogged && projection != null && model.polygons().length >= 200) {
+            debugFigureStatsLogged = true;
+            System.err.printf(
+                    "3D debug figure polygons=%d considered=%d clipped=%d output=%d projectedX=[%f,%f] projectedY=[%f,%f]%n",
+                    model.polygons().length,
+                    consideredPolygons,
+                    clippedPolygons,
+                    projected.size(),
+                    projectedMinX,
+                    projectedMaxX,
+                    projectedMinY,
+                    projectedMaxY
+            );
+        }
+        drawProjected(g, target, projected, clip);
+    }
+
+    private void renderPrimitiveBuffer(Graphics2D g, BufferedImage target, int originX, int originY, int surfaceWidth, int surfaceHeight,
+                                       int primitiveType, int primitiveParam, int primitiveCount, int[] vertexArray,
+                                       int[] colorArray, int[] textureCoordArray, SoftwareTexture texture,
+                                       float[] transform, Projection projection, Rectangle clip,
+                                       float centerX, float centerY, float orthoWidth, float orthoHeight,
+                                       int blendMode, float transparency) {
+        if (vertexArray == null) {
+            return;
+        }
+        int verticesPerPrimitive = switch (primitiveType) {
+            case 1, 5 -> 1;
+            case 2 -> 2;
+            case 3 -> 3;
+            case 4 -> 4;
+            default -> 3;
+        };
+        boolean transparentPaletteZero = (primitiveParam & 0x10) != 0;
+        List<ProjectedPolygon> projected = new ArrayList<>();
+        for (int primitive = 0; primitive < primitiveCount; primitive++) {
+            int vertexBase = primitive * verticesPerPrimitive * 3;
+            if (vertexBase + verticesPerPrimitive * 3 > vertexArray.length) {
+                break;
+            }
+            float[] transformed = new float[verticesPerPrimitive * 3];
+            for (int i = 0; i < verticesPerPrimitive; i++) {
+                int source = vertexBase + i * 3;
+                float[] point = transformPoint(transform, vertexArray[source], vertexArray[source + 1], vertexArray[source + 2]);
+                int destination = i * 3;
+                transformed[destination] = point[0];
+                transformed[destination + 1] = point[1];
+                transformed[destination + 2] = point[2];
+            }
+            float[] uv = null;
+            if (texture != null && verticesPerPrimitive >= 3 && textureCoordArray != null
+                    && textureCoordArray.length >= primitive * verticesPerPrimitive * 2 + verticesPerPrimitive * 2) {
+                uv = new float[verticesPerPrimitive * 2];
+                int uvBase = primitive * verticesPerPrimitive * 2;
+                for (int i = 0; i < uv.length; i++) {
+                    uv[i] = textureCoordArray[uvBase + i];
+                }
+            }
+            if (projection != null) {
+                ClippedPolygon clipped = clipPerspectivePolygon(transformed, uv, projection, centerX, centerY, surfaceWidth, surfaceHeight);
+                if (clipped == null) {
+                    continue;
+                }
+                transformed = clipped.points();
+                uv = clipped.textureCoords();
+            }
+            int vertexCount = transformed.length / 3;
+            float[] xs = new float[vertexCount];
+            float[] ys = new float[vertexCount];
+            float[] depthValues = new float[vertexCount];
+            float avgDepth = 0f;
+            for (int i = 0; i < vertexCount; i++) {
+                int source = i * 3;
+                float pointX = transformed[source];
+                float pointY = transformed[source + 1];
+                float pointZ = transformed[source + 2];
+                if (projection != null) {
+                    float cameraDepth = pointZ + projection.depthOffset();
+                    xs[i] = originX + centerX + (pointX * projection.scaleX() / java.lang.Math.max(0.0001f, cameraDepth));
+                    ys[i] = originY + centerY + (pointY * projection.scaleY() / java.lang.Math.max(0.0001f, cameraDepth));
+                    depthValues[i] = 1.0f / java.lang.Math.max(0.0001f, cameraDepth);
+                    avgDepth += cameraDepth;
+                } else {
+                    xs[i] = originX + centerX + (pointX * (surfaceWidth / java.lang.Math.max(1f, orthoWidth)));
+                    ys[i] = originY + centerY + (pointY * (surfaceHeight / java.lang.Math.max(1f, orthoHeight)));
+                    depthValues[i] = -pointZ;
+                    avgDepth += pointZ;
+                }
+            }
+            avgDepth /= vertexCount;
+            int color = scaleColor(colorForPrimitive(primitive, primitiveParam, colorArray), blendMode, transparency, 1f);
+            if (texture != null && vertexCount >= 3 && uv != null) {
+                if (primitiveType == 4 && vertexCount == 4) {
+                    addProjectedPrimitiveQuad(projected, xs, ys, depthValues, color, avgDepth, texture, uv, projection != null, transparentPaletteZero);
+                } else {
+                    addProjectedFaces(projected, xs, ys, depthValues, color, avgDepth, texture, uv, projection != null, true, transparentPaletteZero);
+                }
+                continue;
+            }
+            if (primitiveType == 2) {
+                projected.add(new ProjectedPolygon(xs, ys, depthValues, color, avgDepth, false, null, null, false, false));
+            } else {
+                if (primitiveType == 4 && vertexCount == 4) {
+                    addProjectedPrimitiveQuad(projected, xs, ys, depthValues, color, avgDepth, null, null, projection != null, false);
+                } else {
+                    addProjectedFaces(projected, xs, ys, depthValues, color, avgDepth, null, null, projection != null, true, false);
+                }
+            }
+        }
+        drawProjected(g, target, projected, clip);
+    }
+
+    private static void addProjectedPrimitiveQuad(List<ProjectedPolygon> projected, float[] xs, float[] ys, float[] depthValues,
+                                                  int color, float depth, SoftwareTexture texture, float[] textureCoords,
+                                                  boolean perspective, boolean transparentPaletteZero) {
+        addProjectedTriangle(projected,
+                new float[]{xs[0], xs[1], xs[2]},
+                new float[]{ys[0], ys[1], ys[2]},
+                new float[]{depthValues[0], depthValues[1], depthValues[2]},
+                color,
+                depth,
+                texture,
+                textureCoords == null || textureCoords.length < 8
+                        ? null
+                        : new float[]{
+                                textureCoords[0], textureCoords[1],
+                                textureCoords[2], textureCoords[3],
+                                textureCoords[4], textureCoords[5]
+                        },
+                perspective,
+                true,
+                transparentPaletteZero);
+        addProjectedTriangle(projected,
+                new float[]{xs[0], xs[2], xs[3]},
+                new float[]{ys[0], ys[2], ys[3]},
+                new float[]{depthValues[0], depthValues[2], depthValues[3]},
+                color,
+                depth,
+                texture,
+                textureCoords == null || textureCoords.length < 8
+                        ? null
+                        : new float[]{
+                                textureCoords[0], textureCoords[1],
+                                textureCoords[4], textureCoords[5],
+                                textureCoords[6], textureCoords[7]
+                        },
+                perspective,
+                true,
+                transparentPaletteZero);
+    }
+
+    private static void addProjectedFaces(List<ProjectedPolygon> projected, float[] xs, float[] ys, float[] depthValues, int color, float depth,
+                                          SoftwareTexture texture, float[] textureCoords, boolean perspective,
+                                          boolean doubleSided, boolean transparentPaletteZero) {
+        if (xs.length < 3) {
+            return;
+        }
+        if (!doubleSided && isBackFacingPolygon(xs, ys)) {
+            return;
+        }
+        if (xs.length == 4) {
+            addProjectedTriangle(projected,
+                    new float[]{xs[0], xs[1], xs[2]},
+                    new float[]{ys[0], ys[1], ys[2]},
+                    new float[]{depthValues[0], depthValues[1], depthValues[2]},
+                    color,
+                    depth,
+                    texture,
+                    textureCoords == null || textureCoords.length < 8
+                            ? null
+                            : new float[]{
+                                    textureCoords[0], textureCoords[1],
+                                    textureCoords[2], textureCoords[3],
+                                    textureCoords[4], textureCoords[5]
+                            },
+                    perspective,
+                    doubleSided,
+                    transparentPaletteZero);
+            addProjectedTriangle(projected,
+                    new float[]{xs[2], xs[1], xs[3]},
+                    new float[]{ys[2], ys[1], ys[3]},
+                    new float[]{depthValues[2], depthValues[1], depthValues[3]},
+                    color,
+                    depth,
+                    texture,
+                    textureCoords == null || textureCoords.length < 8
+                            ? null
+                            : new float[]{
+                                    textureCoords[4], textureCoords[5],
+                                    textureCoords[2], textureCoords[3],
+                                    textureCoords[6], textureCoords[7]
+                            },
+                    perspective,
+                    doubleSided,
+                    transparentPaletteZero);
+            return;
+        }
+        for (int i = 1; i < xs.length - 1; i++) {
+            addProjectedTriangle(projected,
+                    new float[]{xs[0], xs[i], xs[i + 1]},
+                    new float[]{ys[0], ys[i], ys[i + 1]},
+                    new float[]{depthValues[0], depthValues[i], depthValues[i + 1]},
+                    color,
+                    depth,
+                    texture,
+                    textureCoords == null || textureCoords.length < (i + 2) * 2
+                            ? null
+                            : new float[]{
+                                    textureCoords[0], textureCoords[1],
+                                    textureCoords[i * 2], textureCoords[i * 2 + 1],
+                                    textureCoords[(i + 1) * 2], textureCoords[(i + 1) * 2 + 1]
+                            },
+                    perspective,
+                    doubleSided,
+                    transparentPaletteZero);
+        }
+    }
+
+    private static void addProjectedTriangle(List<ProjectedPolygon> projected, float[] xs, float[] ys, float[] depthValues, int color, float depth,
+                                             SoftwareTexture texture, float[] textureCoords, boolean perspective,
+                                             boolean doubleSided, boolean transparentPaletteZero) {
+        projected.add(new ProjectedPolygon(xs, ys, depthValues, color, depth, true, texture, textureCoords, perspective, transparentPaletteZero));
+    }
+
+    private static ClippedPolygon clipPerspectivePolygon(float[] points, float[] textureCoords, Projection projection,
+                                                         float centerX, float centerY, int surfaceWidth, int surfaceHeight) {
+        ClippedPolygon clipped = clipPlane(points, textureCoords, 0f, 0f, 1f, projection.depthOffset() - projection.near());
+        if (clipped == null) {
+            return null;
+        }
+        if (!CLIP_SCREEN_PLANES) {
+            return clipped;
+        }
+        clipped = clipPlane(clipped.points(), clipped.textureCoords(),
+                projection.scaleX(), 0f, centerX, centerX * projection.depthOffset());
+        if (clipped == null) {
+            return null;
+        }
+        clipped = clipPlane(clipped.points(), clipped.textureCoords(),
+                -projection.scaleX(), 0f, surfaceWidth - centerX, (surfaceWidth - centerX) * projection.depthOffset());
+        if (clipped == null) {
+            return null;
+        }
+        clipped = clipPlane(clipped.points(), clipped.textureCoords(),
+                0f, projection.scaleY(), centerY, centerY * projection.depthOffset());
+        if (clipped == null) {
+            return null;
+        }
+        return clipPlane(clipped.points(), clipped.textureCoords(),
+                0f, -projection.scaleY(), surfaceHeight - centerY, (surfaceHeight - centerY) * projection.depthOffset());
+    }
+
+    private static ClippedPolygon clipPlane(float[] points, float[] textureCoords, float ax, float ay, float az, float aw) {
+        int count = points.length / 3;
+        if (count < 3) {
+            return null;
+        }
+        float[] clippedPoints = new float[Math.max(18, (count * 2 + 2) * 3)];
+        float[] clippedTextureCoords = textureCoords == null ? null : new float[Math.max(12, (count * 2 + 2) * 2)];
+        int outCount = 0;
+        int previous = count - 1;
+        float previousX = points[previous * 3];
+        float previousY = points[previous * 3 + 1];
+        float previousZ = points[previous * 3 + 2];
+        float previousDistance = planeDistance(previousX, previousY, previousZ, ax, ay, az, aw);
+        boolean previousInside = previousDistance >= 0f;
+        float previousU = textureCoords == null ? 0f : textureCoords[previous * 2];
+        float previousV = textureCoords == null ? 0f : textureCoords[previous * 2 + 1];
+        for (int i = 0; i < count; i++) {
+            float currentX = points[i * 3];
+            float currentY = points[i * 3 + 1];
+            float currentZ = points[i * 3 + 2];
+            float currentDistance = planeDistance(currentX, currentY, currentZ, ax, ay, az, aw);
+            boolean currentInside = currentDistance >= 0f;
+            float currentU = textureCoords == null ? 0f : textureCoords[i * 2];
+            float currentV = textureCoords == null ? 0f : textureCoords[i * 2 + 1];
+            if (previousInside != currentInside) {
+                float denominator = currentDistance - previousDistance;
+                if (java.lang.Math.abs(denominator) > 0.0001f) {
+                    float t = -previousDistance / denominator;
+                    clippedPoints = ensureClipPointCapacity(clippedPoints, outCount);
+                    clippedPoints[outCount * 3] = lerp(previousX, currentX, t);
+                    clippedPoints[outCount * 3 + 1] = lerp(previousY, currentY, t);
+                    clippedPoints[outCount * 3 + 2] = lerp(previousZ, currentZ, t);
+                    if (clippedTextureCoords != null) {
+                        clippedTextureCoords = ensureClipUvCapacity(clippedTextureCoords, outCount);
+                        clippedTextureCoords[outCount * 2] = lerp(previousU, currentU, t);
+                        clippedTextureCoords[outCount * 2 + 1] = lerp(previousV, currentV, t);
+                    }
+                    outCount++;
+                }
+            }
+            if (currentInside) {
+                clippedPoints = ensureClipPointCapacity(clippedPoints, outCount);
+                clippedPoints[outCount * 3] = currentX;
+                clippedPoints[outCount * 3 + 1] = currentY;
+                clippedPoints[outCount * 3 + 2] = currentZ;
+                if (clippedTextureCoords != null) {
+                    clippedTextureCoords = ensureClipUvCapacity(clippedTextureCoords, outCount);
+                    clippedTextureCoords[outCount * 2] = currentU;
+                    clippedTextureCoords[outCount * 2 + 1] = currentV;
+                }
+                outCount++;
+            }
+            previousX = currentX;
+            previousY = currentY;
+            previousZ = currentZ;
+            previousDistance = currentDistance;
+            previousInside = currentInside;
+            previousU = currentU;
+            previousV = currentV;
+        }
+        if (outCount < 3) {
+            return null;
+        }
+        return new ClippedPolygon(
+                Arrays.copyOf(clippedPoints, outCount * 3),
+                clippedTextureCoords == null ? null : Arrays.copyOf(clippedTextureCoords, outCount * 2)
+        );
+    }
+
+    private void drawProjected(Graphics2D g, BufferedImage target, List<ProjectedPolygon> polygons, Rectangle clip) {
+        Shape oldClip = g.getClip();
+        Composite oldComposite = g.getComposite();
+        Rectangle effectiveClip = combineClip(target, oldClip, clip);
+        float[] depthBuffer = new float[target.getWidth() * target.getHeight()];
+        Arrays.fill(depthBuffer, Float.NEGATIVE_INFINITY);
+        try {
+            if (effectiveClip != null) {
+                g.setClip(effectiveClip);
+            }
+            for (ProjectedPolygon polygon : polygons) {
+                if (polygon.closed() && polygon.texture() != null && polygon.textureCoords() != null && target != null) {
+                    drawTexturedPolygon(target, polygon, effectiveClip, depthBuffer);
+                    continue;
+                }
+                if (polygon.closed()) {
+                    drawColoredPolygon(target, polygon, effectiveClip, depthBuffer);
+                } else {
+                    Path2D.Float path = buildPath(polygon.xs(), polygon.ys(), false);
+                    g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ((polygon.color() >>> 24) & 0xFF) / 255f));
+                    g.setColor(new Color(polygon.color(), true));
+                    g.draw(path);
+                }
+            }
+        } finally {
+            g.setClip(oldClip);
+            g.setComposite(oldComposite);
+        }
+    }
+
+    private static Path2D.Float buildPath(float[] xs, float[] ys, boolean closed) {
+        Path2D.Float path = new Path2D.Float();
+        path.moveTo(xs[0], ys[0]);
+        for (int i = 1; i < xs.length; i++) {
+            path.lineTo(xs[i], ys[i]);
+        }
+        if (closed) {
+            path.closePath();
+        }
+        return path;
+    }
+
+    private static Rectangle combineClip(BufferedImage target, Shape currentClip, Rectangle extraClip) {
+        Rectangle bounds = new Rectangle(0, 0, target.getWidth(), target.getHeight());
+        if (currentClip != null) {
+            bounds = bounds.intersection(currentClip.getBounds());
+        }
+        if (extraClip != null) {
+            bounds = bounds.intersection(extraClip);
+        }
+        return bounds.isEmpty() ? null : bounds;
+    }
+
+    private static void drawTexturedPolygon(BufferedImage target, ProjectedPolygon polygon, Rectangle clip, float[] depthBuffer) {
+        float[] uvs = polygon.textureCoords();
+        int vertexCount = java.lang.Math.min(polygon.xs().length, uvs.length / 2);
+        if (vertexCount < 3) {
+            return;
+        }
+        for (int i = 1; i < vertexCount - 1; i++) {
+            drawTexturedTriangle(target, clip, depthBuffer, polygon.texture(), polygon.color(), polygon.perspective(),
+                    polygon.transparentPaletteZero(),
+                    polygon.xs()[0], polygon.ys()[0], uvs[0], uvs[1],
+                    polygon.depthValues()[0],
+                    polygon.xs()[i], polygon.ys()[i], uvs[i * 2], uvs[i * 2 + 1],
+                    polygon.depthValues()[i],
+                    polygon.xs()[i + 1], polygon.ys()[i + 1], uvs[(i + 1) * 2], uvs[(i + 1) * 2 + 1],
+                    polygon.depthValues()[i + 1]);
+        }
+    }
+
+    private static void drawColoredPolygon(BufferedImage target, ProjectedPolygon polygon, Rectangle clip, float[] depthBuffer) {
+        float[] depthValues = polygon.depthValues();
+        int vertexCount = java.lang.Math.min(polygon.xs().length, depthValues.length);
+        if (vertexCount < 3) {
+            return;
+        }
+        for (int i = 1; i < vertexCount - 1; i++) {
+            drawColoredTriangle(target, clip, depthBuffer, polygon.color(),
+                    polygon.xs()[0], polygon.ys()[0], depthValues[0],
+                    polygon.xs()[i], polygon.ys()[i], depthValues[i],
+                    polygon.xs()[i + 1], polygon.ys()[i + 1], depthValues[i + 1]);
+        }
+    }
+
+    private static void drawTexturedTriangle(BufferedImage target, Rectangle clip, float[] depthBuffer, SoftwareTexture texture, int modulationColor,
+                                             boolean perspective, boolean transparentPaletteZero,
+                                             float x0, float y0, float u0, float v0, float d0,
+                                             float x1, float y1, float u1, float v1, float d1,
+                                             float x2, float y2, float u2, float v2, float d2) {
+        float area = edge(x0, y0, x1, y1, x2, y2);
+        if (java.lang.Math.abs(area) < 0.0001f) {
+            return;
+        }
+        int fx0 = toRasterFixed(x0);
+        int fy0 = toRasterFixed(y0);
+        int fx1 = toRasterFixed(x1);
+        int fy1 = toRasterFixed(y1);
+        int fx2 = toRasterFixed(x2);
+        int fy2 = toRasterFixed(y2);
+        long rasterArea = edgeFixed(fx0, fy0, fx1, fy1, fx2, fy2);
+        if (rasterArea == 0L) {
+            return;
+        }
+        boolean flipped = rasterArea < 0L;
+        boolean topLeft12 = isTopLeftEdge(fx1, fy1, fx2, fy2);
+        boolean topLeft20 = isTopLeftEdge(fx2, fy2, fx0, fy0);
+        boolean topLeft01 = isTopLeftEdge(fx0, fy0, fx1, fy1);
+        int minX = clamp((int) java.lang.Math.floor(java.lang.Math.min(x0, java.lang.Math.min(x1, x2))), 0, target.getWidth() - 1);
+        int maxX = clamp((int) java.lang.Math.ceil(java.lang.Math.max(x0, java.lang.Math.max(x1, x2))), 0, target.getWidth() - 1);
+        int minY = clamp((int) java.lang.Math.floor(java.lang.Math.min(y0, java.lang.Math.min(y1, y2))), 0, target.getHeight() - 1);
+        int maxY = clamp((int) java.lang.Math.ceil(java.lang.Math.max(y0, java.lang.Math.max(y1, y2))), 0, target.getHeight() - 1);
+        if (clip != null) {
+            minX = java.lang.Math.max(minX, clip.x);
+            minY = java.lang.Math.max(minY, clip.y);
+            maxX = java.lang.Math.min(maxX, clip.x + clip.width - 1);
+            maxY = java.lang.Math.min(maxY, clip.y + clip.height - 1);
+        }
+        if (minX > maxX || minY > maxY) {
+            return;
+        }
+        for (int y = minY; y <= maxY; y++) {
+            float py = y + 0.5f;
+            int rasterY = (y << RASTER_SUBPIXEL_SHIFT) + (RASTER_SUBPIXEL_SCALE >> 1);
+            for (int x = minX; x <= maxX; x++) {
+                float px = x + 0.5f;
+                int rasterX = (x << RASTER_SUBPIXEL_SHIFT) + (RASTER_SUBPIXEL_SCALE >> 1);
+                long coverage0 = edgeFixed(fx1, fy1, fx2, fy2, rasterX, rasterY);
+                long coverage1 = edgeFixed(fx2, fy2, fx0, fy0, rasterX, rasterY);
+                long coverage2 = edgeFixed(fx0, fy0, fx1, fy1, rasterX, rasterY);
+                if (flipped) {
+                    coverage0 = -coverage0;
+                    coverage1 = -coverage1;
+                    coverage2 = -coverage2;
+                }
+                if (coverage0 < 0L || (coverage0 == 0L && !topLeft12)
+                        || coverage1 < 0L || (coverage1 == 0L && !topLeft20)
+                        || coverage2 < 0L || (coverage2 == 0L && !topLeft01)) {
+                    continue;
+                }
+                float w0 = edge(x1, y1, x2, y2, px, py) / area;
+                float w1 = edge(x2, y2, x0, y0, px, py) / area;
+                float w2 = edge(x0, y0, x1, y1, px, py) / area;
+                float depth = d0 * w0 + d1 * w1 + d2 * w2;
+                int offset = y * target.getWidth() + x;
+                if (depth < depthBuffer[offset] - DEPTH_EPSILON) {
+                    continue;
+                }
+                float u;
+                float v;
+                if (perspective) {
+                    float weight = java.lang.Math.max(0.000001f, depth);
+                    u = (u0 * d0 * w0 + u1 * d1 * w1 + u2 * d2 * w2) / weight;
+                    v = (v0 * d0 * w0 + v1 * d1 * w1 + v2 * d2 * w2) / weight;
+                } else {
+                    u = u0 * w0 + u1 * w1 + u2 * w2;
+                    v = v0 * w0 + v1 * w1 + v2 * w2;
+                }
+                int sample = multiplyColor(texture.sampleColor(u, v, transparentPaletteZero), modulationColor);
+                if (((sample >>> 24) & 0xFF) <= 0) {
+                    continue;
+                }
+                depthBuffer[offset] = depth;
+                blendPixel(target, x, y, sample);
+            }
+        }
+    }
+
+    private static void drawColoredTriangle(BufferedImage target, Rectangle clip, float[] depthBuffer, int color,
+                                            float x0, float y0, float d0,
+                                            float x1, float y1, float d1,
+                                            float x2, float y2, float d2) {
+        float area = edge(x0, y0, x1, y1, x2, y2);
+        if (java.lang.Math.abs(area) < 0.0001f) {
+            return;
+        }
+        int fx0 = toRasterFixed(x0);
+        int fy0 = toRasterFixed(y0);
+        int fx1 = toRasterFixed(x1);
+        int fy1 = toRasterFixed(y1);
+        int fx2 = toRasterFixed(x2);
+        int fy2 = toRasterFixed(y2);
+        long rasterArea = edgeFixed(fx0, fy0, fx1, fy1, fx2, fy2);
+        if (rasterArea == 0L) {
+            return;
+        }
+        boolean flipped = rasterArea < 0L;
+        boolean topLeft12 = isTopLeftEdge(fx1, fy1, fx2, fy2);
+        boolean topLeft20 = isTopLeftEdge(fx2, fy2, fx0, fy0);
+        boolean topLeft01 = isTopLeftEdge(fx0, fy0, fx1, fy1);
+        int minX = clamp((int) java.lang.Math.floor(java.lang.Math.min(x0, java.lang.Math.min(x1, x2))), 0, target.getWidth() - 1);
+        int maxX = clamp((int) java.lang.Math.ceil(java.lang.Math.max(x0, java.lang.Math.max(x1, x2))), 0, target.getWidth() - 1);
+        int minY = clamp((int) java.lang.Math.floor(java.lang.Math.min(y0, java.lang.Math.min(y1, y2))), 0, target.getHeight() - 1);
+        int maxY = clamp((int) java.lang.Math.ceil(java.lang.Math.max(y0, java.lang.Math.max(y1, y2))), 0, target.getHeight() - 1);
+        if (clip != null) {
+            minX = java.lang.Math.max(minX, clip.x);
+            minY = java.lang.Math.max(minY, clip.y);
+            maxX = java.lang.Math.min(maxX, clip.x + clip.width - 1);
+            maxY = java.lang.Math.min(maxY, clip.y + clip.height - 1);
+        }
+        if (minX > maxX || minY > maxY) {
+            return;
+        }
+        for (int y = minY; y <= maxY; y++) {
+            float py = y + 0.5f;
+            int rasterY = (y << RASTER_SUBPIXEL_SHIFT) + (RASTER_SUBPIXEL_SCALE >> 1);
+            for (int x = minX; x <= maxX; x++) {
+                float px = x + 0.5f;
+                int rasterX = (x << RASTER_SUBPIXEL_SHIFT) + (RASTER_SUBPIXEL_SCALE >> 1);
+                long coverage0 = edgeFixed(fx1, fy1, fx2, fy2, rasterX, rasterY);
+                long coverage1 = edgeFixed(fx2, fy2, fx0, fy0, rasterX, rasterY);
+                long coverage2 = edgeFixed(fx0, fy0, fx1, fy1, rasterX, rasterY);
+                if (flipped) {
+                    coverage0 = -coverage0;
+                    coverage1 = -coverage1;
+                    coverage2 = -coverage2;
+                }
+                if (coverage0 < 0L || (coverage0 == 0L && !topLeft12)
+                        || coverage1 < 0L || (coverage1 == 0L && !topLeft20)
+                        || coverage2 < 0L || (coverage2 == 0L && !topLeft01)) {
+                    continue;
+                }
+                float w0 = edge(x1, y1, x2, y2, px, py) / area;
+                float w1 = edge(x2, y2, x0, y0, px, py) / area;
+                float w2 = edge(x0, y0, x1, y1, px, py) / area;
+                float depth = d0 * w0 + d1 * w1 + d2 * w2;
+                int offset = y * target.getWidth() + x;
+                if (depth < depthBuffer[offset] - DEPTH_EPSILON) {
+                    continue;
+                }
+                if (((color >>> 24) & 0xFF) <= 0) {
+                    continue;
+                }
+                depthBuffer[offset] = depth;
+                blendPixel(target, x, y, color);
+            }
+        }
+    }
+
+    private static float edge(float ax, float ay, float bx, float by, float px, float py) {
+        return (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+    }
+
+    private static long edgeFixed(int ax, int ay, int bx, int by, int px, int py) {
+        return (long) (px - ax) * (by - ay) - (long) (py - ay) * (bx - ax);
+    }
+
+    private static boolean isTopLeftEdge(int ax, int ay, int bx, int by) {
+        return ay < by || (ay == by && ax > bx);
+    }
+
+    private static int toRasterFixed(float coordinate) {
+        return java.lang.Math.round(coordinate * RASTER_SUBPIXEL_SCALE);
+    }
+
+    private static float lerp(float start, float end, float delta) {
+        return start + (end - start) * delta;
+    }
+
+    private static boolean isBackFacingPolygon(float[] xs, float[] ys) {
+        if (CULL_SIGN == 0) {
+            return false;
+        }
+        float area = 0f;
+        int previous = xs.length - 1;
+        for (int i = 0; i < xs.length; i++) {
+            area += xs[previous] * ys[i] - xs[i] * ys[previous];
+            previous = i;
+        }
+        // GL front faces become clockwise after mapping to screen coordinates with Y increasing downward,
+        // but some games appear to rely on the opposite sign. Keep the default handset-facing choice and
+        // allow the sign to be flipped while reverse engineering.
+        return CULL_SIGN > 0 ? area >= 0f : area <= 0f;
+    }
+
+    private static float planeDistance(float x, float y, float z, float ax, float ay, float az, float aw) {
+        return ax * x + ay * y + az * z + aw;
+    }
+
+    private static float[] ensureClipPointCapacity(float[] points, int vertexIndex) {
+        int required = (vertexIndex + 1) * 3;
+        if (required <= points.length) {
+            return points;
+        }
+        return Arrays.copyOf(points, java.lang.Math.max(required, points.length * 2));
+    }
+
+    private static float[] ensureClipUvCapacity(float[] textureCoords, int vertexIndex) {
+        int required = (vertexIndex + 1) * 2;
+        if (required <= textureCoords.length) {
+            return textureCoords;
+        }
+        return Arrays.copyOf(textureCoords, java.lang.Math.max(required, textureCoords.length * 2));
+    }
+
+    private static int multiplyColor(int left, int right) {
+        int la = (left >>> 24) & 0xFF;
+        int lr = (left >>> 16) & 0xFF;
+        int lg = (left >>> 8) & 0xFF;
+        int lb = left & 0xFF;
+        int ra = (right >>> 24) & 0xFF;
+        int rr = (right >>> 16) & 0xFF;
+        int rg = (right >>> 8) & 0xFF;
+        int rb = right & 0xFF;
+        int a = la * ra / 255;
+        int r = lr * rr / 255;
+        int g = lg * rg / 255;
+        int b = lb * rb / 255;
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private static void blendPixel(BufferedImage target, int x, int y, int source) {
+        int srcA = (source >>> 24) & 0xFF;
+        if (srcA <= 0) {
+            return;
+        }
+        if (srcA >= 255) {
+            target.setRGB(x, y, source);
+            return;
+        }
+        int dest = target.getRGB(x, y);
+        float srcAlpha = srcA / 255f;
+        float destAlpha = ((dest >>> 24) & 0xFF) / 255f;
+        float outAlpha = srcAlpha + destAlpha * (1f - srcAlpha);
+        if (outAlpha <= 0f) {
+            target.setRGB(x, y, 0);
+            return;
+        }
+        float srcRed = ((source >>> 16) & 0xFF) / 255f;
+        float srcGreen = ((source >>> 8) & 0xFF) / 255f;
+        float srcBlue = (source & 0xFF) / 255f;
+        float destRed = ((dest >>> 16) & 0xFF) / 255f;
+        float destGreen = ((dest >>> 8) & 0xFF) / 255f;
+        float destBlue = (dest & 0xFF) / 255f;
+        int outA = clamp(java.lang.Math.round(outAlpha * 255f), 0, 255);
+        int outR = clamp(java.lang.Math.round(((srcRed * srcAlpha) + (destRed * destAlpha * (1f - srcAlpha))) / outAlpha * 255f), 0, 255);
+        int outG = clamp(java.lang.Math.round(((srcGreen * srcAlpha) + (destGreen * destAlpha * (1f - srcAlpha))) / outAlpha * 255f), 0, 255);
+        int outB = clamp(java.lang.Math.round(((srcBlue * srcAlpha) + (destBlue * destAlpha * (1f - srcAlpha))) / outAlpha * 255f), 0, 255);
+        target.setRGB(x, y, (outA << 24) | (outR << 16) | (outG << 8) | outB);
+    }
+
+    private static int colorForPrimitive(int primitive, int primitiveParam, int[] colorArray) {
+        if (colorArray == null || colorArray.length == 0) {
+            return 0xFFFFFFFF;
+        }
+        int colorMode = primitiveParam & 0x0C00;
+        if (colorMode == 0x0400 || colorMode == 0x0800) {
+            return colorArray[java.lang.Math.min(primitive, colorArray.length - 1)];
+        }
+        return colorArray[0];
+    }
+
+    private static int scaleColor(int color, int blendMode, float transparency, float lightScale) {
+        int a = (color >>> 24) & 0xFF;
+        int r = (color >>> 16) & 0xFF;
+        int g = (color >>> 8) & 0xFF;
+        int b = color & 0xFF;
+        float alphaScale = java.lang.Math.max(0f, java.lang.Math.min(1f, transparency));
+        if ((blendMode & 32) != 0 || (blendMode & 0x02) != 0) {
+            alphaScale *= 0.5f;
+        }
+        a = java.lang.Math.round(a * alphaScale);
+        r = java.lang.Math.round(java.lang.Math.max(0f, java.lang.Math.min(255f, r * lightScale)));
+        g = java.lang.Math.round(java.lang.Math.max(0f, java.lang.Math.min(255f, g * lightScale)));
+        b = java.lang.Math.round(java.lang.Math.max(0f, java.lang.Math.min(255f, b * lightScale)));
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private Projection createUiProjection(int surfaceWidth, int surfaceHeight) {
+        if (uiPerspectiveMode == PerspectiveMode.WIDTH_HEIGHT) {
+            float width = uiPerspectiveWidth <= 0f ? surfaceWidth : uiPerspectiveWidth;
+            float height = uiPerspectiveHeight <= 0f ? surfaceHeight : uiPerspectiveHeight;
+            float scaleX = surfaceWidth * uiPerspectiveNear / java.lang.Math.max(1f, width);
+            float scaleY = surfaceHeight * uiPerspectiveNear / java.lang.Math.max(1f, height);
+            return new Projection(uiPerspectiveNear, uiPerspectiveFar, scaleX, scaleY, 0f);
+        }
+        float radians = (float) java.lang.Math.toRadians(normalizePerspectiveDegrees(uiPerspectiveAngleDegrees));
+        float pixelScale = (surfaceWidth * 0.5f) / (float) java.lang.Math.tan(radians * 0.5f);
+        return new Projection(uiPerspectiveNear, uiPerspectiveFar, pixelScale, pixelScale, 0f);
+    }
+
+    private static Projection createFocalProjection(float focal) {
+        float depth = java.lang.Math.max(32f, focal);
+        return new Projection(1f, Float.POSITIVE_INFINITY, depth, depth, 0f);
+    }
+
+    private static float normalizeNear(float rawNear) {
+        return rawNear <= 0f ? 1f : rawNear;
+    }
+
+    private static float normalizeFar(float near, float rawFar) {
+        if (rawFar <= near) {
+            return near + 1f;
+        }
+        return rawFar;
+    }
+
+    private static float normalizePerspectiveDegrees(float rawAngle) {
+        if (rawAngle <= 0f) {
+            return 60f;
+        }
+        float degrees = rawAngle <= (float) (java.lang.Math.PI * 2.0)
+                ? (float) java.lang.Math.toDegrees(rawAngle)
+                : rawAngle;
+        return java.lang.Math.max(1f, java.lang.Math.min(179f, degrees));
+    }
+
+    private static float[] transformPoint(float[] matrix, float x, float y, float z) {
+        return new float[]{
+                matrix[0] * x + matrix[1] * y + matrix[2] * z + matrix[3],
+                matrix[4] * x + matrix[5] * y + matrix[6] * z + matrix[7],
+                matrix[8] * x + matrix[9] * y + matrix[10] * z + matrix[11]
+        };
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return java.lang.Math.max(min, java.lang.Math.min(max, value));
+    }
+
+    public static float[] identity() {
+        return new float[]{
+                1f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                0f, 0f, 0f, 1f
+        };
+    }
+
+    public static float[] multiply(float[] left, float[] right) {
+        float[] result = identity();
+        result[0] = left[0] * right[0] + left[1] * right[4] + left[2] * right[8];
+        result[1] = left[0] * right[1] + left[1] * right[5] + left[2] * right[9];
+        result[2] = left[0] * right[2] + left[1] * right[6] + left[2] * right[10];
+        result[3] = left[0] * right[3] + left[1] * right[7] + left[2] * right[11] + left[3];
+        result[4] = left[4] * right[0] + left[5] * right[4] + left[6] * right[8];
+        result[5] = left[4] * right[1] + left[5] * right[5] + left[6] * right[9];
+        result[6] = left[4] * right[2] + left[5] * right[6] + left[6] * right[10];
+        result[7] = left[4] * right[3] + left[5] * right[7] + left[6] * right[11] + left[7];
+        result[8] = left[8] * right[0] + left[9] * right[4] + left[10] * right[8];
+        result[9] = left[8] * right[1] + left[9] * right[5] + left[10] * right[9];
+        result[10] = left[8] * right[2] + left[9] * right[6] + left[10] * right[10];
+        result[11] = left[8] * right[3] + left[9] * right[7] + left[10] * right[11] + left[11];
+        return result;
+    }
+
+    private enum PerspectiveMode {
+        FIELD_OF_VIEW,
+        WIDTH_HEIGHT
+    }
+
+    private record ClippedPolygon(float[] points, float[] textureCoords) {
+    }
+
+    private record Projection(float near, float far, float scaleX, float scaleY, float depthOffset) {
+    }
+
+    private record ProjectedPolygon(float[] xs, float[] ys, float[] depthValues, int color, float depth, boolean closed,
+                                    SoftwareTexture texture, float[] textureCoords, boolean perspective,
+                                    boolean transparentPaletteZero) {
+    }
+}
