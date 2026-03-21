@@ -1,6 +1,6 @@
 package com.nttdocomo.ui;
 
-import opendoja.audio.mld.MldMidiAdapter;
+import opendoja.audio.mld.MldPcmPlayer;
 import opendoja.host.DoJaRuntime;
 
 import javax.sound.midi.MidiSystem;
@@ -40,6 +40,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private MediaResource resource;
     private MediaListener mediaListener;
     private Clip clip;
+    private MldPcmPlayer mldPlayer;
     private Sequencer sequencer;
     private int pausedPosition;
 
@@ -101,15 +102,8 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                 }
                 sequencer.start();
             } else if (looksLikeMld(sound)) {
-                sequencer = MidiSystem.getSequencer();
-                sequencer.open();
-                sequencer.setSequence(MldMidiAdapter.toMidiSequence(sound.bytes()));
-                if (loopCount <= 0) {
-                    sequencer.setLoopCount(Sequencer.LOOP_CONTINUOUSLY);
-                } else if (loopCount > 1) {
-                    sequencer.setLoopCount(loopCount - 1);
-                }
-                sequencer.start();
+                mldPlayer = new MldPcmPlayer(sound.bytes(), new MldListener());
+                mldPlayer.start(loopCount);
             } else {
                 AudioInputStream in = AudioSystem.getAudioInputStream(new ByteArrayInputStream(sound.bytes()));
                 clip = AudioSystem.getClip();
@@ -134,6 +128,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             pausedPosition = clip.getFramePosition();
             clip.stop();
             notifyListener(AUDIO_PAUSED, 0);
+        } else if (mldPlayer != null) {
+            mldPlayer.pause();
+            notifyListener(AUDIO_PAUSED, 0);
         } else if (sequencer != null) {
             pausedPosition = (int) sequencer.getTickPosition();
             sequencer.stop();
@@ -146,6 +143,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             clip.setFramePosition(pausedPosition);
             clip.start();
             notifyListener(AUDIO_RESTARTED, 0);
+        } else if (mldPlayer != null) {
+            mldPlayer.restart();
+            notifyListener(AUDIO_RESTARTED, 0);
         } else if (sequencer != null) {
             sequencer.setTickPosition(pausedPosition);
             sequencer.start();
@@ -157,6 +157,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         if (clip != null) {
             return (int) (clip.getMicrosecondPosition() / 1_000L);
         }
+        if (mldPlayer != null) {
+            return mldPlayer.getCurrentTimeMillis();
+        }
         if (sequencer != null) {
             return (int) (sequencer.getMicrosecondPosition() / 1_000L);
         }
@@ -166,6 +169,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     public int getTotalTime() {
         if (clip != null) {
             return (int) (clip.getMicrosecondLength() / 1_000L);
+        }
+        if (mldPlayer != null) {
+            return mldPlayer.getTotalTimeMillis();
         }
         if (sequencer != null) {
             return (int) (sequencer.getMicrosecondLength() / 1_000L);
@@ -187,6 +193,10 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             sequencer.stop();
             sequencer.close();
             sequencer = null;
+        }
+        if (mldPlayer != null) {
+            mldPlayer.close();
+            mldPlayer = null;
         }
         notifyListener(AUDIO_STOPPED, 0);
     }
@@ -226,6 +236,28 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null) {
             runtime.registerShutdownResource(this);
+        }
+    }
+
+    private final class MldListener implements MldPcmPlayer.Listener {
+        @Override
+        public void onLoop() {
+            notifyListener(AUDIO_LOOPED, 0);
+        }
+
+        @Override
+        public void onComplete() {
+            mldPlayer = null;
+            notifyListener(AUDIO_COMPLETE, 0);
+        }
+
+        @Override
+        public void onFailure(Exception exception) {
+            if (TRACE_AUDIO_FAILURES) {
+                exception.printStackTrace(System.err);
+            }
+            mldPlayer = null;
+            notifyListener(AUDIO_STOPPED, 0);
         }
     }
 }
