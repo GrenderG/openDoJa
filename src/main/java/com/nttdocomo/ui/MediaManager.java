@@ -2,10 +2,14 @@ package com.nttdocomo.ui;
 
 import com.nttdocomo.io.ConnectionException;
 import com.nttdocomo.lang.IterationAbortedException;
+import opendoja.audio.mld.ma3.MLD;
 import opendoja.host.DoJaRuntime;
 
 import javax.imageio.ImageIO;
 import javax.microedition.io.Connector;
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -304,18 +308,137 @@ public final class MediaManager {
     static final class BasicMediaSound extends AbstractMediaResource implements MediaSound {
         private final byte[] data;
         private final String sourceName;
+        private volatile PreparedSound prepared;
 
         BasicMediaSound(byte[] data, String sourceName) {
             this.data = data == null ? new byte[0] : data.clone();
             this.sourceName = sourceName;
         }
 
+        @Override
+        public void use() throws ConnectionException {
+            try {
+                prepared();
+            } catch (IOException e) {
+                ConnectionException failure = new ConnectionException(ConnectionException.NO_RESOURCE, e.getMessage());
+                failure.initCause(e);
+                throw failure;
+            }
+        }
+
         byte[] bytes() {
             return data.clone();
         }
 
+        byte[] byteView() {
+            return data;
+        }
+
+        PreparedSound prepared() throws IOException {
+            PreparedSound cached = prepared;
+            if (cached != null) {
+                return cached;
+            }
+            synchronized (this) {
+                if (prepared == null) {
+                    prepared = PreparedSound.prepare(data);
+                }
+                return prepared;
+            }
+        }
+
         String sourceName() {
             return sourceName;
+        }
+    }
+
+    public static final class PreparedSound {
+        public enum Kind {
+            MIDI,
+            MLD,
+            SAMPLED,
+            UNKNOWN
+        }
+
+        private final Kind kind;
+        private final byte[] bytes;
+        private final AudioFormat sampledFormat;
+        private final MLD mld;
+
+        private PreparedSound(Kind kind, byte[] bytes, AudioFormat sampledFormat, MLD mld) {
+            this.kind = kind;
+            this.bytes = bytes;
+            this.sampledFormat = sampledFormat;
+            this.mld = mld;
+        }
+
+        static PreparedSound prepare(byte[] data) throws IOException {
+            if (startsWith(data, "MThd")) {
+                return new PreparedSound(Kind.MIDI, data, null, null);
+            }
+            if (startsWith(data, "melo")) {
+                return new PreparedSound(Kind.MLD, data, null, new MLD(data));
+            }
+            try (AudioInputStream raw = AudioSystem.getAudioInputStream(new ByteArrayInputStream(data))) {
+                AudioFormat sourceFormat = raw.getFormat();
+                AudioFormat targetFormat = normalizeSampledFormat(sourceFormat);
+                byte[] pcmBytes;
+                if (audioFormatsEqual(sourceFormat, targetFormat)) {
+                    pcmBytes = readAllBytes(raw);
+                } else {
+                    try (AudioInputStream decoded = AudioSystem.getAudioInputStream(targetFormat, raw)) {
+                        pcmBytes = readAllBytes(decoded);
+                    }
+                }
+                return new PreparedSound(Kind.SAMPLED, pcmBytes, targetFormat, null);
+            } catch (Exception e) {
+                if (e instanceof IOException ioException) {
+                    throw ioException;
+                }
+                IOException failure = new IOException("Unsupported audio format", e);
+                throw failure;
+            }
+        }
+
+        public Kind kind() {
+            return kind;
+        }
+
+        public byte[] bytes() {
+            return bytes;
+        }
+
+        public AudioFormat sampledFormat() {
+            return sampledFormat;
+        }
+
+        public MLD mld() {
+            return mld;
+        }
+
+        private static AudioFormat normalizeSampledFormat(AudioFormat format) {
+            if (format == null) {
+                return null;
+            }
+            int channels = Math.max(1, format.getChannels());
+            float sampleRate = format.getSampleRate() > 0 ? format.getSampleRate() : 8000.0f;
+            return new AudioFormat(AudioFormat.Encoding.PCM_SIGNED,
+                    sampleRate,
+                    16,
+                    channels,
+                    channels * 2,
+                    sampleRate,
+                    false);
+        }
+
+        private static boolean audioFormatsEqual(AudioFormat a, AudioFormat b) {
+            return a.getEncoding().equals(b.getEncoding())
+                    && a.getSampleRate() == b.getSampleRate()
+                    && a.getSampleSizeInBits() == b.getSampleSizeInBits()
+                    && a.getChannels() == b.getChannels()
+                    && a.getFrameSize() == b.getFrameSize()
+                    && a.getFrameRate() == b.getFrameRate()
+                    && a.isBigEndian() == b.isBigEndian();
         }
     }
 

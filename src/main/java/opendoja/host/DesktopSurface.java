@@ -12,6 +12,8 @@ public final class DesktopSurface {
     private Consumer<BufferedImage> repaintHook;
     private float[] depthBuffer;
     private boolean depthFrameActive;
+    private long syncUnlockIntervalNanos;
+    private long lastFlushNanos;
 
     public DesktopSurface(int width, int height) {
         this.image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
@@ -58,6 +60,13 @@ public final class DesktopSurface {
         return repaintHook != null;
     }
 
+    public void setSyncUnlockIntervalNanos(long syncUnlockIntervalNanos) {
+        this.syncUnlockIntervalNanos = Math.max(0L, syncUnlockIntervalNanos);
+        if (this.syncUnlockIntervalNanos == 0L) {
+            this.lastFlushNanos = 0L;
+        }
+    }
+
     public synchronized float[] depthBufferForFrame() {
         int pixelCount = image.getWidth() * image.getHeight();
         if (depthBuffer == null || depthBuffer.length != pixelCount) {
@@ -76,6 +85,19 @@ public final class DesktopSurface {
     }
 
     public void flush(BufferedImage presentedFrame) {
+        if (syncUnlockIntervalNanos > 0L && repaintHook != null) {
+            long now = System.nanoTime();
+            long elapsed = now - lastFlushNanos;
+            if (lastFlushNanos != 0L && elapsed < syncUnlockIntervalNanos) {
+                long remainingNanos = syncUnlockIntervalNanos - elapsed;
+                try {
+                    java.util.concurrent.locks.LockSupport.parkNanos(remainingNanos);
+                } finally {
+                    now = System.nanoTime();
+                }
+            }
+            lastFlushNanos = now;
+        }
         endDepthFrame();
         if (repaintHook != null) {
             repaintHook.accept(presentedFrame);

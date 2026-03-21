@@ -1,15 +1,12 @@
 package com.nttdocomo.ui;
 
+import opendoja.audio.SampledPcmPlayer;
 import opendoja.audio.mld.MldPcmPlayer;
 import opendoja.host.DoJaRuntime;
 
 import javax.sound.midi.MidiSystem;
 import javax.sound.midi.Sequencer;
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.Clip;
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,7 +36,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private final Map<Integer, Integer> attributes = new HashMap<>();
     private MediaResource resource;
     private MediaListener mediaListener;
-    private Clip clip;
+    private SampledPcmPlayer sampledPlayer;
     private MldPcmPlayer mldPlayer;
     private Sequencer sequencer;
     private int pausedPosition;
@@ -91,28 +88,27 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             return;
         }
         try {
-            if (looksLikeMidi(sound)) {
+            MediaManager.PreparedSound prepared = sound.prepared();
+            if (prepared.kind() == MediaManager.PreparedSound.Kind.MIDI) {
                 sequencer = MidiSystem.getSequencer();
                 sequencer.open();
-                sequencer.setSequence(new ByteArrayInputStream(sound.bytes()));
+                sequencer.setSequence(new ByteArrayInputStream(prepared.bytes()));
                 if (loopCount <= 0) {
                     sequencer.setLoopCount(Sequencer.LOOP_CONTINUOUSLY);
                 } else if (loopCount > 1) {
                     sequencer.setLoopCount(loopCount - 1);
                 }
                 sequencer.start();
-            } else if (looksLikeMld(sound)) {
-                mldPlayer = new MldPcmPlayer(sound.bytes(), new MldListener());
-                mldPlayer.start(loopCount);
-            } else {
-                AudioInputStream in = AudioSystem.getAudioInputStream(new ByteArrayInputStream(sound.bytes()));
-                clip = AudioSystem.getClip();
-                clip.open(in);
-                if (loopCount > 1) {
-                    clip.loop(loopCount - 1);
-                } else {
-                    clip.start();
+            } else if (prepared.kind() == MediaManager.PreparedSound.Kind.MLD) {
+                if (mldPlayer == null) {
+                    mldPlayer = new MldPcmPlayer(new MldListener());
                 }
+                mldPlayer.start(prepared, loopCount);
+            } else {
+                if (sampledPlayer == null) {
+                    sampledPlayer = new SampledPcmPlayer(new SampledListener());
+                }
+                sampledPlayer.start(prepared, loopCount);
             }
             notifyListener(AUDIO_PLAYING, 0);
         } catch (Exception e) {
@@ -124,9 +120,8 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     }
 
     public void pause() {
-        if (clip != null) {
-            pausedPosition = clip.getFramePosition();
-            clip.stop();
+        if (sampledPlayer != null) {
+            sampledPlayer.pause();
             notifyListener(AUDIO_PAUSED, 0);
         } else if (mldPlayer != null) {
             mldPlayer.pause();
@@ -139,9 +134,8 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     }
 
     public void restart() {
-        if (clip != null) {
-            clip.setFramePosition(pausedPosition);
-            clip.start();
+        if (sampledPlayer != null) {
+            sampledPlayer.restart();
             notifyListener(AUDIO_RESTARTED, 0);
         } else if (mldPlayer != null) {
             mldPlayer.restart();
@@ -154,8 +148,8 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     }
 
     public int getCurrentTime() {
-        if (clip != null) {
-            return (int) (clip.getMicrosecondPosition() / 1_000L);
+        if (sampledPlayer != null) {
+            return sampledPlayer.getCurrentTimeMillis();
         }
         if (mldPlayer != null) {
             return mldPlayer.getCurrentTimeMillis();
@@ -167,8 +161,8 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     }
 
     public int getTotalTime() {
-        if (clip != null) {
-            return (int) (clip.getMicrosecondLength() / 1_000L);
+        if (sampledPlayer != null) {
+            return sampledPlayer.getTotalTimeMillis();
         }
         if (mldPlayer != null) {
             return mldPlayer.getTotalTimeMillis();
@@ -184,10 +178,8 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
 
     @Override
     public void stop() {
-        if (clip != null) {
-            clip.stop();
-            clip.close();
-            clip = null;
+        if (sampledPlayer != null) {
+            sampledPlayer.stop();
         }
         if (sequencer != null) {
             sequencer.stop();
@@ -195,8 +187,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             sequencer = null;
         }
         if (mldPlayer != null) {
-            mldPlayer.close();
-            mldPlayer = null;
+            mldPlayer.stop();
         }
         notifyListener(AUDIO_STOPPED, 0);
     }
@@ -204,6 +195,14 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     @Override
     public void close() {
         stop();
+        if (sampledPlayer != null) {
+            sampledPlayer.close();
+            sampledPlayer = null;
+        }
+        if (mldPlayer != null) {
+            mldPlayer.close();
+            mldPlayer = null;
+        }
     }
 
     @Override
@@ -214,16 +213,6 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     @Override
     public void setMediaListener(MediaListener listener) {
         this.mediaListener = listener;
-    }
-
-    private boolean looksLikeMidi(MediaManager.BasicMediaSound sound) {
-        byte[] bytes = sound.bytes();
-        return bytes.length > 4 && bytes[0] == 'M' && bytes[1] == 'T' && bytes[2] == 'h' && bytes[3] == 'd';
-    }
-
-    private boolean looksLikeMld(MediaManager.BasicMediaSound sound) {
-        byte[] bytes = sound.bytes();
-        return bytes.length > 4 && bytes[0] == 'm' && bytes[1] == 'e' && bytes[2] == 'l' && bytes[3] == 'o';
     }
 
     private void notifyListener(int type, int param) {
@@ -247,7 +236,6 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
 
         @Override
         public void onComplete() {
-            mldPlayer = null;
             notifyListener(AUDIO_COMPLETE, 0);
         }
 
@@ -256,7 +244,26 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             if (TRACE_AUDIO_FAILURES) {
                 exception.printStackTrace(System.err);
             }
-            mldPlayer = null;
+            notifyListener(AUDIO_STOPPED, 0);
+        }
+    }
+
+    private final class SampledListener implements SampledPcmPlayer.Listener {
+        @Override
+        public void onLoop() {
+            notifyListener(AUDIO_LOOPED, 0);
+        }
+
+        @Override
+        public void onComplete() {
+            notifyListener(AUDIO_COMPLETE, 0);
+        }
+
+        @Override
+        public void onFailure(Exception exception) {
+            if (TRACE_AUDIO_FAILURES) {
+                exception.printStackTrace(System.err);
+            }
             notifyListener(AUDIO_STOPPED, 0);
         }
     }

@@ -6,6 +6,8 @@ import opendoja.host.DoJaRuntime;
 import javax.swing.JOptionPane;
 
 public abstract class Canvas extends Frame {
+    private static final long DIRECT_SYNC_UNLOCK_INTERVAL_NANOS =
+            java.lang.Math.max(0L, Long.getLong("opendoja.syncUnlockIntervalMs", 90L)) * 1_000_000L;
     public static final int IME_COMMITTED = 0;
     public static final int IME_CANCELED = 1;
 
@@ -16,12 +18,10 @@ public abstract class Canvas extends Frame {
     }
 
     public Graphics getGraphics() {
-        DoJaRuntime runtime = DoJaRuntime.current();
-        if (runtime != null && runtime.getCurrentFrame() != this) {
-            // A canvas that grabs Graphics before becoming current is usually running its own
-            // direct frame loop rather than waiting for repaint-driven paint() callbacks.
-            directGraphicsMode = true;
-        }
+        // App code that grabs a Graphics directly is opting into owner-driven drawing rather than
+        // repaint-managed paint(Graphics). Runtime paints use runtimeGraphics() instead, so this
+        // flag cleanly separates direct frame loops from normal paint callbacks.
+        directGraphicsMode = true;
         return createGraphics();
     }
 
@@ -42,6 +42,11 @@ public abstract class Canvas extends Frame {
                 runtime.notifySurfaceFlush(this, frame);
             }
         });
+        // The original emulator/runtime exposes a sync-unlock interval on the frame path. Direct
+        // Canvas loops like Nose Hair rely on unlock(true) pacing their gameplay loop instead of
+        // sleeping explicitly. Those loops advance in-game time by 9 centiseconds per frame, so a
+        // 90 ms default matches the bundled sample behavior and the native sync-unlock concept.
+        surface.setSyncUnlockIntervalNanos(directGraphicsMode ? DIRECT_SYNC_UNLOCK_INTERVAL_NANOS : 0L);
         return new Graphics(surface);
     }
 

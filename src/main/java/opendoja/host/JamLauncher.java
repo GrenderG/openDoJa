@@ -63,7 +63,7 @@ public final class JamLauncher {
             throw new IllegalArgumentException("Usage: JamLauncher <path-to-jam>");
         }
         Path jamPath = Path.of(args[0]);
-        JitCompatibility.reexecJamLauncherIfNeeded(jamPath);
+        LaunchCompatibility.reexecJamLauncherIfNeeded(jamPath);
         launch(jamPath, true);
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null) {

@@ -1,13 +1,15 @@
 package opendoja.audio.mld;
 
+import com.nttdocomo.ui.MediaManager;
 import opendoja.audio.mld.ma3.MA3SamplerProvider;
 import opendoja.audio.mld.ma3.MLD;
 import opendoja.audio.mld.ma3.MLDPlayer;
-import opendoja.audio.mld.ma3.MLDPlayerEvent;
 
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.SourceDataLine;
+import java.util.IdentityHashMap;
+import java.util.Map;
 
 public final class MldPcmPlayer implements AutoCloseable {
     private static final float DEFAULT_SAMPLE_RATE = Float.parseFloat(
@@ -16,6 +18,10 @@ public final class MldPcmPlayer implements AutoCloseable {
     private static final int BUFFER_FRAMES = Integer.getInteger("opendoja.mldBufferFrames", 1024);
     private static final AudioFormat OUTPUT_FORMAT = new AudioFormat(
             DEFAULT_SAMPLE_RATE, 16, 2, true, false);
+    private static final MA3SamplerProvider SAMPLER_PROVIDER = new MA3SamplerProvider(
+            MA3SamplerProvider.FM_MA3_4OP,
+            MA3SamplerProvider.FM_MA3_4OP,
+            MA3SamplerProvider.WAVE_DRUM_MA3);
 
     public interface Listener {
         void onLoop();
@@ -27,52 +33,43 @@ public final class MldPcmPlayer implements AutoCloseable {
 
     private final Object stateLock = new Object();
     private final Listener listener;
-    private final MLD mld;
-    private final MLDPlayer player;
     private final float[] sampleBuffer = new float[BUFFER_FRAMES * 2];
     private final byte[] pcmBuffer = new byte[BUFFER_FRAMES * 4];
+    private final Map<MediaManager.PreparedSound, PlaybackSession> sessions = new IdentityHashMap<>();
 
-    private SourceDataLine line;
     private Thread worker;
+    private SourceDataLine line;
+    private MediaManager.PreparedSound pendingSound;
+    private int pendingLoopCount;
     private boolean paused;
-    private boolean stopRequested;
-    private boolean cuepointLooping;
-    private int remainingRepeats;
-    private int requestedLoopCount;
+    private boolean active;
+    private boolean closed;
+    private boolean pendingReset;
+    private volatile int currentTimeMillis;
+    private volatile int totalTimeMillis;
 
-    public MldPcmPlayer(byte[] bytes, Listener listener) {
+    public MldPcmPlayer(Listener listener) {
         this.listener = listener;
-        this.mld = new MLD(bytes);
-        this.player = new MLDPlayer(mld,
-                new MA3SamplerProvider(
-                        MA3SamplerProvider.FM_MA3_4OP,
-                        MA3SamplerProvider.FM_MA3_4OP,
-                        MA3SamplerProvider.WAVE_DRUM_MA3),
-                DEFAULT_SAMPLE_RATE);
-        this.player.setPlaybackEventsEnabled(true);
-        this.player.setLoopStopAll(true);
     }
 
-    public void start(int loopCount) throws Exception {
+    public void start(MediaManager.PreparedSound sound, int loopCount) {
         synchronized (stateLock) {
-            stopRequested = false;
+            ensureWorker();
+            pendingSound = sound;
+            pendingLoopCount = loopCount;
             paused = false;
-            player.reset();
-            requestedLoopCount = loopCount;
-            configureLooping(loopCount);
-            line = AudioSystem.getSourceDataLine(OUTPUT_FORMAT);
-            line.open(OUTPUT_FORMAT, pcmBuffer.length * 8);
-            line.start();
-            worker = new Thread(this::runRenderLoop, "opendoja-mld");
-            worker.setDaemon(true);
-            worker.start();
+            active = true;
+            pendingReset = true;
+            currentTimeMillis = 0;
+            totalTimeMillis = totalTimeFor(sound.mld(), loopCount);
+            stateLock.notifyAll();
         }
     }
 
     public void pause() {
         synchronized (stateLock) {
+            paused = true;
             if (line != null) {
-                paused = true;
                 line.stop();
             }
         }
@@ -80,43 +77,50 @@ public final class MldPcmPlayer implements AutoCloseable {
 
     public void restart() {
         synchronized (stateLock) {
+            paused = false;
             if (line != null) {
-                paused = false;
                 line.start();
-                stateLock.notifyAll();
             }
+            stateLock.notifyAll();
         }
     }
 
     public int getCurrentTimeMillis() {
-        synchronized (stateLock) {
-            return (int) Math.round(player.getTime() * 1000.0);
-        }
+        return currentTimeMillis;
     }
 
     public int getTotalTimeMillis() {
-        double baseSeconds = mld.getDuration(true);
-        if (!Double.isFinite(baseSeconds)) {
-            return 0;
-        }
-        if (requestedLoopCount <= 0) {
-            return (int) Math.round(baseSeconds * 1000.0);
-        }
-        return (int) Math.round(baseSeconds * requestedLoopCount * 1000.0);
+        return totalTimeMillis;
     }
 
     public void stop() {
-        Thread threadToJoin;
         synchronized (stateLock) {
-            stopRequested = true;
+            active = false;
+            pendingSound = null;
             paused = false;
-            threadToJoin = worker;
+            pendingReset = true;
+            currentTimeMillis = 0;
+            stateLock.notifyAll();
+        }
+    }
+
+    @Override
+    public void close() {
+        Thread joinThread;
+        synchronized (stateLock) {
+            closed = true;
+            active = false;
+            pendingSound = null;
+            paused = false;
+            currentTimeMillis = 0;
+            totalTimeMillis = 0;
+            joinThread = worker;
             worker = null;
             stateLock.notifyAll();
         }
-        if (threadToJoin != null && threadToJoin != Thread.currentThread()) {
+        if (joinThread != null && joinThread != Thread.currentThread()) {
             try {
-                threadToJoin.join(1000L);
+                joinThread.join(1000L);
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
@@ -124,99 +128,155 @@ public final class MldPcmPlayer implements AutoCloseable {
         closeLine();
     }
 
-    @Override
-    public void close() {
-        stop();
-    }
-
-    private void configureLooping(int loopCount) {
-        cuepointLooping = Double.isInfinite(mld.getDuration(false));
-        if (loopCount <= 0) {
-            remainingRepeats = Integer.MAX_VALUE;
-            player.setLoopEnabled(cuepointLooping);
+    private void ensureWorker() {
+        if (worker != null) {
             return;
         }
-        remainingRepeats = Math.max(0, loopCount - 1);
-        player.setLoopEnabled(cuepointLooping && remainingRepeats > 0);
+        worker = new Thread(this::runLoop, "opendoja-mld");
+        worker.setDaemon(true);
+        worker.start();
     }
 
-    private void runRenderLoop() {
+    private void ensureLine() throws Exception {
+        if (line != null) {
+            return;
+        }
+        line = AudioSystem.getSourceDataLine(OUTPUT_FORMAT);
+        line.open(OUTPUT_FORMAT, pcmBuffer.length * 8);
+        line.start();
+    }
+
+    private void runLoop() {
         try {
             while (true) {
-                int frames;
-                MLDPlayerEvent[] events;
+                MediaManager.PreparedSound sound;
+                int loopCount;
+                boolean resetLine = false;
                 synchronized (stateLock) {
-                    while (paused && !stopRequested) {
+                    while ((!pendingReset && (!active || pendingSound == null || paused)) && !closed) {
                         stateLock.wait();
                     }
-                    if (stopRequested) {
+                    if (closed) {
                         break;
                     }
-                    frames = player.render(sampleBuffer, 0, BUFFER_FRAMES, 1.0f, 1.0f, true, true);
-                    events = player.getEvents();
-                }
-
-                if (frames > 0) {
-                    int length = encodePcm(frames);
-                    line.write(pcmBuffer, 0, length);
-                }
-
-                boolean restarted = false;
-                boolean finished = frames < 0;
-                for (MLDPlayerEvent event : events) {
-                    if (event.type == MLDPlayer.EVENT_LOOP) {
-                        if (listener != null) {
-                            listener.onLoop();
-                        }
-                        // MLD cuepoint loops happen inside the sequence, so
-                        // the loop budget is consumed on LOOP rather than END.
-                        if (remainingRepeats != Integer.MAX_VALUE && remainingRepeats > 0) {
-                            remainingRepeats--;
-                            if (remainingRepeats == 0) {
-                                synchronized (stateLock) {
-                                    player.setLoopEnabled(false);
-                                }
-                            }
-                        }
-                    } else if (event.type == MLDPlayer.EVENT_END) {
-                        if (remainingRepeats == Integer.MAX_VALUE) {
-                            synchronized (stateLock) {
-                                player.reset();
-                            }
-                            restarted = true;
-                        } else if (!cuepointLooping && remainingRepeats > 0) {
-                            // Non-looping sequences need an explicit restart to
-                            // honor AudioPresenter.play(loopCount).
-                            remainingRepeats--;
-                            synchronized (stateLock) {
-                                player.reset();
-                            }
-                            restarted = true;
-                        } else {
-                            finished = true;
-                        }
+                    if (pendingReset) {
+                        pendingReset = false;
+                        resetLine = true;
+                    }
+                    if (!active || pendingSound == null || paused) {
+                        sound = null;
+                        loopCount = 0;
+                    } else {
+                        sound = pendingSound;
+                        loopCount = pendingLoopCount;
+                        pendingSound = null;
                     }
                 }
 
-                if (restarted) {
+                if (resetLine) {
+                    resetLineForWorker();
+                }
+                if (sound == null) {
                     continue;
                 }
-                if (finished) {
-                    if (line != null) {
-                        line.drain();
-                    }
-                    if (listener != null) {
-                        listener.onComplete();
-                    }
-                    break;
-                }
+
+                ensureLine();
+                renderSound(sound, loopCount);
             }
         } catch (Exception exception) {
             if (listener != null) {
                 listener.onFailure(exception);
             }
         } finally {
+            currentTimeMillis = 0;
+            totalTimeMillis = 0;
             closeLine();
+        }
+    }
+
+    private void renderSound(MediaManager.PreparedSound sound, int loopCount) throws Exception {
+        PlaybackSession session = sessions.computeIfAbsent(sound, PlaybackSession::new);
+        MLD mld = sound.mld();
+        MLDPlayer player = session.player;
+        player.setPlaybackEventsEnabled(true);
+        player.setLoopStopAll(true);
+
+        boolean cuepointLooping = Double.isInfinite(mld.getDuration(false));
+        int remainingRepeats;
+        if (loopCount <= 0) {
+            remainingRepeats = Integer.MAX_VALUE;
+            player.setLoopEnabled(cuepointLooping);
+        } else {
+            remainingRepeats = Math.max(0, loopCount - 1);
+            player.setLoopEnabled(cuepointLooping && remainingRepeats > 0);
+        }
+
+        player.reset();
+        currentTimeMillis = 0;
+
+        while (true) {
+            synchronized (stateLock) {
+                while (paused && active && pendingSound == null && !closed) {
+                    stateLock.wait();
+                }
+                if (closed || !active || pendingSound != null) {
+                    return;
+                }
+            }
+
+            int frames = player.render(sampleBuffer, 0, BUFFER_FRAMES, 1.0f, 1.0f, true, true);
+            currentTimeMillis = (int) Math.round(player.getTime() * 1000.0);
+
+            if (frames > 0) {
+                int length = encodePcm(frames);
+                line.write(pcmBuffer, 0, length);
+            }
+
+            final int[] remainingRepeatsRef = {remainingRepeats};
+            final boolean[] restarted = {false};
+            final boolean[] finished = {frames < 0};
+            player.drainEvents(event -> {
+                if (event.type == MLDPlayer.EVENT_LOOP) {
+                    if (listener != null) {
+                        listener.onLoop();
+                    }
+                    if (remainingRepeatsRef[0] != Integer.MAX_VALUE && remainingRepeatsRef[0] > 0) {
+                        remainingRepeatsRef[0]--;
+                        if (remainingRepeatsRef[0] == 0) {
+                            player.setLoopEnabled(false);
+                        }
+                    }
+                } else if (event.type == MLDPlayer.EVENT_END) {
+                    if (remainingRepeatsRef[0] == Integer.MAX_VALUE) {
+                        player.reset();
+                        restarted[0] = true;
+                    } else if (!cuepointLooping && remainingRepeatsRef[0] > 0) {
+                        remainingRepeatsRef[0]--;
+                        player.reset();
+                        restarted[0] = true;
+                    } else {
+                        finished[0] = true;
+                    }
+                }
+            });
+            remainingRepeats = remainingRepeatsRef[0];
+
+            if (restarted[0]) {
+                continue;
+            }
+            if (finished[0]) {
+                line.drain();
+                currentTimeMillis = 0;
+                synchronized (stateLock) {
+                    if (pendingSound == null) {
+                        active = false;
+                    }
+                }
+                if (listener != null) {
+                    listener.onComplete();
+                }
+                return;
+            }
         }
     }
 
@@ -231,6 +291,17 @@ public final class MldPcmPlayer implements AutoCloseable {
         return output;
     }
 
+    private int totalTimeFor(MLD mld, int loopCount) {
+        double baseSeconds = mld.getDuration(true);
+        if (!Double.isFinite(baseSeconds)) {
+            return 0;
+        }
+        if (loopCount <= 0) {
+            return (int) Math.round(baseSeconds * 1000.0);
+        }
+        return (int) Math.round(baseSeconds * loopCount * 1000.0);
+    }
+
     private void closeLine() {
         synchronized (stateLock) {
             if (line != null) {
@@ -239,6 +310,28 @@ public final class MldPcmPlayer implements AutoCloseable {
                 line.close();
                 line = null;
             }
+        }
+    }
+
+    private void resetLineForWorker() {
+        SourceDataLine currentLine = line;
+        if (currentLine == null) {
+            return;
+        }
+        // Games like Nose Hair retrigger short MLD effects from their frame loop. Keep all line
+        // reset/control on the audio worker thread so stop/start never blocks gameplay.
+        currentLine.stop();
+        currentLine.flush();
+        if (!closed && !paused) {
+            currentLine.start();
+        }
+    }
+
+    private static final class PlaybackSession {
+        private final MLDPlayer player;
+
+        private PlaybackSession(MediaManager.PreparedSound sound) {
+            this.player = new MLDPlayer(sound.mld(), SAMPLER_PROVIDER, DEFAULT_SAMPLE_RATE);
         }
     }
 }

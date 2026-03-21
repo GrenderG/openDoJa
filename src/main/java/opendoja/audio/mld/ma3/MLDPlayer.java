@@ -48,6 +48,10 @@ import java.util.HashSet;
 
 public class MLDPlayer
 {
+	public interface EventSink
+	{
+		void accept(MLDPlayerEvent event);
+	}
 	
 	/**
 	 * Event type that notifies when a non-looping sequence finishes.
@@ -314,6 +318,20 @@ public class MLDPlayer
 			new MLDPlayerEvent[this.events.size()]);
 		this.events.clear();
 		return ret;
+	}
+
+	/**
+	 * Drain pending events without allocating a temporary array.
+	 *
+	 * @param sink Receives each pending event in order.
+	 */
+	public void drainEvents(EventSink sink)
+	{
+		if (sink == null)
+			throw new NullPointerException("NARG");
+		for (int i = 0, n = this.events.size(); i < n; i++)
+			sink.accept(this.events.get(i));
+		this.events.clear();
 	}
 	
 	

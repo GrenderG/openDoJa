@@ -438,8 +438,9 @@ public class MA3Sampler
 		
 		try
 		{
-			// Process all output frames
-			float[] frame = new float[2];
+			// Process all output frames without per-call scratch allocations.
+			float frame0 = 0.0f;
+			float frame1 = 0.0f;
 			for (int x = 0; x < frames; x++)
 			{
 				float l = smpPosition;
@@ -456,9 +457,9 @@ public class MA3Sampler
 				if (l < 1.0f)
 				{
 					a = (l + r) / 2;
-					frame[0] =
+					frame0 =
 						smpPrev[0] + (smpNext[0] - smpPrev[0]) * a;
-					frame[1] =
+					frame1 =
 						smpPrev[1] + (smpNext[1] - smpPrev[1]) * a;
 				}
 				
@@ -468,9 +469,9 @@ public class MA3Sampler
 					// First partial
 					a = (l + 1.0f) / 2;
 					b = 1.0f - l;
-					frame[0] =
+					frame0 =
 						(smpPrev[0] + (smpNext[0] - smpPrev[0]) * a) * b;
-					frame[1] =
+					frame1 =
 						(smpPrev[1] + (smpNext[1] - smpPrev[1]) * a) * b;
 					
 					// All wholes
@@ -479,8 +480,8 @@ public class MA3Sampler
 						smpPrev[0] = smpNext[0];
 						smpPrev[1] = smpNext[1];
 						this.sample();
-						frame[0] += (smpPrev[0] + smpNext[0]) / 2;
-						frame[1] += (smpPrev[1] + smpNext[1]) / 2;
+						frame0 += (smpPrev[0] + smpNext[0]) / 2;
+						frame1 += (smpPrev[1] + smpNext[1]) / 2;
 					}
 					
 					// Record the latest input sample
@@ -493,38 +494,38 @@ public class MA3Sampler
 					{
 						this.sample();
 						a = r / 2;
-						frame[0] += (smpPrev[0] + 
+						frame0 += (smpPrev[0] + 
 							(smpNext[0] - smpPrev[0]) * a) * r;
-						frame[1] += (smpPrev[1] + 
+						frame1 += (smpPrev[1] + 
 							(smpNext[1] - smpPrev[1]) * a) * r;
 					}
 					
 					// Take the weighted average of all spanned input samples
-					frame[0] /= smpWidth;
-					frame[1] /= smpWidth;
+					frame0 /= smpWidth;
+					frame1 /= smpWidth;
 				}
 				
 				// Output scaling
-				frame[0] *= left;
-				frame[1] *= right;
+				frame0 *= left;
+				frame1 *= right;
 				
 				// Incorporate the existing contents of the buffer
 				if (!erase)
 				{
-					frame[0] += samples[offset];
-					frame[1] += samples[offset + 1];
+					frame0 += samples[offset];
+					frame1 += samples[offset + 1];
 				}
 				
 				// Constrain the output
 				if (clamp)
 				{
-					frame[0] = Math.min(Math.max(frame[0], -1.0f), 1.0f);
-					frame[1] = Math.min(Math.max(frame[1], -1.0f), 1.0f);
+					frame0 = Math.min(Math.max(frame0, -1.0f), 1.0f);
+					frame1 = Math.min(Math.max(frame1, -1.0f), 1.0f);
 				}
 				
 				// Output the frame
-				samples[offset++] = frame[0];
-				samples[offset++] = frame[1];
+				samples[offset++] = frame0;
+				samples[offset++] = frame1;
 				
 				// Advance to the next output sample
 				smpPosition = r;

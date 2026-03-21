@@ -7,7 +7,13 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public final class ShortTimer implements TimeKeeper {
-    private static final int INTERVAL_DIVISOR = java.lang.Math.max(1, Integer.getInteger("opendoja.shortTimerIntervalDivisor", 1));
+    // Bundled DoJa titles schedule gameplay-step timers with values like 100, but those same
+    // titles only progress correctly when the desktop runtime treats the interval as handset timer
+    // units rather than literal Java milliseconds. A divisor of 10 matches the observed sample
+    // behavior and keeps this timer usable as a general game-step primitive.
+    private static final int DEFAULT_INTERVAL_DIVISOR = 10;
+    private static final int INTERVAL_DIVISOR = java.lang.Math.max(
+            1, Integer.getInteger("opendoja.shortTimerIntervalDivisor", DEFAULT_INTERVAL_DIVISOR));
     private final Canvas canvas;
     private final int timerId;
     private final int interval;
