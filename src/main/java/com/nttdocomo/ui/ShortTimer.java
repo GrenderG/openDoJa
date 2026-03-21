@@ -7,24 +7,25 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public final class ShortTimer implements TimeKeeper {
+    private static final int INTERVAL_DIVISOR = java.lang.Math.max(1, Integer.getInteger("opendoja.shortTimerIntervalDivisor", 1));
     private final Canvas canvas;
-    private final int time;
-    private final int param;
+    private final int timerId;
+    private final int interval;
     private final boolean repeat;
     private ScheduledFuture<?> future;
 
-    public static ShortTimer getShortTimer(Canvas canvas, int time, int param, boolean repeat) {
-        return new ShortTimer(canvas, time, param, repeat);
+    public static ShortTimer getShortTimer(Canvas canvas, int timerId, int interval, boolean repeat) {
+        return new ShortTimer(canvas, timerId, interval, repeat);
     }
 
     protected ShortTimer() {
         this(null, 0, 0, false);
     }
 
-    ShortTimer(Canvas canvas, int time, int param, boolean repeat) {
+    ShortTimer(Canvas canvas, int timerId, int interval, boolean repeat) {
         this.canvas = canvas;
-        this.time = Math.max(0, time);
-        this.param = param;
+        this.timerId = timerId;
+        this.interval = Math.max(0, interval);
         this.repeat = repeat;
     }
 
@@ -45,12 +46,13 @@ public final class ShortTimer implements TimeKeeper {
         if (runtime == null || canvas == null) {
             return;
         }
-        Runnable task = () -> runtime.dispatchTimerEvent(canvas, param);
+        Runnable task = () -> runtime.dispatchTimerEvent(canvas, timerId);
         if (repeat) {
-            int interval = java.lang.Math.max(1, time);
-            future = runtime.scheduler().scheduleAtFixedRate(task, interval, interval, TimeUnit.MILLISECONDS);
+            int repeatInterval = java.lang.Math.max(getMinTimeInterval(), interval / INTERVAL_DIVISOR);
+            future = runtime.scheduler().scheduleAtFixedRate(task, repeatInterval, repeatInterval, TimeUnit.MILLISECONDS);
         } else {
-            future = runtime.scheduler().schedule(task, time, TimeUnit.MILLISECONDS);
+            int delay = java.lang.Math.max(0, interval / INTERVAL_DIVISOR);
+            future = runtime.scheduler().schedule(task, delay, TimeUnit.MILLISECONDS);
         }
     }
 

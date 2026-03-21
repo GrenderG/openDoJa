@@ -12,6 +12,8 @@ import java.util.Locale;
 import java.util.Set;
 
 public class Font {
+    private static final float HANDSET_FONT_SCALE = Float.parseFloat(System.getProperty("opendoja.fontScale", "0.85"));
+    private static final Object TEXT_ANTIALIAS_HINT = resolveTextAntialiasHint();
     public static final int TYPE_DEFAULT = 0;
     public static final int TYPE_HEADING = 1;
     public static final int FACE_SYSTEM = 0x71000000;
@@ -28,7 +30,7 @@ public class Font {
 
     private static final Set<String> AVAILABLE_FAMILIES = availableFamilies();
     private static final BufferedImage METRICS_IMAGE = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-    private static Font defaultFont = new Font(FACE_SYSTEM, STYLE_PLAIN, decodeSize(SIZE_MEDIUM));
+    private static Font defaultFont = new Font(FACE_SYSTEM, STYLE_PLAIN, decodeSize(SIZE_TINY));
 
     private final java.awt.Font awtFont;
     private FontMetrics metrics;
@@ -38,14 +40,14 @@ public class Font {
     }
 
     private Font(int face, int style, int size) {
-        String family = resolveFamily(face);
         int awtStyle = switch (style) {
             case STYLE_BOLD -> java.awt.Font.BOLD;
             case STYLE_ITALIC -> java.awt.Font.ITALIC;
             case STYLE_BOLDITALIC -> java.awt.Font.BOLD | java.awt.Font.ITALIC;
             default -> java.awt.Font.PLAIN;
         };
-        this.awtFont = new java.awt.Font(family, awtStyle, size);
+        java.awt.Font baseFont = resolveBaseFont(face);
+        this.awtFont = baseFont.deriveFont(awtStyle, (float) resolveDesktopPointSize(face, baseFont, awtStyle, size));
     }
 
     public static Font getDefaultFont() {
@@ -87,7 +89,8 @@ public class Font {
     }
 
     public int getHeight() {
-        return metrics().getHeight();
+        FontMetrics metrics = metrics();
+        return metrics.getAscent() + metrics.getDescent();
     }
 
     public int stringWidth(String text) {
@@ -151,7 +154,7 @@ public class Font {
             synchronized (METRICS_IMAGE) {
                 Graphics2D graphics = METRICS_IMAGE.createGraphics();
                 try {
-                    graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
+                    graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, TEXT_ANTIALIAS_HINT);
                     graphics.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
                     graphics.setFont(awtFont);
                     metrics = graphics.getFontMetrics();
@@ -194,13 +197,53 @@ public class Font {
         };
     }
 
+    private static int resolveDesktopPointSize(int face, java.awt.Font baseFont, int awtStyle, int logicalSize) {
+        int targetHeight = resolveTargetHeight(face, logicalSize);
+        int bestPointSize = 8;
+        int bestDistance = Integer.MAX_VALUE;
+        synchronized (METRICS_IMAGE) {
+            Graphics2D graphics = METRICS_IMAGE.createGraphics();
+            try {
+                graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, TEXT_ANTIALIAS_HINT);
+                graphics.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
+                for (int pointSize = 6; pointSize <= 32; pointSize++) {
+                    java.awt.Font candidate = baseFont.deriveFont(awtStyle, (float) pointSize);
+                    graphics.setFont(candidate);
+                    FontMetrics metrics = graphics.getFontMetrics();
+                    int renderedHeight = metrics.getAscent() + metrics.getDescent();
+                    int distance = java.lang.Math.abs(renderedHeight - targetHeight);
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestPointSize = pointSize;
+                    }
+                    if (distance == 0) {
+                        break;
+                    }
+                }
+            } finally {
+                graphics.dispose();
+            }
+        }
+        return bestPointSize;
+    }
+
+    private static int resolveTargetHeight(int face, int logicalSize) {
+        if (logicalSize == decodeSize(SIZE_TINY) && face != FACE_MONOSPACE) {
+            return 14;
+        }
+        return java.lang.Math.max(8, java.lang.Math.round(logicalSize * HANDSET_FONT_SCALE));
+    }
+
+    private static java.awt.Font resolveBaseFont(int face) {
+        return new java.awt.Font(resolveFamily(face), java.awt.Font.PLAIN, 12);
+    }
+
     private static String resolveFamily(int face) {
         if (face == FACE_MONOSPACE) {
             return firstInstalled(
+                    "MS Gothic",
                     "Noto Sans Mono CJK JP",
                     "Noto Sans Mono CJK SC",
-                    "MS Gothic",
-                    "MS PGothic",
                     "IPAexGothic",
                     "IPAGothic",
                     java.awt.Font.MONOSPACED,
@@ -209,30 +252,52 @@ public class Font {
         }
         if (face == FACE_PROPORTIONAL) {
             return firstInstalled(
+                    "MS UI Gothic",
+                    "MS PGothic",
+                    "Yu Gothic UI",
+                    "Yu Gothic",
+                    "Meiryo UI",
+                    "Meiryo",
                     "Noto Sans CJK JP",
                     "Noto Sans JP",
-                    "Yu Gothic",
-                    "Meiryo",
-                    "MS PGothic",
-                    java.awt.Font.SANS_SERIF,
-                    java.awt.Font.DIALOG
+                    "Noto Sans",
+                    "Noto Sans CJK SC",
+                    "IPAexGothic",
+                    "IPAGothic",
+                    java.awt.Font.DIALOG,
+                    java.awt.Font.SANS_SERIF
             );
         }
         return firstInstalled(
-                "Noto Sans Mono CJK JP",
-                "Noto Sans Mono CJK SC",
-                "MS Gothic",
+                "MS UI Gothic",
                 "MS PGothic",
+                "Yu Gothic UI",
+                "Yu Gothic",
+                "Meiryo UI",
+                "Meiryo",
                 "Noto Sans CJK JP",
                 "Noto Sans JP",
+                "Noto Sans",
                 "Noto Sans CJK SC",
-                "Yu Gothic",
-                "Meiryo",
                 "IPAexGothic",
                 "IPAGothic",
                 java.awt.Font.DIALOG,
                 java.awt.Font.SANS_SERIF
         );
+    }
+
+    static Object textAntialiasHint() {
+        return TEXT_ANTIALIAS_HINT;
+    }
+
+    private static Object resolveTextAntialiasHint() {
+        String value = System.getProperty("opendoja.textAntialias", "gasp").toLowerCase(Locale.ROOT);
+        return switch (value) {
+            case "off" -> RenderingHints.VALUE_TEXT_ANTIALIAS_OFF;
+            case "gasp" -> RenderingHints.VALUE_TEXT_ANTIALIAS_GASP;
+            case "lcd" -> RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB;
+            default -> RenderingHints.VALUE_TEXT_ANTIALIAS_ON;
+        };
     }
 
     private static String firstInstalled(String... candidates) {

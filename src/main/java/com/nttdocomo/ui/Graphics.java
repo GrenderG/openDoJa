@@ -5,6 +5,7 @@ import opendoja.host.DesktopSurface;
 import opendoja.g3d.MascotFigure;
 import opendoja.g3d.Software3DContext;
 import opendoja.g3d.SoftwareTexture;
+import opendoja.host.DoJaRuntime;
 
 import java.awt.AlphaComposite;
 import java.awt.Color;
@@ -60,7 +61,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         this.delegate = surface.image().createGraphics();
         this.delegate.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
         this.delegate.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-        this.delegate.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
+        this.delegate.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, Font.textAntialiasHint());
         this.delegate.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
         this.delegate.setColor(new Color(color, true));
         this.delegate.setFont(font.awtFont());
@@ -225,6 +226,10 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     }
 
     public void lock() {
+        DoJaRuntime runtime = DoJaRuntime.current();
+        if (runtime != null) {
+            runtime.surfaceLock().lock();
+        }
     }
 
     public void setClip(int x, int y, int width, int height) {
@@ -253,8 +258,16 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     }
 
     public void unlock(boolean flush) {
+        DoJaRuntime runtime = DoJaRuntime.current();
+        BufferedImage presentedFrame = null;
         if (flush) {
-            surface.flush();
+            presentedFrame = copyImage(surface.image());
+        }
+        if (runtime != null) {
+            runtime.surfaceLock().unlock();
+        }
+        if (flush) {
+            surface.flush(presentedFrame);
         }
     }
 
@@ -367,6 +380,25 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    private BufferedImage copyImage(BufferedImage image) {
+        BufferedImage copy = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = copy.createGraphics();
+        try {
+            g2.drawImage(image, 0, 0, null);
+        } finally {
+            g2.dispose();
+        }
+        return copy;
+    }
+
+    private void flushSurfacePresentation() {
+        DoJaRuntime runtime = DoJaRuntime.current();
+        if (runtime != null && runtime.surfaceLock().isHeldByCurrentThread()) {
+            return;
+        }
+        surface.flush(copyImage(surface.image()));
+    }
+
     private void applyFlipTransform(int dx, int dy, int dw, int dh) {
         switch (flipMode) {
             case FLIP_NONE -> {
@@ -448,7 +480,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     @Override
     public void flushBuffer() {
         try {
-            surface.flush();
+            flushSurfacePresentation();
         } catch (RuntimeException e) {
             throw traceFailure("flushBuffer", e);
         }
@@ -611,7 +643,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     @Override
     public void flush() {
         try {
-            surface.flush();
+            flushSurfacePresentation();
         } catch (RuntimeException e) {
             throw traceFailure("flush", e);
         }

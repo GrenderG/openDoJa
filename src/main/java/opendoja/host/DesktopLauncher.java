@@ -41,7 +41,11 @@ public final class DesktopLauncher {
         if (appArgs.length > 0) {
             System.arraycopy(args, 1, appArgs, 0, appArgs.length);
         }
-        launch(applicationClass, appArgs);
+        LaunchConfig config = LaunchConfig.builder(applicationClass)
+                .args(appArgs)
+                .exitOnShutdown(true)
+                .build();
+        launch(config);
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null) {
             try {
@@ -50,5 +54,6 @@ public final class DesktopLauncher {
                 Thread.currentThread().interrupt();
             }
         }
+        System.exit(0);
     }
 }

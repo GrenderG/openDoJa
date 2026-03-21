@@ -149,7 +149,7 @@ public final class MldMidiAdapter {
             header.bytes(header.remaining());
             header.offset = header.start;
             int contentType = header.u16();
-            if (contentType != 0x0101) {
+            if (contentType != 0x0101 && contentType != 0x0201) {
                 throw new IOException("Unsupported MLD content type: " + contentType);
             }
             int numTracks = header.u8();

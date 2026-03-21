@@ -17,10 +17,10 @@ public abstract class Canvas extends Frame {
     public Graphics getGraphics() {
         ensureSurface(Display.getWidth(), Display.getHeight());
         surface.setBackgroundColor(backgroundColor());
-        surface.setRepaintHook(() -> {
+        surface.setRepaintHook(frame -> {
             DoJaRuntime runtime = DoJaRuntime.current();
             if (runtime != null) {
-                runtime.notifySurfaceFlush(this);
+                runtime.notifySurfaceFlush(this, frame);
             }
         });
         return new Graphics(surface);

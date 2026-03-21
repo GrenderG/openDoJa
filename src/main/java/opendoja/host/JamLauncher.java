@@ -13,6 +13,10 @@ public final class JamLauncher {
     }
 
     public static IApplication launch(Path jamPath) throws IOException, ClassNotFoundException {
+        return launch(jamPath, false);
+    }
+
+    public static IApplication launch(Path jamPath, boolean exitOnShutdown) throws IOException, ClassNotFoundException {
         Properties properties = new Properties();
         try (InputStream in = Files.newInputStream(jamPath)) {
             properties.load(in);
@@ -31,7 +35,8 @@ public final class JamLauncher {
         LaunchConfig.Builder builder = LaunchConfig.builder(applicationClass)
                 .title(properties.getProperty("AppName", applicationClass.getSimpleName()))
                 .sourceUrl(resolvePackageUrl(jamPath, properties.getProperty("PackageURL")))
-                .scratchpadRoot(scratchpadRoot);
+                .scratchpadRoot(scratchpadRoot)
+                .exitOnShutdown(exitOnShutdown);
         String drawArea = properties.getProperty("DrawArea");
         if (drawArea != null) {
             String[] parts = drawArea.toLowerCase().split("x");
@@ -57,11 +62,14 @@ public final class JamLauncher {
         if (args.length != 1) {
             throw new IllegalArgumentException("Usage: JamLauncher <path-to-jam>");
         }
-        launch(Path.of(args[0]));
+        Path jamPath = Path.of(args[0]);
+        JitCompatibility.reexecJamLauncherIfNeeded(jamPath);
+        launch(jamPath, true);
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null) {
             runtime.awaitShutdown();
         }
+        System.exit(0);
     }
 
     private static String resolvePackageUrl(Path jamPath, String packageUrl) {

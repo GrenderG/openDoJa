@@ -28,28 +28,35 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 public final class DoJaRuntime {
     private static final ThreadLocal<LaunchConfig> PREPARED_LAUNCH = new ThreadLocal<>();
+    private static final boolean TRACE_EVENTS = Boolean.getBoolean("opendoja.traceEvents");
     private static volatile DoJaRuntime current;
 
     private final LaunchConfig config;
     private final IApplication application;
     private final AtomicBoolean shutdown = new AtomicBoolean();
     private final CountDownLatch shutdownLatch = new CountDownLatch(1);
+    private final ReentrantLock surfaceLock = new ReentrantLock(true);
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "openDoJa-runtime");
         thread.setDaemon(true);
         return thread;
     });
+    private final Set<AutoCloseable> shutdownResources = ConcurrentHashMap.newKeySet();
     private final HostPanel hostPanel;
     private JFrame frameWindow;
     private Frame currentFrame;
-    private int keypadState;
+    private volatile BufferedImage presentedFrame;
+    private volatile int keypadState;
 
     private DoJaRuntime(LaunchConfig config, IApplication application) {
         this.config = config;
@@ -93,6 +100,10 @@ public final class DoJaRuntime {
         return scheduler;
     }
 
+    public ReentrantLock surfaceLock() {
+        return surfaceLock;
+    }
+
     public IApplication application() {
         return application;
     }
@@ -129,6 +140,7 @@ public final class DoJaRuntime {
         if (!shutdown.compareAndSet(false, true)) {
             return;
         }
+        closeShutdownResources();
         scheduler.shutdownNow();
         if (frameWindow != null) {
             SwingUtilities.invokeLater(() -> frameWindow.dispose());
@@ -137,18 +149,42 @@ public final class DoJaRuntime {
             current = null;
         }
         shutdownLatch.countDown();
+        if (config.exitOnShutdown()) {
+            System.exit(0);
+        }
     }
 
     public void awaitShutdown() throws InterruptedException {
         shutdownLatch.await();
     }
 
+    public void registerShutdownResource(AutoCloseable resource) {
+        if (resource == null || shutdown.get()) {
+            if (resource != null) {
+                try {
+                    resource.close();
+                } catch (Exception ignored) {
+                }
+            }
+            return;
+        }
+        shutdownResources.add(resource);
+    }
+
+    public void unregisterShutdownResource(AutoCloseable resource) {
+        if (resource != null) {
+            shutdownResources.remove(resource);
+        }
+    }
+
     public void setCurrentFrame(Frame frame) {
         this.currentFrame = frame;
         if (frame instanceof Canvas canvas) {
             ensureCanvasSurface(canvas);
+            presentedFrame = snapshotCanvasImage(canvas);
             requestRender(canvas);
         } else {
+            presentedFrame = null;
             repaintWindow();
         }
     }
@@ -165,10 +201,9 @@ public final class DoJaRuntime {
                 g.lock();
                 canvas.paint(g);
             } finally {
-                g.unlock(false);
+                g.unlock(true);
                 g.dispose();
             }
-            repaintWindow();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             paintTask.run();
@@ -196,12 +231,13 @@ public final class DoJaRuntime {
     }
 
     public void dispatchTimerEvent(Canvas canvas, int param) {
-        Runnable eventTask = () -> canvas.processEvent(Display.TIMER_EXPIRED_EVENT, param);
-        if (SwingUtilities.isEventDispatchThread()) {
-            eventTask.run();
-        } else {
-            SwingUtilities.invokeLater(eventTask);
+        if (shutdown.get()) {
+            return;
         }
+        if (TRACE_EVENTS) {
+            System.err.println("timer event canvas=" + canvas.getClass().getName() + " param=" + param);
+        }
+        canvas.processEvent(Display.TIMER_EXPIRED_EVENT, param);
     }
 
     public void dispatchSyntheticKey(int dojaKey, int eventType) {
@@ -215,6 +251,9 @@ public final class DoJaRuntime {
             return;
         }
         Runnable eventTask = () -> {
+            if (TRACE_EVENTS) {
+                System.err.println("key event type=" + eventType + " key=" + dojaKey + " canvas=" + canvas.getClass().getName());
+            }
             canvas.processEvent(eventType, dojaKey);
             repaintWindow();
         };
@@ -240,8 +279,9 @@ public final class DoJaRuntime {
         return openResourceStream(path, prepared, loader);
     }
 
-    public void notifySurfaceFlush(Canvas canvas) {
+    public void notifySurfaceFlush(Canvas canvas, BufferedImage frame) {
         if (canvas == currentFrame) {
+            presentedFrame = frame == null ? snapshotCanvasImage(canvas) : frame;
             repaintWindow();
         }
     }
@@ -251,17 +291,41 @@ public final class DoJaRuntime {
     }
 
     private BufferedImage getCanvasImage(Canvas canvas) {
-        Object surface = invokeCanvasMethod(canvas, "surface", new Class<?>[0]);
-        if (surface == null) {
+        surfaceLock.lock();
+        try {
+            Object surface = invokeCanvasMethod(canvas, "surface", new Class<?>[0]);
+            if (surface == null) {
+                return null;
+            }
+            try {
+                Method imageMethod = surface.getClass().getDeclaredMethod("image");
+                imageMethod.setAccessible(true);
+                return (BufferedImage) imageMethod.invoke(surface);
+            } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                throw new IllegalStateException("Failed to access canvas surface image", e);
+            }
+        } finally {
+            surfaceLock.unlock();
+        }
+    }
+
+    private BufferedImage snapshotCanvasImage(Canvas canvas) {
+        BufferedImage image = getCanvasImage(canvas);
+        return copyCanvasImage(image);
+    }
+
+    private BufferedImage copyCanvasImage(BufferedImage image) {
+        if (image == null) {
             return null;
         }
+        BufferedImage copy = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = copy.createGraphics();
         try {
-            Method imageMethod = surface.getClass().getDeclaredMethod("image");
-            imageMethod.setAccessible(true);
-            return (BufferedImage) imageMethod.invoke(surface);
-        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
-            throw new IllegalStateException("Failed to access canvas surface image", e);
+            g2.drawImage(image, 0, 0, null);
+        } finally {
+            g2.dispose();
         }
+        return copy;
     }
 
     private Object invokeCanvasMethod(Canvas canvas, String methodName, Class<?>[] parameterTypes, Object... args) {
@@ -344,6 +408,8 @@ public final class DoJaRuntime {
         SwingUtilities.invokeLater(() -> {
             frameWindow = new JFrame(config.title());
             frameWindow.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+            frameWindow.getContentPane().setBackground(Color.BLACK);
+            frameWindow.setBackground(Color.BLACK);
             frameWindow.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosed(java.awt.event.WindowEvent e) {
@@ -363,6 +429,17 @@ public final class DoJaRuntime {
             return 0;
         }
         return 1 << keyCode;
+    }
+
+    private void closeShutdownResources() {
+        for (AutoCloseable resource : shutdownResources.toArray(AutoCloseable[]::new)) {
+            try {
+                resource.close();
+            } catch (Exception ignored) {
+            } finally {
+                shutdownResources.remove(resource);
+            }
+        }
     }
 
     private int mapKeyCode(int awtKeyCode) {
@@ -400,6 +477,8 @@ public final class DoJaRuntime {
         private HostPanel(DoJaRuntime runtime) {
             this.runtime = runtime;
             setPreferredSize(new Dimension(runtime.displayWidth() * SCALE, runtime.displayHeight() * SCALE));
+            setBackground(Color.BLACK);
+            setOpaque(true);
             setFocusable(true);
             addKeyListener(new KeyAdapter() {
                 @Override
@@ -431,7 +510,7 @@ public final class DoJaRuntime {
             g2.setColor(Color.BLACK);
             g2.fillRect(0, 0, getWidth(), getHeight());
             if (runtime.currentFrame instanceof Canvas canvas) {
-                BufferedImage image = runtime.getCanvasImage(canvas);
+                BufferedImage image = runtime.presentedFrame;
                 if (image != null) {
                     g2.drawImage(image, 0, 0, image.getWidth() * SCALE, image.getHeight() * SCALE, null);
                 }

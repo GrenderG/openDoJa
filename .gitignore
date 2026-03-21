@@ -22,6 +22,7 @@ out/
 # Reverse-engineering inputs and local task logs
 resources/
 tasks/
+AGENTS.md
 COMPATIBILITY_NOTES.md
 DECOMPILED_GAME_PORTING.md
 IMPLEMENTATION_PLAN.md

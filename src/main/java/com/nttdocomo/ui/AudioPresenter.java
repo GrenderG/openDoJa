@@ -1,8 +1,8 @@
 package com.nttdocomo.ui;
 
 import opendoja.audio.mld.MldMidiAdapter;
+import opendoja.host.DoJaRuntime;
 
-import javax.sound.midi.MidiSystem;
 import javax.sound.midi.MidiSystem;
 import javax.sound.midi.Sequencer;
 import javax.sound.sampled.AudioInputStream;
@@ -13,7 +13,8 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AudioPresenter implements MediaPresenter {
+public class AudioPresenter implements MediaPresenter, AutoCloseable {
+    private static final boolean TRACE_AUDIO_FAILURES = Boolean.getBoolean("opendoja.traceAudioFailures");
     public static final int AUDIO_PLAYING = 1;
     public static final int AUDIO_STOPPED = 2;
     public static final int AUDIO_COMPLETE = 3;
@@ -43,6 +44,7 @@ public class AudioPresenter implements MediaPresenter {
     private int pausedPosition;
 
     protected AudioPresenter() {
+        registerWithRuntime();
     }
 
     public Audio3D getAudio3D() {
@@ -81,6 +83,7 @@ public class AudioPresenter implements MediaPresenter {
     }
 
     public void play(int loopCount) {
+        registerWithRuntime();
         stop();
         if (!(resource instanceof MediaManager.BasicMediaSound sound)) {
             notifyListener(AUDIO_STOPPED, 0);
@@ -119,7 +122,9 @@ public class AudioPresenter implements MediaPresenter {
             }
             notifyListener(AUDIO_PLAYING, 0);
         } catch (Exception e) {
-            java.awt.Toolkit.getDefaultToolkit().beep();
+            if (TRACE_AUDIO_FAILURES) {
+                e.printStackTrace(System.err);
+            }
             notifyListener(AUDIO_STOPPED, 0);
         }
     }
@@ -187,6 +192,11 @@ public class AudioPresenter implements MediaPresenter {
     }
 
     @Override
+    public void close() {
+        stop();
+    }
+
+    @Override
     public void setAttribute(int key, int value) {
         attributes.put(key, value);
     }
@@ -209,6 +219,13 @@ public class AudioPresenter implements MediaPresenter {
     private void notifyListener(int type, int param) {
         if (mediaListener != null) {
             mediaListener.mediaAction(this, type, param);
+        }
+    }
+
+    private void registerWithRuntime() {
+        DoJaRuntime runtime = DoJaRuntime.current();
+        if (runtime != null) {
+            runtime.registerShutdownResource(this);
         }
     }
 }

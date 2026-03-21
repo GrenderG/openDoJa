@@ -18,6 +18,7 @@ public final class LaunchConfig {
     private final String sourceUrl;
     private final Map<String, String> parameters;
     private final Path scratchpadRoot;
+    private final boolean exitOnShutdown;
 
     private LaunchConfig(Builder builder) {
         this.applicationClass = builder.applicationClass;
@@ -29,6 +30,7 @@ public final class LaunchConfig {
         this.sourceUrl = builder.sourceUrl;
         this.parameters = Collections.unmodifiableMap(new HashMap<>(builder.parameters));
         this.scratchpadRoot = builder.scratchpadRoot;
+        this.exitOnShutdown = builder.exitOnShutdown;
     }
 
     public static Builder builder(Class<? extends IApplication> applicationClass) {
@@ -71,6 +73,10 @@ public final class LaunchConfig {
         return scratchpadRoot;
     }
 
+    public boolean exitOnShutdown() {
+        return exitOnShutdown;
+    }
+
     public static final class Builder {
         private final Class<? extends IApplication> applicationClass;
         private int width = 240;
@@ -81,6 +87,7 @@ public final class LaunchConfig {
         private String sourceUrl = "resource:///";
         private final Map<String, String> parameters = new HashMap<>();
         private Path scratchpadRoot;
+        private boolean exitOnShutdown;
 
         private Builder(Class<? extends IApplication> applicationClass) {
             this.applicationClass = applicationClass;
@@ -127,6 +134,11 @@ public final class LaunchConfig {
 
         public Builder scratchpadRoot(Path scratchpadRoot) {
             this.scratchpadRoot = scratchpadRoot;
+            return this;
+        }
+
+        public Builder exitOnShutdown(boolean exitOnShutdown) {
+            this.exitOnShutdown = exitOnShutdown;
             return this;
         }
 

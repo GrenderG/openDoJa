@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -69,7 +70,7 @@ public final class MediaManager {
 
     public static MediaSound getSound(String name) {
         try (InputStream in = openNamedInputStream(name)) {
-            return new BasicMediaSound(readAllBytes(in), name);
+            return new BasicMediaSound(trimSoundBytes(readAllBytes(in)), name);
         } catch (IOException e) {
             throw new UIException(UIException.UNSUPPORTED_FORMAT, e.getMessage());
         }
@@ -77,14 +78,14 @@ public final class MediaManager {
 
     public static MediaSound getSound(InputStream inputStream) {
         try {
-            return new BasicMediaSound(readAllBytes(inputStream), null);
+            return new BasicMediaSound(trimSoundBytes(readAllBytes(inputStream)), null);
         } catch (IOException e) {
             throw new UIException(UIException.UNSUPPORTED_FORMAT, e.getMessage());
         }
     }
 
     public static MediaSound getSound(byte[] data) {
-        return new BasicMediaSound(data, null);
+        return new BasicMediaSound(trimSoundBytes(data), null);
     }
 
     public static AvatarData getAvatarData(String name) {
@@ -170,6 +171,33 @@ public final class MediaManager {
             return Files.newInputStream(filesystemPath);
         }
         throw new IOException("Media resource not found: " + name);
+    }
+
+    private static byte[] trimSoundBytes(byte[] data) {
+        if (data == null || data.length < 8) {
+            return data == null ? new byte[0] : data;
+        }
+        if (startsWith(data, "melo")) {
+            int payloadLength = ((data[4] & 0xFF) << 24)
+                    | ((data[5] & 0xFF) << 16)
+                    | ((data[6] & 0xFF) << 8)
+                    | (data[7] & 0xFF);
+            int totalLength = Math.min(data.length, Math.max(8, payloadLength + 8));
+            return Arrays.copyOf(data, totalLength);
+        }
+        return data;
+    }
+
+    private static boolean startsWith(byte[] data, String prefix) {
+        if (data.length < prefix.length()) {
+            return false;
+        }
+        for (int i = 0; i < prefix.length(); i++) {
+            if (data[i] != (byte) prefix.charAt(i)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String normalizeBareResourceName(String name) {
