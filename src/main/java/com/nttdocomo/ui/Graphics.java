@@ -6,6 +6,7 @@ import opendoja.g3d.MascotFigure;
 import opendoja.g3d.Software3DContext;
 import opendoja.g3d.SoftwareTexture;
 import opendoja.host.DoJaRuntime;
+import opendoja.host.OpenDoJaLog;
 
 import java.awt.AlphaComposite;
 import java.awt.Color;
@@ -476,7 +477,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         try {
             threeD.setUiParallelView(width, height);
             if (TRACE_3D_CALLS) {
-                System.err.printf("3D call setParallelView width=%d height=%d%n", width, height);
+                OpenDoJaLog.debug(Graphics.class, () -> "3D call setParallelView width=" + width + " height=" + height);
             }
         } catch (RuntimeException e) {
             throw traceFailure("setParallelView", e);
@@ -488,7 +489,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         try {
             threeD.setUiPerspectiveView(a, b, c, d);
             if (TRACE_3D_CALLS) {
-                System.err.printf("3D call setPerspectiveViewWH near=%f far=%f width=%d height=%d%n", a, b, c, d);
+                OpenDoJaLog.debug(Graphics.class, () -> "3D call setPerspectiveViewWH near=" + a + " far=" + b + " width=" + c + " height=" + d);
             }
         } catch (RuntimeException e) {
             throw traceFailure("setPerspectiveView(float,float,int,int)", e);
@@ -500,7 +501,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         try {
             threeD.setUiPerspectiveView(a, b, c);
             if (TRACE_3D_CALLS) {
-                System.err.printf("3D call setPerspectiveViewFov near=%f far=%f angle=%f%n", a, b, c);
+                OpenDoJaLog.debug(Graphics.class, () -> "3D call setPerspectiveViewFov near=" + a + " far=" + b + " angle=" + c);
             }
         } catch (RuntimeException e) {
             throw traceFailure("setPerspectiveView(float,float,float)", e);
@@ -522,7 +523,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
             float[] matrix = transform == null ? Software3DContext.identity() : invokeHidden(transform, "raw", float[].class);
             threeD.setUiTransform(matrix);
             if (TRACE_3D_CALLS) {
-                System.err.printf("3D call setTransform matrix=%s%n", Arrays.toString(matrix));
+                OpenDoJaLog.debug(Graphics.class, () -> "3D call setTransform matrix=" + Arrays.toString(matrix));
             }
         } catch (RuntimeException e) {
             throw traceFailure("setTransform", e);
@@ -562,25 +563,20 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
                 prepare3DDepthFrame();
                 if (TRACE_3D_CALLS) {
                     int polygons = handle == null || handle.model() == null ? -1 : handle.model().polygons().length;
-                    System.err.printf(
-                            "3D call renderObject3D type=Figure polygons=%d textures=%d pattern=%d transform=%s%n",
-                            polygons,
-                            handle == null ? -1 : handle.numTextures(),
-                            handle == null ? -1 : handle.patternMask(),
-                            objectMatrix == null ? "null" : Arrays.toString(objectMatrix)
-                    );
+                    OpenDoJaLog.debug(Graphics.class, () -> "3D call renderObject3D type=Figure polygons=" + polygons
+                            + " textures=" + (handle == null ? -1 : handle.numTextures())
+                            + " pattern=" + (handle == null ? -1 : handle.patternMask())
+                            + " transform=" + (objectMatrix == null ? "null" : Arrays.toString(objectMatrix)));
                 }
                 threeD.renderUiFigure(delegate, surface.image(), originX, originY, surface.width(), surface.height(), handle, objectMatrix, invokeHiddenInt(object, "blendModeValue"), invokeHiddenFloat(object, "transparencyValue"));
             } else if (object instanceof com.nttdocomo.ui.graphics3d.Primitive primitive) {
                 SoftwareTexture texture = invokeHidden(primitive, "textureHandle", SoftwareTexture.class);
                 prepare3DDepthFrame();
                 if (TRACE_3D_CALLS) {
-                    System.err.printf(
-                            "3D call renderObject3D type=Primitive primitiveType=%d count=%d transform=%s%n",
-                            primitive.getPrimitiveType(),
-                            primitive.size(),
-                            objectMatrix == null ? "null" : Arrays.toString(objectMatrix)
-                    );
+                    OpenDoJaLog.debug(Graphics.class, () -> "3D call renderObject3D type=Primitive primitiveType="
+                            + primitive.getPrimitiveType()
+                            + " count=" + primitive.size()
+                            + " transform=" + (objectMatrix == null ? "null" : Arrays.toString(objectMatrix)));
                 }
                 threeD.renderUiPrimitive(delegate, surface.image(), originX, originY, surface.width(), surface.height(), primitive.getPrimitiveType(), primitive.getPrimitiveParam(), primitive.size(), primitive.getVertexArray(), primitive.getColorArray(), primitive.getTextureCoordArray(), texture, objectMatrix, invokeHiddenInt(object, "blendModeValue"), invokeHiddenFloat(object, "transparencyValue"));
             }
@@ -669,7 +665,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
             MascotFigure handle = invokeHidden(figure, "handle", MascotFigure.class);
             prepare3DDepthFrame();
             if (TRACE_3D_CALLS) {
-                System.err.printf("3D call renderFigure %s%n", describeOptFigure(handle));
+                OpenDoJaLog.debug(Graphics.class, () -> "3D call renderFigure " + describeOptFigure(handle));
             }
             threeD.renderOptFigure(delegate, surface.image(), originX, originY, surface.width(), surface.height(), handle);
         } catch (RuntimeException e) {
@@ -697,7 +693,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     @Override
     public void enableLight(boolean enabled) {
         if (TRACE_3D_CALLS) {
-            System.err.printf("3D call enableLight enabled=%s%n", enabled);
+            OpenDoJaLog.debug(Graphics.class, () -> "3D call enableLight enabled=" + enabled);
         }
         threeD.enableOptLight(enabled);
     }
@@ -705,20 +701,17 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     @Override
     public void setAmbientLight(int color) {
         if (TRACE_3D_CALLS) {
-            System.err.printf("3D call setAmbientLight value=%d%n", color);
+            OpenDoJaLog.debug(Graphics.class, () -> "3D call setAmbientLight value=" + color);
         }
     }
 
     @Override
     public void setDirectionLight(com.nttdocomo.opt.ui.j3d.Vector3D direction, int color) {
         if (TRACE_3D_CALLS) {
-            System.err.printf(
-                    "3D call setDirectionLight dir=(%d,%d,%d) value=%d%n",
-                    direction == null ? 0 : direction.x,
-                    direction == null ? 0 : direction.y,
-                    direction == null ? 0 : direction.z,
-                    color
-            );
+            OpenDoJaLog.debug(Graphics.class, () -> "3D call setDirectionLight dir=("
+                    + (direction == null ? 0 : direction.x) + ","
+                    + (direction == null ? 0 : direction.y) + ","
+                    + (direction == null ? 0 : direction.z) + ") value=" + color);
         }
     }
 
@@ -739,8 +732,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
 
     private RuntimeException traceFailure(String operation, RuntimeException failure) {
         if (TRACE_FAILURES) {
-            System.err.println("openDoJa graphics failure in " + operation);
-            failure.printStackTrace(System.err);
+            OpenDoJaLog.error(Graphics.class, "openDoJa graphics failure in " + operation, failure);
         }
         return failure;
     }
@@ -757,7 +749,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     public void setPrimitiveTextureArray(com.nttdocomo.opt.ui.j3d.Texture texture) {
         if (TRACE_3D_CALLS) {
             SoftwareTexture handle = texture == null ? null : invokeHidden(texture, "handle", SoftwareTexture.class);
-            System.err.printf("3D call setPrimitiveTextureArray single texture=%s%n", describeTexture(handle));
+            OpenDoJaLog.debug(Graphics.class, () -> "3D call setPrimitiveTextureArray single texture=" + describeTexture(handle));
         }
         threeD.setPrimitiveTextures(texture == null ? null : new SoftwareTexture[]{invokeHidden(texture, "handle", SoftwareTexture.class)});
     }
@@ -766,7 +758,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     public void setPrimitiveTextureArray(com.nttdocomo.opt.ui.j3d.Texture[] textures) {
         if (textures == null) {
             if (TRACE_3D_CALLS) {
-                System.err.println("3D call setPrimitiveTextureArray array=null");
+                OpenDoJaLog.debug(Graphics.class, "3D call setPrimitiveTextureArray array=null");
             }
             threeD.setPrimitiveTextures(null);
             return;
@@ -776,7 +768,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
             converted[i] = invokeHidden(textures[i], "handle", SoftwareTexture.class);
         }
         if (TRACE_3D_CALLS) {
-            System.err.printf("3D call setPrimitiveTextureArray array=%s%n", describeTextures(converted));
+            OpenDoJaLog.debug(Graphics.class, () -> "3D call setPrimitiveTextureArray array=" + describeTextures(converted));
         }
         threeD.setPrimitiveTextures(converted);
     }
@@ -784,7 +776,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     @Override
     public void setPrimitiveTexture(int index) {
         if (TRACE_3D_CALLS) {
-            System.err.printf("3D call setPrimitiveTexture index=%d%n", index);
+            OpenDoJaLog.debug(Graphics.class, () -> "3D call setPrimitiveTexture index=" + index);
         }
         threeD.setPrimitiveTexture(index);
     }
@@ -793,15 +785,12 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     public void renderPrimitives(com.nttdocomo.opt.ui.j3d.PrimitiveArray primitives, int attr) {
         prepare3DDepthFrame();
         if (TRACE_3D_CALLS && primitives != null) {
-            System.err.printf(
-                    "3D call renderPrimitives type=%d param=%d size=%d attr=%d textures=%s selectedTexture=%d%n",
-                    primitives.getType(),
-                    primitives.getParam(),
-                    primitives.size(),
-                    attr,
-                    describeTextures(threeD.primitiveTexturesSnapshot()),
-                    threeD.primitiveTextureIndex()
-            );
+            OpenDoJaLog.debug(Graphics.class, () -> "3D call renderPrimitives type=" + primitives.getType()
+                    + " param=" + primitives.getParam()
+                    + " size=" + primitives.size()
+                    + " attr=" + attr
+                    + " textures=" + describeTextures(threeD.primitiveTexturesSnapshot())
+                    + " selectedTexture=" + threeD.primitiveTextureIndex());
         }
         threeD.renderOptPrimitives(delegate, surface.image(), originX, originY, surface.width(), surface.height(), primitives, attr);
     }
@@ -810,17 +799,14 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     public void renderPrimitives(com.nttdocomo.opt.ui.j3d.PrimitiveArray primitives, int start, int count, int attr) {
         prepare3DDepthFrame();
         if (TRACE_3D_CALLS && primitives != null) {
-            System.err.printf(
-                    "3D call renderPrimitivesRange type=%d param=%d size=%d start=%d count=%d attr=%d textures=%s selectedTexture=%d%n",
-                    primitives.getType(),
-                    primitives.getParam(),
-                    primitives.size(),
-                    start,
-                    count,
-                    attr,
-                    describeTextures(threeD.primitiveTexturesSnapshot()),
-                    threeD.primitiveTextureIndex()
-            );
+            OpenDoJaLog.debug(Graphics.class, () -> "3D call renderPrimitivesRange type=" + primitives.getType()
+                    + " param=" + primitives.getParam()
+                    + " size=" + primitives.size()
+                    + " start=" + start
+                    + " count=" + count
+                    + " attr=" + attr
+                    + " textures=" + describeTextures(threeD.primitiveTexturesSnapshot())
+                    + " selectedTexture=" + threeD.primitiveTextureIndex());
         }
         // The three-int DoJa overload renders a slice of the PrimitiveArray.
         threeD.renderOptPrimitivesRange(delegate, surface.image(), originX, originY, surface.width(), surface.height(), primitives, start, count, attr);

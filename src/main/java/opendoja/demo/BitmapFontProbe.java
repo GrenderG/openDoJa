@@ -9,25 +9,26 @@ public final class BitmapFontProbe {
     }
 
     public static void main(String[] args) {
+        DemoLog.enableInfoLogging();
         Font font12 = Font.getFont(Font.FACE_SYSTEM | Font.STYLE_PLAIN, 12);
         Font font20 = Font.getFont(Font.FACE_SYSTEM | Font.STYLE_PLAIN, 20);
 
-        System.out.printf("font12Class=%s%n", font12.getClass().getName());
-        System.out.printf("font20Class=%s%n", font20.getClass().getName());
-        System.out.printf("sizes=%s%n", java.util.Arrays.toString(Font.getSupportedFontSizes()));
-        System.out.printf("asciiWidth=%d%n", font12.stringWidth("ABC"));
-        System.out.printf("halfKanaWidth=%d%n", font12.stringWidth("\uFF71\uFF72\uFF73"));
-        System.out.printf("fullWidthWidth=%d%n", font12.stringWidth("\u6F22\u5B57"));
-        System.out.printf("questBracketWidth=%d%n", font12.stringWidth("\u300A\u300B"));
-        System.out.printf("spaceWidth=%d%n", font12.stringWidth("A A") - font12.stringWidth("AA"));
-        System.out.printf("fallbackWidth=%d questionWidth=%d%n", font12.stringWidth("\uFFFD"), font12.stringWidth("?"));
-        System.out.printf("asciiPixels=%d%n", renderPixels(font20, "ABC"));
-        System.out.printf("halfKanaPixels=%d%n", renderPixels(font20, "\uFF71\uFF72\uFF73"));
-        System.out.printf("fullWidthPixels=%d%n", renderPixels(font20, "\u6F22\u5B57"));
-        System.out.printf("questBracketPixels=%d%n", renderPixels(font20, "\u300A\u300B"));
-        System.out.printf("spacePixels=%d%n", renderPixels(font20, "   "));
-        System.out.printf("questionPixels=%d fallbackPixels=%d%n", renderPixels(font20, "?"), renderPixels(font20, "\uFFFD"));
-        System.out.printf("pictogramPixels=%d%n", renderPixels(font20, "\uE63E"));
+        DemoLog.info(BitmapFontProbe.class, () -> "font12Class=" + font12.getClass().getName());
+        DemoLog.info(BitmapFontProbe.class, () -> "font20Class=" + font20.getClass().getName());
+        DemoLog.info(BitmapFontProbe.class, () -> "sizes=" + java.util.Arrays.toString(Font.getSupportedFontSizes()));
+        DemoLog.info(BitmapFontProbe.class, () -> "asciiWidth=" + font12.stringWidth("ABC"));
+        DemoLog.info(BitmapFontProbe.class, () -> "halfKanaWidth=" + font12.stringWidth("\uFF71\uFF72\uFF73"));
+        DemoLog.info(BitmapFontProbe.class, () -> "fullWidthWidth=" + font12.stringWidth("\u6F22\u5B57"));
+        DemoLog.info(BitmapFontProbe.class, () -> "questBracketWidth=" + font12.stringWidth("\u300A\u300B"));
+        DemoLog.info(BitmapFontProbe.class, () -> "spaceWidth=" + (font12.stringWidth("A A") - font12.stringWidth("AA")));
+        DemoLog.info(BitmapFontProbe.class, () -> "fallbackWidth=" + font12.stringWidth("\uFFFD") + " questionWidth=" + font12.stringWidth("?"));
+        DemoLog.info(BitmapFontProbe.class, () -> "asciiPixels=" + renderPixels(font20, "ABC"));
+        DemoLog.info(BitmapFontProbe.class, () -> "halfKanaPixels=" + renderPixels(font20, "\uFF71\uFF72\uFF73"));
+        DemoLog.info(BitmapFontProbe.class, () -> "fullWidthPixels=" + renderPixels(font20, "\u6F22\u5B57"));
+        DemoLog.info(BitmapFontProbe.class, () -> "questBracketPixels=" + renderPixels(font20, "\u300A\u300B"));
+        DemoLog.info(BitmapFontProbe.class, () -> "spacePixels=" + renderPixels(font20, "   "));
+        DemoLog.info(BitmapFontProbe.class, () -> "questionPixels=" + renderPixels(font20, "?") + " fallbackPixels=" + renderPixels(font20, "\uFFFD"));
+        DemoLog.info(BitmapFontProbe.class, () -> "pictogramPixels=" + renderPixels(font20, "\uE63E"));
     }
 
     private static int renderPixels(Font font, String text) {

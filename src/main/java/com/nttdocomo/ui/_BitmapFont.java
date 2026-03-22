@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -36,6 +37,15 @@ class _BitmapFont extends Font {
     private static final int IDEOGRAPHIC_SPACE = 0x3000;
     private static final java.awt.Font PLACEHOLDER_FONT = new java.awt.Font(java.awt.Font.DIALOG, java.awt.Font.PLAIN, 12);
     private static final Map<Integer, Strike> STRIKES = loadStrikes();
+    private static final int MAX_RENDER_CACHE_ENTRIES = Integer.getInteger("opendoja.bitmapFontCacheEntries", 256);
+    // UI-heavy titles redraw the same handset strings every frame. Cache the rasterized result so
+    // repeated dialog/menu paints do not allocate and blit glyph bitmaps from scratch each time.
+    private static final Map<RenderKey, BufferedImage> RENDER_CACHE = new LinkedHashMap<>(64, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<RenderKey, BufferedImage> eldest) {
+            return size() > MAX_RENDER_CACHE_ENTRIES;
+        }
+    };
 
     private final Strike strike;
 
@@ -124,14 +134,32 @@ class _BitmapFont extends Font {
 
     @Override
     void drawString(Graphics2D graphics, String text, int x, int y, int argbColor) {
-        BufferedImage image = draw(text, argbColor);
+        BufferedImage image = rendered(text, argbColor);
         if (image != null) {
             graphics.drawImage(image, x, y - strike.baseline, null);
         }
     }
 
-    BufferedImage draw(String value, int argbColor) {
+    private BufferedImage rendered(String value, int argbColor) {
         String text = value == null ? "" : value;
+        RenderKey key = new RenderKey(strike, argbColor, text);
+        synchronized (RENDER_CACHE) {
+            BufferedImage cached = RENDER_CACHE.get(key);
+            if (cached != null) {
+                return cached;
+            }
+        }
+        BufferedImage image = draw(text, argbColor);
+        if (image == null) {
+            return null;
+        }
+        synchronized (RENDER_CACHE) {
+            RENDER_CACHE.put(key, image);
+        }
+        return image;
+    }
+
+    private BufferedImage draw(String text, int argbColor) {
         String[] lines = text.split("\\r?\\n", -1);
         int width = 0;
         for (String line : lines) {
@@ -345,5 +373,8 @@ class _BitmapFont extends Font {
         int halfAdvance() {
             return height / 2;
         }
+    }
+
+    private record RenderKey(Strike strike, int argbColor, String text) {
     }
 }

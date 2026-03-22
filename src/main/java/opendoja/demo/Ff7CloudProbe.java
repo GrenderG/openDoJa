@@ -29,6 +29,7 @@ public final class Ff7CloudProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         Path outputDir = args.length == 0 ? Path.of("/tmp/opendoja-captures") : Path.of(args[0]);
         Files.createDirectories(outputDir);
 
@@ -43,8 +44,8 @@ public final class Ff7CloudProbe {
             Path flat = outputDir.resolve("ff7-cloud-probe-flat-" + pattern + ".png");
             render(textured, model, actionTable, texture, pattern);
             render(flat, model, actionTable, whiteTexture, pattern);
-            System.out.println(textured.toAbsolutePath());
-            System.out.println(flat.toAbsolutePath());
+            DemoLog.info(Ff7CloudProbe.class, () -> textured.toAbsolutePath().toString());
+            DemoLog.info(Ff7CloudProbe.class, () -> flat.toAbsolutePath().toString());
         }
     }
 

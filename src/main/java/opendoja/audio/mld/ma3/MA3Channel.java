@@ -136,7 +136,7 @@ class MA3Channel
 	{
 		float bend = this.instance.bendOut * this.bendOut;
 		for (MA3Note note : this.notesOut)
-			note.onFrequency(this.bendOut);
+			note.onFrequency(bend);
 	}
 	
 	/**

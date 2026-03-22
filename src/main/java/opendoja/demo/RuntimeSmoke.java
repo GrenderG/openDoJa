@@ -22,6 +22,7 @@ public final class RuntimeSmoke {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         System.setProperty("java.awt.headless", "true");
         IApplication app = opendoja.host.DesktopLauncher.launch(SmokeApp.class);
         if (!(Display.getCurrent() instanceof SmokeCanvas)) {
@@ -65,7 +66,7 @@ public final class RuntimeSmoke {
         }
         timer.dispose();
         app.terminate();
-        System.out.println("Runtime smoke OK");
+        DemoLog.info(RuntimeSmoke.class, "Runtime smoke OK");
     }
 
     public static final class SmokeApp extends IApplication {

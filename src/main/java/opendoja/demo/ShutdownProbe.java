@@ -10,28 +10,29 @@ public final class ShutdownProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         if (args.length != 2) {
             throw new IllegalArgumentException("Usage: ShutdownProbe <jam-path> <delay-ms>");
         }
         Path jamPath = Path.of(args[0]);
         long delayMillis = Long.parseLong(args[1]);
-        System.out.println("probe-launch");
+        DemoLog.info(ShutdownProbe.class, "probe-launch");
         JamLauncher.launch(jamPath);
-        System.out.println("probe-launched");
+        DemoLog.info(ShutdownProbe.class, "probe-launched");
         Thread.sleep(Math.max(0L, delayMillis));
-        System.out.println("probe-shutdown-start");
+        DemoLog.info(ShutdownProbe.class, "probe-shutdown-start");
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime == null) {
             throw new IllegalStateException("DoJa runtime did not initialize");
         }
         runtime.shutdown();
         runtime.awaitShutdown();
-        System.out.println("probe-shutdown-done");
+        DemoLog.info(ShutdownProbe.class, "probe-shutdown-done");
         for (Thread thread : Thread.getAllStackTraces().keySet()) {
             if (thread.isAlive() && !thread.isDaemon() && thread != Thread.currentThread()) {
-                System.out.println("non-daemon-thread=" + thread.getName() + " state=" + thread.getState());
+                DemoLog.info(ShutdownProbe.class, () -> "non-daemon-thread=" + thread.getName() + " state=" + thread.getState());
             }
         }
-        System.out.println("shutdown-complete");
+        DemoLog.info(ShutdownProbe.class, "shutdown-complete");
     }
 }

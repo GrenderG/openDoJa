@@ -10,6 +10,7 @@ public final class AssetProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         if (args.length == 0) {
             throw new IllegalArgumentException("Usage: AssetProbe <resource-name> [resource-name...]");
         }
@@ -22,17 +23,17 @@ public final class AssetProbe {
     private static void probe(ClassLoader loader, String name) throws IOException {
         try (InputStream in = loader.getResourceAsStream(name)) {
             if (in == null) {
-                System.out.println(name + " -> missing");
+                DemoLog.info(AssetProbe.class, () -> name + " -> missing");
                 return;
             }
             byte[] data = in.readAllBytes();
             String kind = identify(data);
             if ("Object3D".equals(kind)) {
                 Object3D object = Object3D.createInstance(data);
-                System.out.println(name + " -> " + (object == null ? "null" : object.getClass().getName()));
+                DemoLog.info(AssetProbe.class, () -> name + " -> " + (object == null ? "null" : object.getClass().getName()));
                 return;
             }
-            System.out.println(name + " -> " + kind + " (" + data.length + " bytes)");
+            DemoLog.info(AssetProbe.class, () -> name + " -> " + kind + " (" + data.length + " bytes)");
         }
     }
 

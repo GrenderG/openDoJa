@@ -1,6 +1,7 @@
 package opendoja.g3d;
 
 import com.nttdocomo.opt.ui.j3d.PrimitiveArray;
+import opendoja.host.OpenDoJaLog;
 
 import java.awt.AlphaComposite;
 import java.awt.Color;
@@ -246,33 +247,19 @@ public final class Software3DContext {
                 maxZ = java.lang.Math.max(maxZ, point[2]);
             }
             debugProjectionLogged = true;
-            System.err.printf(
-                    "3D debug projection=%s near=%f far=%f scaleX=%f scaleY=%f depthOffset=%f transformedX=[%f,%f] transformedY=[%f,%f] transformedZ=[%f,%f] matrix=[%f,%f,%f,%f | %f,%f,%f,%f | %f,%f,%f,%f]%n",
-                    uiPerspectiveMode,
-                    projection.near(),
-                    projection.far(),
-                    projection.scaleX(),
-                    projection.scaleY(),
-                    projection.depthOffset(),
-                    minX,
-                    maxX,
-                    minY,
-                    maxY,
-                    minZ,
-                    maxZ,
-                    transform[0],
-                    transform[1],
-                    transform[2],
-                    transform[3],
-                    transform[4],
-                    transform[5],
-                    transform[6],
-                    transform[7],
-                    transform[8],
-                    transform[9],
-                    transform[10],
-                    transform[11]
-            );
+            String projectionMessage = "3D debug projection=" + uiPerspectiveMode
+                    + " near=" + projection.near()
+                    + " far=" + projection.far()
+                    + " scaleX=" + projection.scaleX()
+                    + " scaleY=" + projection.scaleY()
+                    + " depthOffset=" + projection.depthOffset()
+                    + " transformedX=[" + minX + "," + maxX + "]"
+                    + " transformedY=[" + minY + "," + maxY + "]"
+                    + " transformedZ=[" + minZ + "," + maxZ + "]"
+                    + " matrix=[" + transform[0] + "," + transform[1] + "," + transform[2] + "," + transform[3]
+                    + " | " + transform[4] + "," + transform[5] + "," + transform[6] + "," + transform[7]
+                    + " | " + transform[8] + "," + transform[9] + "," + transform[10] + "," + transform[11] + "]";
+            OpenDoJaLog.debug(Software3DContext.class, projectionMessage);
         }
         int consideredPolygons = 0;
         int clippedPolygons = 0;
@@ -350,17 +337,13 @@ public final class Software3DContext {
         }
         if (DEBUG_3D && !debugFigureStatsLogged && projection != null && model.polygons().length >= 200) {
             debugFigureStatsLogged = true;
-            System.err.printf(
-                    "3D debug figure polygons=%d considered=%d clipped=%d output=%d projectedX=[%f,%f] projectedY=[%f,%f]%n",
-                    model.polygons().length,
-                    consideredPolygons,
-                    clippedPolygons,
-                    projected.size(),
-                    projectedMinX,
-                    projectedMaxX,
-                    projectedMinY,
-                    projectedMaxY
-            );
+            String figureMessage = "3D debug figure polygons=" + model.polygons().length
+                    + " considered=" + consideredPolygons
+                    + " clipped=" + clippedPolygons
+                    + " output=" + projected.size()
+                    + " projectedX=[" + projectedMinX + "," + projectedMaxX + "]"
+                    + " projectedY=[" + projectedMinY + "," + projectedMaxY + "]";
+            OpenDoJaLog.debug(Software3DContext.class, figureMessage);
         }
         drawProjected(g, target, projected, clip);
     }

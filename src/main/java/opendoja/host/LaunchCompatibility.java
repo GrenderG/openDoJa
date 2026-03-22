@@ -10,6 +10,7 @@ import java.util.List;
 final class LaunchCompatibility {
     private static final String APPLIED_PROPERTY = "opendoja.launchCompatApplied";
     private static final String DEFAULT_ENCODING_PROPERTY = "opendoja.defaultEncoding";
+    private static final String KEEP_EXPLICIT_GC_PROPERTY = "opendoja.keepExplicitGc";
     // Probe these in order and use the first charset the host JVM exposes. The goal is CP-932
     // semantics, but some JVMs resolve the raw "CP932" alias to x-IBM942C instead of the
     // Windows/MS932 mapping the game data expects, so that alias is intentionally not listed here.
@@ -23,11 +24,13 @@ final class LaunchCompatibility {
             return;
         }
         String targetEncoding = targetDefaultEncoding();
-        if (targetEncoding == null || defaultCharsetMatches(targetEncoding)) {
+        boolean needsEncodingCompat = targetEncoding != null && !defaultCharsetMatches(targetEncoding);
+        boolean disableExplicitGc = shouldDisableExplicitGc();
+        if (!needsEncodingCompat && !disableExplicitGc) {
             return;
         }
 
-        Process process = new ProcessBuilder(buildJavaCommand(targetEncoding, JamLauncher.class.getName(),
+        Process process = new ProcessBuilder(buildJavaCommand(targetEncoding, disableExplicitGc, JamLauncher.class.getName(),
                         new String[]{jamPath.toString()}))
                 .inheritIO()
                 .start();
@@ -35,20 +38,31 @@ final class LaunchCompatibility {
         System.exit(exit);
     }
 
-    private static List<String> buildJavaCommand(String targetEncoding, String mainClass, String[] args) {
+    private static List<String> buildJavaCommand(String targetEncoding, boolean disableExplicitGc, String mainClass, String[] args) {
         List<String> command = new ArrayList<>();
         command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
         for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
-            if (arg.startsWith("-D" + APPLIED_PROPERTY + "=") || arg.startsWith("-Dfile.encoding=")) {
+            if (arg.startsWith("-D" + APPLIED_PROPERTY + "=")
+                    || arg.startsWith("-Dfile.encoding=")
+                    || arg.equals("-XX:+DisableExplicitGC")
+                    || arg.equals("-XX:-DisableExplicitGC")) {
                 continue;
             }
             command.add(arg);
         }
         command.add("-D" + APPLIED_PROPERTY + "=true");
+        if (disableExplicitGc) {
+            // Games issue System.gc() liberally around UI/resource transitions as a lightweight
+            // handset-era memory hint. On desktop HotSpot that becomes a blocking full GC, which
+            // stalls the single game thread and drags audio down with it.
+            command.add("-XX:+DisableExplicitGC");
+        }
         // Many DoJa-era games decode resource tables through String(byte[], off, len), which
         // follows the VM default charset. Modern Java defaults to UTF-8, but the handset-era
         // blobs here are Shift-JIS/Windows-31J encoded.
-        command.add("-Dfile.encoding=" + targetEncoding);
+        if (targetEncoding != null) {
+            command.add("-Dfile.encoding=" + targetEncoding);
+        }
         command.add("-cp");
         command.add(System.getProperty("java.class.path"));
         command.add(mainClass);
@@ -84,6 +98,22 @@ final class LaunchCompatibility {
         for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
             if (arg.startsWith("-Dfile.encoding=")) {
                 return arg.substring("-Dfile.encoding=".length());
+            }
+        }
+        return null;
+    }
+
+    private static boolean shouldDisableExplicitGc() {
+        if (Boolean.getBoolean(KEEP_EXPLICIT_GC_PROPERTY)) {
+            return false;
+        }
+        return explicitGcArgument() == null;
+    }
+
+    private static String explicitGcArgument() {
+        for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+            if (arg.equals("-XX:+DisableExplicitGC") || arg.equals("-XX:-DisableExplicitGC")) {
+                return arg;
             }
         }
         return null;

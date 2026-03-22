@@ -8,6 +8,7 @@ public final class Ma3DrumProbe {
     }
 
     public static void main(String[] args) {
+        DemoLog.enableInfoLogging();
         Sampler sampler = new MA3SamplerProvider(
                 MA3SamplerProvider.FM_MA3_4OP,
                 MA3SamplerProvider.FM_MA3_4OP,
@@ -32,8 +33,7 @@ public final class Ma3DrumProbe {
                 totalRms += rms;
             }
         }
-        System.out.printf("soundingKeys=%d avgRms=%.6f%n",
-                soundingKeys,
-                soundingKeys == 0 ? 0.0 : totalRms / soundingKeys);
+        DemoLog.info(Ma3DrumProbe.class, "soundingKeys=" + soundingKeys
+                + " avgRms=" + (soundingKeys == 0 ? 0.0 : totalRms / soundingKeys));
     }
 }

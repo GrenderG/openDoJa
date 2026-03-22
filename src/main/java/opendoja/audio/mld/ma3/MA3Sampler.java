@@ -661,8 +661,12 @@ public class MA3Sampler
 		// Fallback to preset
 		if (ret == null)
 		{
-			ret = ma3.algInstruments[bank < 2 ? 0 : // Apparent behavior
-				(bank & 1) << 6 | program & 0x3F];
+			// Banks 0-2 share the low preset page while the odd upper bank
+			// selects the second 64-program page. Keep the program bits either
+			// way; collapsing bank 0/1 to literal preset 0 makes every program
+			// sound identical, which is not how Yamaha MA-3 content behaves.
+			ret = ma3.algInstruments[
+				(bank < 2 ? 0 : (bank & 1) << 6) | (program & 0x3F)];
 		}
 		
 		return ret;

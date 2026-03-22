@@ -9,6 +9,7 @@ public final class AudioShutdownProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         if (args.length != 2) {
             throw new IllegalArgumentException("Usage: AudioShutdownProbe <resource-name> <delay-ms>");
         }
@@ -22,9 +23,9 @@ public final class AudioShutdownProbe {
         presenter.stop();
         for (Thread thread : Thread.getAllStackTraces().keySet()) {
             if (thread.isAlive() && !thread.isDaemon() && thread != Thread.currentThread()) {
-                System.out.println("non-daemon-thread=" + thread.getName() + " state=" + thread.getState());
+                DemoLog.info(AudioShutdownProbe.class, () -> "non-daemon-thread=" + thread.getName() + " state=" + thread.getState());
             }
         }
-        System.out.println("audio-stop-complete");
+        DemoLog.info(AudioShutdownProbe.class, "audio-stop-complete");
     }
 }

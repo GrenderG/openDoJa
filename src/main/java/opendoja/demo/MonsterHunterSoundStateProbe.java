@@ -20,6 +20,7 @@ public final class MonsterHunterSoundStateProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         long initialWaitMillis = args.length > 0 ? Long.parseLong(args[0]) : DEFAULT_INITIAL_WAIT_MILLIS;
         Path jam = Path.of("resources/sample_games/ENGLISH_PATCH__Monster_Hunter_i_for_SH_doja/bin/ENGLISH_PATCH__Monster_Hunter_i_for_SH.jam");
         IApplication app = JamLauncher.launch(jam, false);
@@ -61,14 +62,13 @@ public final class MonsterHunterSoundStateProbe {
                              Field sampledPlayerField) throws ReflectiveOperationException {
         Object prepared = preparedField.get(cursorSound);
         String kind = prepared == null ? "unprepared" : prepared.getClass().getMethod("kind").invoke(prepared).toString();
-        System.out.printf("%s soundClass=%s prepared=%s kind=%s presenterResource=%s mldPlayer=%s sampledPlayer=%s%n",
-                label,
-                cursorSound.getClass().getName(),
-                prepared != null,
-                kind,
-                describe(resourceField.get(effectPresenter)),
-                describe(mldPlayerField.get(effectPresenter)),
-                describe(sampledPlayerField.get(effectPresenter)));
+        DemoLog.info(MonsterHunterSoundStateProbe.class, label
+                + " soundClass=" + cursorSound.getClass().getName()
+                + " prepared=" + (prepared != null)
+                + " kind=" + kind
+                + " presenterResource=" + describe(resourceField.get(effectPresenter))
+                + " mldPlayer=" + describe(mldPlayerField.get(effectPresenter))
+                + " sampledPlayer=" + describe(sampledPlayerField.get(effectPresenter)));
     }
 
     private static void press(int key) throws Exception {

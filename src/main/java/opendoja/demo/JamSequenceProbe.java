@@ -12,47 +12,58 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public final class JamInputProbe {
-    private JamInputProbe() {
+/**
+ * Launches a JAM, sends a timed key sequence, and optionally captures the final frame.
+ */
+public final class JamSequenceProbe {
+    private JamSequenceProbe() {
     }
 
     public static void main(String[] args) throws Exception {
         DemoLog.enableInfoLogging();
-        if (args.length < 4 || args.length > 5) {
-            throw new IllegalArgumentException("Usage: JamInputProbe <jam-path> <before-ms> <key> <after-ms> [output-png]");
+        if (args.length < 4) {
+            throw new IllegalArgumentException(
+                    "Usage: JamSequenceProbe <jam-path> <initial-delay-ms> (<key> <after-ms>)+ [output-png]");
         }
+
         Path jamPath = Path.of(args[0]);
-        long beforeMillis = Long.parseLong(args[1]);
-        int key = parseKey(args[2]);
-        long afterMillis = Long.parseLong(args[3]);
-        Path output = args.length == 5 ? Path.of(args[4]) : null;
+        long initialDelay = Long.parseLong(args[1]);
+        Path output = (args.length & 1) == 1 ? Path.of(args[args.length - 1]) : null;
+        int actionArgs = output == null ? args.length : args.length - 1;
+        if (((actionArgs - 2) % 2) != 0) {
+            throw new IllegalArgumentException(
+                    "Usage: JamSequenceProbe <jam-path> <initial-delay-ms> (<key> <after-ms>)+ [output-png]");
+        }
 
         Thread launchThread = new Thread(() -> {
             try {
                 JamLauncher.launch(jamPath);
             } catch (Throwable throwable) {
-                DemoLog.error(JamInputProbe.class, "Launch failed", throwable);
+                DemoLog.error(JamSequenceProbe.class, "Launch failed", throwable);
             }
-        }, "jam-input-probe-launch");
+        }, "jam-sequence-probe-launch");
         launchThread.setDaemon(true);
         launchThread.start();
 
         Throwable failure = null;
         try {
             waitForRuntime();
-            Thread.sleep(java.lang.Math.max(0L, beforeMillis));
-            DoJaRuntime runtime = requireRuntime();
-            runtime.dispatchSyntheticKey(key, Display.KEY_PRESSED_EVENT);
-            Thread.sleep(200L);
-            runtime.dispatchSyntheticKey(key, Display.KEY_RELEASED_EVENT);
-            Thread.sleep(java.lang.Math.max(0L, afterMillis));
-            requireRuntime();
+            Thread.sleep(Math.max(0L, initialDelay));
+            for (int i = 2; i < actionArgs; i += 2) {
+                int key = parseKey(args[i]);
+                long afterMillis = Long.parseLong(args[i + 1]);
+                DoJaRuntime runtime = requireRuntime();
+                runtime.dispatchSyntheticKey(key, Display.KEY_PRESSED_EVENT);
+                Thread.sleep(200L);
+                runtime.dispatchSyntheticKey(key, Display.KEY_RELEASED_EVENT);
+                Thread.sleep(Math.max(0L, afterMillis));
+            }
             if (output != null) {
                 writeCurrentCanvas(output);
             }
         } catch (Throwable throwable) {
             failure = throwable;
-            DemoLog.error(JamInputProbe.class, "Probe failed", throwable);
+            DemoLog.error(JamSequenceProbe.class, "Probe failed", throwable);
         } finally {
             DoJaRuntime runtime = DoJaRuntime.current();
             if (runtime != null) {

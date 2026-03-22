@@ -25,10 +25,12 @@ public final class SampledPcmPlayer implements AutoCloseable {
     private MediaManager.PreparedSound sound;
     private int loopCount;
     private int bytePosition;
+    private volatile int volumeLevel = 100;
     private boolean active;
     private boolean paused;
     private boolean closed;
     private boolean pendingReset;
+    private byte[] scaledBuffer = new byte[CHUNK_BYTES];
 
     public SampledPcmPlayer(Listener listener) {
         this.listener = listener;
@@ -90,6 +92,10 @@ public final class SampledPcmPlayer implements AutoCloseable {
             int repeats = loopCount <= 0 ? 1 : loopCount;
             return (int) Math.round((totalFrames * repeats * 1000.0) / frameRate);
         }
+    }
+
+    public void setVolumeLevel(int volumeLevel) {
+        this.volumeLevel = clampVolumeLevel(volumeLevel);
     }
 
     public void stop() {
@@ -219,7 +225,7 @@ public final class SampledPcmPlayer implements AutoCloseable {
                         bytePosition += length;
                     }
                     if (length > 0) {
-                        line.write(pcm, offset, length);
+                        writeChunk(pcm, offset, length);
                     }
                 }
             }
@@ -228,5 +234,30 @@ public final class SampledPcmPlayer implements AutoCloseable {
                 listener.onFailure(exception);
             }
         }
+    }
+
+    private void writeChunk(byte[] pcm, int offset, int length) {
+        int level = volumeLevel;
+        if (level >= 100) {
+            line.write(pcm, offset, length);
+            return;
+        }
+        if (scaledBuffer.length < length) {
+            scaledBuffer = new byte[length];
+        }
+        float gain = level / 100.0f;
+        for (int i = 0; i < length; i += 2) {
+            int lo = pcm[offset + i] & 0xFF;
+            int hi = pcm[offset + i + 1];
+            short sample = (short) ((hi << 8) | lo);
+            int scaled = Math.round(sample * gain);
+            scaledBuffer[i] = (byte) (scaled & 0xFF);
+            scaledBuffer[i + 1] = (byte) ((scaled >>> 8) & 0xFF);
+        }
+        line.write(scaledBuffer, 0, length);
+    }
+
+    private static int clampVolumeLevel(int volumeLevel) {
+        return Math.max(0, Math.min(100, volumeLevel));
     }
 }

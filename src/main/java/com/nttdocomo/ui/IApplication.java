@@ -3,6 +3,7 @@ package com.nttdocomo.ui;
 import com.nttdocomo.util.ScheduleDate;
 import opendoja.host.DoJaRuntime;
 import opendoja.host.LaunchConfig;
+import opendoja.host.OpenDoJaLog;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -100,8 +101,7 @@ public abstract class IApplication {
 
     public final void terminate() {
         if (TRACE_FAILURES) {
-            IllegalStateException trace = new IllegalStateException("IApplication.terminate()");
-            trace.printStackTrace(System.err);
+            OpenDoJaLog.warn(IApplication.class, "IApplication.terminate()", new IllegalStateException("IApplication.terminate()"));
         }
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null) {

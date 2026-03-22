@@ -281,7 +281,7 @@ public final class DoJaRuntime {
             return;
         }
         if (TRACE_EVENTS) {
-            System.err.println("timer event canvas=" + canvas.getClass().getName() + " param=" + param);
+            OpenDoJaLog.debug(DoJaRuntime.class, () -> "timer event canvas=" + canvas.getClass().getName() + " param=" + param);
         }
         canvas.processEvent(Display.TIMER_EXPIRED_EVENT, param);
     }
@@ -307,7 +307,7 @@ public final class DoJaRuntime {
         }
         Runnable eventTask = () -> {
             if (TRACE_EVENTS) {
-                System.err.println("key event type=" + eventType + " key=" + dojaKey + " canvas=" + canvas.getClass().getName());
+                OpenDoJaLog.debug(DoJaRuntime.class, () -> "key event type=" + eventType + " key=" + dojaKey + " canvas=" + canvas.getClass().getName());
             }
             canvas.processEvent(eventType, dojaKey);
             repaintWindow();

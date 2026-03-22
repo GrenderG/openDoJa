@@ -2,6 +2,7 @@ package com.nttdocomo.ui.graphics3d;
 
 import opendoja.g3d.MascotFigure;
 import opendoja.g3d.SoftwareTexture;
+import opendoja.host.OpenDoJaLog;
 
 public class Figure extends DrawableObject3D {
     private static final boolean TRACE_FAILURES = Boolean.getBoolean("opendoja.traceFailures");
@@ -43,9 +44,8 @@ public class Figure extends DrawableObject3D {
         try {
             handle.setAction(actionTable.handle(), action);
             if (TRACE_3D_CALLS) {
-                System.err.printf("3D call Figure.setAction action=%d polygons=%d%n",
-                        action,
-                        handle.model() == null ? -1 : handle.model().polygons().length);
+                OpenDoJaLog.debug(Figure.class, () -> "3D call Figure.setAction action=" + action
+                        + " polygons=" + (handle.model() == null ? -1 : handle.model().polygons().length));
             }
         } catch (RuntimeException e) {
             throw traceFailure("setAction", e);
@@ -62,9 +62,8 @@ public class Figure extends DrawableObject3D {
         try {
             handle.setTime(time);
             if (TRACE_3D_CALLS) {
-                System.err.printf("3D call Figure.setTime time=%d polygons=%d%n",
-                        time,
-                        handle.model() == null ? -1 : handle.model().polygons().length);
+                OpenDoJaLog.debug(Figure.class, () -> "3D call Figure.setTime time=" + time
+                        + " polygons=" + (handle.model() == null ? -1 : handle.model().polygons().length));
             }
         } catch (RuntimeException e) {
             throw traceFailure("setTime", e);
@@ -104,8 +103,7 @@ public class Figure extends DrawableObject3D {
 
     private RuntimeException traceFailure(String operation, RuntimeException failure) {
         if (TRACE_FAILURES) {
-            System.err.println("openDoJa figure failure in " + operation);
-            failure.printStackTrace(System.err);
+            OpenDoJaLog.error(Figure.class, "openDoJa figure failure in " + operation, failure);
         }
         return failure;
     }

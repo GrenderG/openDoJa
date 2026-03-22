@@ -4,6 +4,7 @@ import opendoja.audio.SampledPcmPlayer;
 import opendoja.audio.mld.MldPcmPlayer;
 import opendoja.host.DoJaProfile;
 import opendoja.host.DoJaRuntime;
+import opendoja.host.OpenDoJaLog;
 
 import javax.sound.midi.MidiSystem;
 import javax.sound.midi.Sequencer;
@@ -120,7 +121,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             notifyListener(AUDIO_PLAYING, 0);
         } catch (Exception e) {
             if (TRACE_AUDIO_FAILURES) {
-                e.printStackTrace(System.err);
+                OpenDoJaLog.error(AudioPresenter.class, "Audio playback failed", e);
             }
             notifyListener(AUDIO_STOPPED, 0);
         }
@@ -283,7 +284,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         @Override
         public void onFailure(Exception exception) {
             if (TRACE_AUDIO_FAILURES) {
-                exception.printStackTrace(System.err);
+                OpenDoJaLog.error(AudioPresenter.class, "MLD playback failed", exception);
             }
             notifyListener(AUDIO_STOPPED, 0);
         }
@@ -303,7 +304,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         @Override
         public void onFailure(Exception exception) {
             if (TRACE_AUDIO_FAILURES) {
-                exception.printStackTrace(System.err);
+                OpenDoJaLog.error(AudioPresenter.class, "Sampled playback failed", exception);
             }
             notifyListener(AUDIO_STOPPED, 0);
         }

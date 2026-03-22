@@ -1,5 +1,7 @@
 package opendoja.g3d;
 
+import opendoja.host.OpenDoJaLog;
+
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.awt.image.IndexColorModel;
@@ -23,15 +25,11 @@ public final class SoftwareTexture {
         this.sphereMap = !forModel;
         if (TRACE_3D_CALLS) {
             int transparentPixels = countTransparentPixels(this.image, this.indexedPixels, this.indexedColorModel);
-            System.err.printf(
-                    "3D texture decode forModel=%s size=%dx%d indexed=%s transparentPixels=%d bytes=%d%n",
-                    forModel,
-                    this.image.getWidth(),
-                    this.image.getHeight(),
-                    this.indexedPixels != null,
-                    transparentPixels,
-                    bytes == null ? -1 : bytes.length
-            );
+            OpenDoJaLog.debug(SoftwareTexture.class, () -> "3D texture decode forModel=" + forModel
+                    + " size=" + this.image.getWidth() + "x" + this.image.getHeight()
+                    + " indexed=" + (this.indexedPixels != null)
+                    + " transparentPixels=" + transparentPixels
+                    + " bytes=" + (bytes == null ? -1 : bytes.length));
         }
     }
 

@@ -15,6 +15,7 @@ public final class Textured3DProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         BufferedImage target = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = target.createGraphics();
         try {
@@ -61,7 +62,7 @@ public final class Textured3DProbe {
                 }
             }
         }
-        System.out.println("uniqueOpaqueColors=" + unique.size());
+        DemoLog.info(Textured3DProbe.class, () -> "uniqueOpaqueColors=" + unique.size());
         if (unique.size() < 4) {
             throw new IllegalStateException("Expected textured raster output, got " + unique.size() + " colors");
         }

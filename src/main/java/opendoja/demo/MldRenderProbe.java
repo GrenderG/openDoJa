@@ -13,6 +13,7 @@ public final class MldRenderProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         if (args.length != 1) {
             throw new IllegalArgumentException("usage: MldRenderProbe <scratchpad-or-mld-file>");
         }
@@ -51,8 +52,11 @@ public final class MldRenderProbe {
             }
         }
         double rms = framesRendered == 0 ? 0.0 : Math.sqrt(energy / (framesRendered * 2.0));
-        System.out.printf("frames=%d rms=%.6f loopEvents=%d endEvents=%d duration=%.3f%n",
-                framesRendered, rms, loopEvents, endEvents, mld.getDuration(true));
+        DemoLog.info(MldRenderProbe.class, "frames=" + framesRendered
+                + " rms=" + rms
+                + " loopEvents=" + loopEvents
+                + " endEvents=" + endEvents
+                + " duration=" + mld.getDuration(true));
     }
 
     private static byte[] firstMeloChunk(byte[] source) {

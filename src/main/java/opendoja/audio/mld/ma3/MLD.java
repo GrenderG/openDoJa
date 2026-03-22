@@ -497,14 +497,16 @@ public class MLD
 				return this.eventProgramChange(event);
 			case MLD.EVENT_VOLUME:
 				return this.eventVolume(event);
+			case MLD.EVENT_WAVE_CHANNEL_PANPOT:
+				return this.eventPanPot(event);
+			case MLD.EVENT_WAVE_CHANNEL_VOLUME:
+				return this.eventVolume(event);
 			case MLD.EVENT_X_DRUM_ENABLE:
 				return this.eventDrumEnable(event);
 			
 			// Events that do not need further processing
 			case MLD.EVENT_CHANNEL_ASSIGN:      // Not implemented
 			case MLD.EVENT_PART_CONFIGURATION:  // Not implemented
-			case MLD.EVENT_WAVE_CHANNEL_PANPOT: // Not implemented
-			case MLD.EVENT_WAVE_CHANNEL_VOLUME: // Not implemented
 			case MLD.EVENT_END_OF_TRACK:
 			case MLD.EVENT_NOP:
 			case MLD.EVENT_PAUSE:

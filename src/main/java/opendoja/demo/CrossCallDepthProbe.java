@@ -9,6 +9,7 @@ public final class CrossCallDepthProbe {
     }
 
     public static void main(String[] args) {
+        DemoLog.enableInfoLogging();
         Image image = Image.createImage(64, 64);
         Graphics graphics = image.getGraphics();
         graphics.setColor(Graphics.BLACK);
@@ -50,10 +51,11 @@ public final class CrossCallDepthProbe {
                     nextFramePixel));
         }
 
-        System.out.printf("occluded=%08x visible=%08x nextFrame=%08x%n",
+        DemoLog.info(CrossCallDepthProbe.class, String.format(
+                "occluded=%08x visible=%08x nextFrame=%08x",
                 occludedPixel,
                 visiblePixel,
-                nextFramePixel);
+                nextFramePixel));
     }
 
     private static Primitive coloredQuad(int color,

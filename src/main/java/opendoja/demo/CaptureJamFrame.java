@@ -17,18 +17,19 @@ public final class CaptureJamFrame {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         if (args.length != 3) {
             throw new IllegalArgumentException("Usage: CaptureJamFrame <jam-path> <delay-ms> <output-png>");
         }
         Path jamPath = Path.of(args[0]);
         long delayMillis = Long.parseLong(args[1]);
         Path output = Path.of(args[2]);
-        System.err.println("launching " + jamPath);
+        DemoLog.info(CaptureJamFrame.class, () -> "launching " + jamPath);
         Thread launchThread = new Thread(() -> {
             try {
                 JamLauncher.launch(jamPath);
             } catch (Throwable throwable) {
-                throwable.printStackTrace(System.err);
+                DemoLog.error(CaptureJamFrame.class, "Launch failed", throwable);
             }
         }, "capture-launch");
         launchThread.setDaemon(true);
@@ -36,9 +37,9 @@ public final class CaptureJamFrame {
         Throwable failure = null;
         try {
             waitForRuntime();
-            System.err.println("runtime ready");
+            DemoLog.info(CaptureJamFrame.class, "runtime ready");
             Thread.sleep(Math.max(0L, delayMillis));
-            System.err.println("capturing");
+            DemoLog.info(CaptureJamFrame.class, "capturing");
             BufferedImage image = waitForCurrentCanvasImage();
             if (image == null) {
                 throw new IllegalStateException("No current canvas image available");
@@ -47,17 +48,17 @@ public final class CaptureJamFrame {
                 Files.createDirectories(output.getParent());
             }
             ImageIO.write(image, "png", output.toFile());
-            System.out.println(output.toAbsolutePath());
-            System.err.println("written");
+            DemoLog.info(CaptureJamFrame.class, () -> output.toAbsolutePath().toString());
+            DemoLog.info(CaptureJamFrame.class, "written");
         } catch (Throwable throwable) {
             failure = throwable;
-            throwable.printStackTrace(System.err);
+            DemoLog.error(CaptureJamFrame.class, "Capture failed", throwable);
         } finally {
             DoJaRuntime runtime = DoJaRuntime.current();
             if (runtime != null) {
                 runtime.shutdown();
             }
-            System.err.println("shutdown");
+            DemoLog.info(CaptureJamFrame.class, "shutdown");
             System.exit(failure == null ? 0 : 1);
         }
     }
@@ -79,7 +80,8 @@ public final class CaptureJamFrame {
         }
         Frame frame = runtime.getCurrentFrame();
         if (!(frame instanceof Canvas canvas)) {
-            System.err.println("captureCurrentCanvas: current frame is " + (frame == null ? "null" : frame.getClass().getName()));
+            DemoLog.info(CaptureJamFrame.class, () -> "captureCurrentCanvas: current frame is "
+                    + (frame == null ? "null" : frame.getClass().getName()));
             return null;
         }
         Method surfaceMethod = Canvas.class.getDeclaredMethod("surface");

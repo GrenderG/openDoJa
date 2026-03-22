@@ -11,6 +11,7 @@ public final class Ff7InitProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        DemoLog.enableInfoLogging();
         Class<?> canvasClass = Class.forName("j");
         Canvas canvas = (Canvas) canvasClass.getDeclaredConstructor().newInstance();
         Graphics graphics = canvas.getGraphics();
@@ -21,7 +22,7 @@ public final class Ff7InitProbe {
         Field hudField = stateClass.getField("c");
         Object hud = hudField.get(state);
         Method initHud = hud.getClass().getMethod("a", Graphics.class, int.class, int.class);
-        System.out.println("h.a(Graphics,240,240)=" + initHud.invoke(hud, graphics, 240, 240));
+        DemoLog.info(Ff7InitProbe.class, "h.a(Graphics,240,240)=" + initHud.invoke(hud, graphics, 240, 240));
 
         Field canvasField = stateClass.getField("n");
         canvasField.set(state, canvas);
@@ -29,16 +30,16 @@ public final class Ff7InitProbe {
         for (String methodName : new String[]{"g", "j", "h", "i", "m", "k", "l"}) {
             Method method = stateClass.getDeclaredMethod(methodName);
             method.setAccessible(true);
-            System.out.println(methodName + "()=" + method.invoke(state));
+            DemoLog.info(Ff7InitProbe.class, methodName + "()=" + method.invoke(state));
         }
 
         Object fullState = stateClass.getDeclaredConstructor().newInstance();
         Object fullHud = hudField.get(fullState);
         initHud.invoke(fullHud, graphics, 240, 240);
         Method init = stateClass.getMethod("a", canvasClass);
-        System.out.println("ad.a(j)=" + init.invoke(fullState, canvas));
+        DemoLog.info(Ff7InitProbe.class, "ad.a(j)=" + init.invoke(fullState, canvas));
         Method tick = stateClass.getMethod("a", int.class);
-        System.out.println("ad.a(0)=" + tick.invoke(fullState, 0));
+        DemoLog.info(Ff7InitProbe.class, "ad.a(0)=" + tick.invoke(fullState, 0));
 
         Field managerField = stateClass.getDeclaredField("o");
         managerField.setAccessible(true);
@@ -53,10 +54,10 @@ public final class Ff7InitProbe {
         Method render = currentState.getClass().getMethod("c", managerClass, stateClass);
         try {
             render.invoke(currentState, manager, fullState);
-            System.out.println("state.c(be,ad)=ok");
+            DemoLog.info(Ff7InitProbe.class, "state.c(be,ad)=ok");
         } catch (Exception e) {
             Throwable cause = e.getCause() == null ? e : e.getCause();
-            cause.printStackTrace(System.out);
+            DemoLog.error(Ff7InitProbe.class, "state.c(be,ad) failed", cause);
         }
     }
 }

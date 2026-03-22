@@ -524,6 +524,17 @@ class MA3Operator
 		this.oscPhase +=
 			(note.f_number << note.block >> 1) * constMultis[this.multi] >> 1;
 		
+		// Available Yamaha-oriented references point to the below EVB/DVB pitch
+		// path, even though earlier output checks did not show a strong audible
+		// difference and ATS-MA3-N did not make the effect obvious in isolation.
+		// Keep the logic here, behind the runtime toggle above, because the MA-3
+		// preset data uses EVB operators heavily and the native binaries expose
+		// dedicated vibrato helpers for the same path.
+		//
+		// The DVB settings in the MA-2 algorithms are still a point to watch.
+		// ATS-MA2-N models DVB with two bits even though the corresponding OPL
+		// register uses one bit, so MA-2 preset definitions may need further
+		// adjustment if stronger native parity evidence changes this behavior.
 		if (ENABLE_VIBRATO && this.evb)
 		{
 			this.oscPhase +=

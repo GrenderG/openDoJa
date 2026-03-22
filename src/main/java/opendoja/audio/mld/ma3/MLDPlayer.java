@@ -818,6 +818,16 @@ public class MLDPlayer
 			case MLD.EVENT_VOLUME:
 				this.evtVolume(track, e);
 				break;
+			case MLD.EVENT_WAVE_CHANNEL_PANPOT:
+				// Yamaha's wave-channel pan messages use the same packed channel
+				// and 6-bit pan payload shape as the normal panpot event.
+				this.evtPanPot(track, e);
+				break;
+			case MLD.EVENT_WAVE_CHANNEL_VOLUME:
+				// Wave-channel level events target the normalized channel lane too,
+				// so reuse the regular amplitude conversion path.
+				this.evtVolume(track, e);
+				break;
 			case MLD.EVENT_X_DRUM_ENABLE:
 				this.evtDrumEnable(track, e);
 				break;
@@ -830,8 +840,6 @@ public class MLDPlayer
 			//case EVENT_PAUSE:
 			//case EVENT_RESET:
 			//case EVENT_STOP:
-			//case EVENT_WAVE_CHANNEL_VOLUME:
-			//case EVENT_WAVE_CHANNEL_PANPOT:
 			
 			// Unrecognized events
 			default:
