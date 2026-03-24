@@ -450,10 +450,9 @@ public final class Software3DContext {
         drawProjected(g, target, projected, clip);
     }
 
-    // openDoJa shares one software renderer across the DoJa UI `graphics3d` API and the opt
-    // `ui.j3d` API, but they do not land on the same final screen-space Y convention. Keep the
-    // API split explicit here so the opt path can map +Y upward in camera space onto the
-    // downward-growing 2D screen without regressing the already-correct UI path.
+    // The native opt perspective primitive helper at `micro3d_v3_32.dll:0x1000a180` stores
+    // screen-space X as `centerX + projectedX` and screen-space Y as `centerY - projectedY`.
+    // Keep the API split explicit here so the shared software raster can reproduce that contract.
     private static float projectScreenY(int originY, float centerY, float projectedOffsetY, boolean invertScreenY) {
         return originY + centerY + (invertScreenY ? -projectedOffsetY : projectedOffsetY);
     }
@@ -1120,8 +1119,10 @@ public final class Software3DContext {
 
     private Projection createOptProjection(int surfaceWidth, int surfaceHeight) {
         if (optPerspectiveUsesExtent) {
-            float scaleX = surfaceWidth * optNear / java.lang.Math.max(1f, optPerspectiveWidth);
-            float scaleY = surfaceHeight * optNear / java.lang.Math.max(1f, optPerspectiveHeight);
+            // Native `Render_setPerspectiveW/WH` normalizes the requested near-plane extent as a
+            // 4.12 fixed-point value before folding it into the cached projection matrix.
+            float scaleX = surfaceWidth * optNear * 4096f / java.lang.Math.max(1f, optPerspectiveWidth);
+            float scaleY = surfaceHeight * optNear * 4096f / java.lang.Math.max(1f, optPerspectiveHeight);
             return new Projection(optNear, optFar, scaleX, scaleY, 0f);
         }
         float radians = normalizeOptPerspectiveRadians(optPerspectiveAngle);
