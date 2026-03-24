@@ -175,7 +175,7 @@ public class Font {
             return getDefaultFont();
         }
         validateTypeBits(value);
-        return createFont(FACE_SYSTEM, STYLE_PLAIN, decodeSize(value));
+        return createFont(decodeFace(value), decodeStyle(value), decodeSize(value));
     }
 
     /**
@@ -506,7 +506,8 @@ public class Font {
     }
 
     private static int decodeSize(int value) {
-        return switch (value) {
+        int normalized = (value & 0x0000FF00) == 0 ? value : (0x70000000 | (value & 0x0000FF00));
+        return switch (normalized) {
             case SIZE_TINY -> 12;
             case SIZE_SMALL -> 16;
             case SIZE_MEDIUM -> 24;
