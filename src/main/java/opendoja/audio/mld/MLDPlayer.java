@@ -966,8 +966,11 @@ public class MLDPlayer
 			return;
 		}
 		
-		// Velocity not zero is regarded as key-on
-		if (!this.seeking)
+		// Velocity not zero is regarded as key-on. Some backends keep one
+		// active voice per key and only refresh the scheduled gate when the
+		// same key is struck again before release.
+		if (!this.seeking &&
+			(note == null || !this.sampler.suppressActiveKeyRetrigger()))
 			this.sampler.keyOn(channel, event.key, event.velocity);
 		
 		// Get or create the note for this key
@@ -1335,6 +1338,4 @@ public class MLDPlayer
 		}
 		return ret;
 	}
-	
-	
 }

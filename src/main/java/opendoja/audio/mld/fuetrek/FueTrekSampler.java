@@ -21,7 +21,7 @@ final class FueTrekSampler implements Sampler {
 
     private final FueTrekRom rom;
     private final ChannelState[] channels = new ChannelState[CHANNEL_COUNT];
-    private final ArrayList<Voice> voices = new ArrayList<>();
+    private final Voice[] voiceSlots;
     private final ArrayList<CustomSlotVoice> customVoices = new ArrayList<>();
     private final MixState mixState = new MixState();
     private final WrapperState wrapperState = new WrapperState();
@@ -41,6 +41,7 @@ final class FueTrekSampler implements Sampler {
         this.rom = rom;
         this.sampleRate = sampleRate;
         this.maxPolyphony = maxPolyphony;
+        this.voiceSlots = new Voice[maxPolyphony];
         this.romStepScale = ROM_SAMPLE_RATE / sampleRate;
         for (int i = 0; i < channels.length; i++) {
             channels[i] = new ChannelState(i);
@@ -67,13 +68,18 @@ final class FueTrekSampler implements Sampler {
 
     @Override
     public boolean isFinished() {
-        return voices.isEmpty() && customVoices.isEmpty();
+        for (Voice voice : voiceSlots) {
+            if (voice != null) {
+                return false;
+            }
+        }
+        return customVoices.isEmpty();
     }
 
     @Override
     public void keyOff(int channel, int key) {
-        for (Voice voice : voices) {
-            if (voice.channelIndex == channel && voice.key == key) {
+        for (Voice voice : voiceSlots) {
+            if (voice != null && voice.channelIndex == channel && voice.key == key) {
                 voice.release();
             }
         }
@@ -101,7 +107,6 @@ final class FueTrekSampler implements Sampler {
         if (!state.drum) {
             keyOff(channel, key);
         }
-        ensurePolyphonyBudget();
         Voice voice = new Voice(
                 rom,
                 mixState,
@@ -131,7 +136,11 @@ final class FueTrekSampler implements Sampler {
                     voice.staticPitchQ16,
                     voice.oscBMode);
         }
-        voices.add(voice);
+        int slotIndex = allocateVoiceSlot();
+        if (slotIndex < 0) {
+            return;
+        }
+        voiceSlots[slotIndex] = voice;
     }
 
     @Override
@@ -231,8 +240,11 @@ final class FueTrekSampler implements Sampler {
                 samples[i] = 0.0f;
             }
         }
-        for (int i = 0; i < voices.size(); i++) {
-            Voice voice = voices.get(i);
+        for (int i = 0; i < voiceSlots.length; i++) {
+            Voice voice = voiceSlots[i];
+            if (voice == null) {
+                continue;
+            }
             boolean active = true;
             for (int frame = 0; frame < frames; frame++) {
                 if (active) {
@@ -246,7 +258,7 @@ final class FueTrekSampler implements Sampler {
                 controlCounter = (controlCounter + 1) & 0x7F;
             }
             if (!active) {
-                voices.remove(i--);
+                voiceSlots[i] = null;
             }
         }
         for (int i = 0; i < customVoices.size(); i++) {
@@ -477,20 +489,22 @@ final class FueTrekSampler implements Sampler {
                 state.updateRawLevelChannelVolume();
                 return;
             case MLD.EVENT_PITCHBEND_RANGE:
-                if (value <= 0x18) {
-                    state.setBendRangeByte(value);
-                    updateActiveVoicePitchRange(state);
-                }
+                // Native split/lib002 synths map `0xe7` to the channel `+0x19`
+                // seed lane, not to pitch-bend range. The live sink clamps the
+                // sum of `+0x18/+0x19` and refreshes voice vtbl `+0x34`.
+                state.modPair19Byte = clampRange(value << 1, 0, 0x7f);
+                updateActiveVoiceModSeed(state);
                 return;
             case MLD.EVENT_WAVE_CHANNEL_VOLUME:
-                state.rawPitchLow6 = value;
-                state.updateRawPitchBend();
-                commitChannelPitch(state);
+                state.rawLevel6 = value;
+                state.updateRawLevelChannelVolume();
                 return;
             case MLD.EVENT_WAVE_CHANNEL_PANPOT:
                 state.rawPitchLow6 = value;
                 return;
             case 0xea:
+                state.modPair18Byte = clampRange(value << 1, 0, 0x7f);
+                updateActiveVoiceModSeed(state);
                 return;
             default:
                 return;
@@ -500,6 +514,11 @@ final class FueTrekSampler implements Sampler {
     @Override
     public SequenceControlMode sequenceControlMode() {
         return SequenceControlMode.FUETREK;
+    }
+
+    @Override
+    public boolean suppressActiveKeyRetrigger() {
+        return true;
     }
 
     @Override
@@ -535,17 +554,26 @@ final class FueTrekSampler implements Sampler {
     }
 
     private void commitChannelPitch(ChannelState state) {
-        for (Voice voice : voices) {
-            if (voice.channelIndex == state.channelIndex) {
+        for (Voice voice : voiceSlots) {
+            if (voice != null && voice.channelIndex == state.channelIndex) {
                 voice.applyPitchCommit(state.rawPitchWord);
             }
         }
     }
 
     private void updateActiveVoicePitchRange(ChannelState state) {
-        for (Voice voice : voices) {
-            if (voice.channelIndex == state.channelIndex) {
+        for (Voice voice : voiceSlots) {
+            if (voice != null && voice.channelIndex == state.channelIndex) {
                 voice.applyPitchRange(state.bendRangeByte, state.rawPitchWord);
+            }
+        }
+    }
+
+    private void updateActiveVoiceModSeed(ChannelState state) {
+        int modSeedByte = state.modSeedByte();
+        for (Voice voice : voiceSlots) {
+            if (voice != null && voice.channelIndex == state.channelIndex) {
+                voice.applyModSeedByte(modSeedByte);
             }
         }
     }
@@ -595,23 +623,26 @@ final class FueTrekSampler implements Sampler {
         return null;
     }
 
-    private void ensurePolyphonyBudget() {
-        while (voices.size() >= maxPolyphony) {
-            int oldestIndex = 0;
-            long oldestAge = Long.MAX_VALUE;
-            for (int i = 0; i < voices.size(); i++) {
-                Voice voice = voices.get(i);
-                if (voice.age < oldestAge) {
-                    oldestAge = voice.age;
-                    oldestIndex = i;
-                }
+    private int allocateVoiceSlot() {
+        for (int i = 0; i < voiceSlots.length; i++) {
+            if (voiceSlots[i] == null) {
+                return i;
             }
-            voices.remove(oldestIndex);
         }
+        int oldestIndex = -1;
+        long oldestAge = Long.MAX_VALUE;
+        for (int i = 0; i < voiceSlots.length; i++) {
+            Voice voice = voiceSlots[i];
+            if (voice != null && voice.age < oldestAge) {
+                oldestAge = voice.age;
+                oldestIndex = i;
+            }
+        }
+        return oldestIndex;
     }
 
     private void clearAllVoices() {
-        voices.clear();
+        Arrays.fill(voiceSlots, null);
         customVoices.clear();
     }
 
@@ -1145,7 +1176,9 @@ final class FueTrekSampler implements Sampler {
         int rawPitchLow6 = 0x20;
         int channelVolumeByte = 0x64;
         int channelPanByte = 0;
-        int noteGainByte = 0x7f;
+        int expressionByte = 0x7f;
+        int modPair18Byte = 0;
+        int modPair19Byte = 0;
         int nativePanModeIndex = 0;
         boolean nativeVelocityRemapEnabled = false;
         int nativeVelocityRemapBaseNote = 0;
@@ -1173,7 +1206,9 @@ final class FueTrekSampler implements Sampler {
             rawPitchLow6 = 0x20;
             channelVolumeByte = 0x64;
             channelPanByte = 0;
-            noteGainByte = 0x7f;
+            expressionByte = 0x7f;
+            modPair18Byte = 0;
+            modPair19Byte = 0;
             nativePanModeIndex = 0;
             nativeVelocityRemapEnabled = false;
             nativeVelocityRemapBaseNote = 0;
@@ -1201,6 +1236,10 @@ final class FueTrekSampler implements Sampler {
 
         void setRawPitchWord(int rawPitchWord) {
             this.rawPitchWord = clampRange(rawPitchWord, 0, 0x3fff);
+        }
+
+        int modSeedByte() {
+            return clampRange(modPair18Byte + modPair19Byte, 0, 0x7f);
         }
 
         void setBendRangeByte(int bendRangeByte) {
@@ -2016,7 +2055,7 @@ final class FueTrekSampler implements Sampler {
             this.oscBMode = sampleB.controlByte & 0xFF;
             this.zoneGainByte = template.zoneGainByte;
             this.staticPitchQ16 = 0;
-            this.modState = new ModState(template, baseNote);
+            this.modState = new ModState(template);
             this.envA = new EnvAState(template);
             this.envB = new EnvBState(template);
             this.toneShape = new ShapeState(template);
@@ -2026,6 +2065,7 @@ final class FueTrekSampler implements Sampler {
             oscA = new Oscillator(sampleA, rom.interpolationTable, romStepScale);
             oscB = new Oscillator(sampleB, rom.interpolationTable, romStepScale);
             bendRangeByte = channel.bendRangeByte;
+            applyModSeedByte(channel.modSeedByte());
             applyPitchCommit(channel.rawPitchWord);
             updatePitchWords(0.0f);
             updateMixWords();
@@ -2044,6 +2084,10 @@ final class FueTrekSampler implements Sampler {
         void applyPitchRange(int bendRangeByte, int rawPitchWord) {
             this.bendRangeByte = clampRange(bendRangeByte, 0, 0x18);
             applyPitchCommit(rawPitchWord);
+        }
+
+        void applyModSeedByte(int modSeedByte) {
+            modState.applySeedByte(modSeedByte);
         }
 
         boolean render(float masterTuneSemitones, int controlCounter) {
@@ -2144,7 +2188,7 @@ final class FueTrekSampler implements Sampler {
                 velocity = clampRange((int) Math.floor(remapped + 0.5), 0, 0x7f);
             }
             gain = mulWord(gain, FueTrekMixTables.gainWord(velocity));
-            gain = mulWord(gain, FueTrekMixTables.gainWord(channel.noteGainByte));
+            gain = mulWord(gain, FueTrekMixTables.gainWord(channel.expressionByte));
             gain = mulWord(gain, FueTrekMixTables.gainWord(mixState.global338Byte));
             gain = mulWord(gain, FueTrekMixTables.gainWord(mixState.global339Byte));
 
@@ -2333,8 +2377,9 @@ final class FueTrekSampler implements Sampler {
         int state10;
         int phase14;
         int scale2;
+        final int baseMod8;
 
-        ModState(VoiceTemplate template, int effectiveNoteByte) {
+        ModState(VoiceTemplate template) {
             int mode = template.modMode;
             if (mode == 2) {
                 value0 = 0x1ff;
@@ -2345,13 +2390,18 @@ final class FueTrekSampler implements Sampler {
             }
             countdown4 = template.modDelay;
             tick6 = 0;
-            value8 = template.mod8 + (effectiveNoteByte >> 2);
+            baseMod8 = template.mod8;
+            value8 = baseMod8;
             valueA = template.modA;
             valueC = 0;
             valueE = 0;
             state10 = mode;
             phase14 = 1;
             scale2 = template.modScale2;
+        }
+
+        void applySeedByte(int seedByte) {
+            value8 = baseMod8 + (seedByte >> 2);
         }
 
         int pitchMod() {

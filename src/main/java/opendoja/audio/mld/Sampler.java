@@ -412,6 +412,16 @@ public interface Sampler
 	{
 		return SequenceControlMode.NONE;
 	}
+
+	/**
+	 * Whether repeated key-on events for an already-active key should be
+	 * coalesced into the existing note state instead of retriggering the
+	 * sampler voice.
+	 */
+	default boolean suppressActiveKeyRetrigger()
+	{
+		return false;
+	}
 	
 	/**
 	 * Specify a channel's volume. The master volume is multiplied by each
