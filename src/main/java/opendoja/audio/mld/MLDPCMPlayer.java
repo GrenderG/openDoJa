@@ -3,8 +3,6 @@ package opendoja.audio.mld;
 import com.nttdocomo.ui.MediaManager;
 import opendoja.audio.mld.fuetrek.FueTrekSamplerProvider;
 import opendoja.audio.mld.ma3.MA3SamplerProvider;
-import opendoja.host.DoJaRuntime;
-import opendoja.host.LaunchConfig;
 
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
@@ -12,7 +10,6 @@ import javax.sound.sampled.SourceDataLine;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 public final class MLDPCMPlayer implements AutoCloseable {
@@ -83,83 +80,29 @@ public final class MLDPCMPlayer implements AutoCloseable {
     }
 
     private static SynthProfile resolveSynthProfile() {
-        String configured = configuredSynthId();
-        String normalized = configured.toLowerCase(Locale.ROOT)
-                .replace('-', '_')
-                .replace('.', '_');
-        if (normalized.equals("fuetrek")) {
-            return new SynthProfile(
-                    "fuetrek",
+        return switch (MldSynth.resolveConfigured()) {
+            case FUETREK -> new SynthProfile(
+                    MldSynth.FUETREK,
                     FUETREK_SAMPLER_PROVIDER,
                     FueTrekSamplerProvider.SAMPLE_RATE,
                     1024);
-        }
-        return new SynthProfile(
-                "ma3",
-                MA3_SAMPLER_PROVIDER,
-                MA3SamplerProvider.SAMPLE_RATE,
-                1024);
+            case MA3 -> new SynthProfile(
+                    MldSynth.MA3,
+                    MA3_SAMPLER_PROVIDER,
+                    MA3SamplerProvider.SAMPLE_RATE,
+                    1024);
+        };
     }
 
     private static int normalizeBufferFrames(int candidate, int fallback) {
         int frames = candidate <= 0 ? fallback : candidate;
-        if (!SYNTH_PROFILE.id.equals("fuetrek")) {
+        if (SYNTH_PROFILE.synth != MldSynth.FUETREK) {
             return frames;
         }
         int clamped = Math.max(FueTrekSamplerProvider.MIN_FRAME_SIZE,
                 Math.min(FueTrekSamplerProvider.MAX_FRAME_SIZE, frames));
         int mask = FueTrekSamplerProvider.FRAME_GRANULARITY - 1;
         return (clamped + mask) & ~mask;
-    }
-
-    private static String configuredSynthId() {
-        String property = trimSynthValue(System.getProperty("opendoja.mldSynth"));
-        if (property != null) {
-            return property;
-        }
-        DoJaRuntime runtime = DoJaRuntime.current();
-        if (runtime != null) {
-            String fromRuntime = synthFromParameters(runtime.parameters());
-            if (fromRuntime != null) {
-                return fromRuntime;
-            }
-        }
-        LaunchConfig prepared = DoJaRuntime.peekPreparedLaunch();
-        if (prepared != null) {
-            String fromPrepared = synthFromParameters(prepared.parameters());
-            if (fromPrepared != null) {
-                return fromPrepared;
-            }
-        }
-        return "ma3";
-    }
-
-    private static String synthFromParameters(Map<String, String> parameters) {
-        if (parameters == null || parameters.isEmpty()) {
-            return null;
-        }
-        String[] keys = {
-                "OpenDoJaMldSynth",
-                "MldSynth",
-                "MLDSynth",
-                "mldSynth",
-                "MFiSynth"
-        };
-        for (String key : keys) {
-            String value = trimSynthValue(parameters.get(key));
-            if (value != null) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    private static String trimSynthValue(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static int totalTimeFor(MLD mld, int loopCount) {
@@ -537,16 +480,18 @@ public final class MLDPCMPlayer implements AutoCloseable {
     }
 
     private static final class SynthProfile {
+        private final MldSynth synth;
         private final String id;
         private final SamplerProvider samplerProvider;
         private final float defaultSampleRate;
         private final int defaultBufferFrames;
 
-        private SynthProfile(String id,
+        private SynthProfile(MldSynth synth,
                              SamplerProvider samplerProvider,
                              float defaultSampleRate,
                              int defaultBufferFrames) {
-            this.id = id;
+            this.synth = synth;
+            this.id = synth.id;
             this.samplerProvider = samplerProvider;
             this.defaultSampleRate = defaultSampleRate;
             this.defaultBufferFrames = defaultBufferFrames;

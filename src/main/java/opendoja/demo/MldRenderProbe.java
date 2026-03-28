@@ -1,15 +1,13 @@
 package opendoja.demo;
 
-import opendoja.audio.mld.fuetrek.FueTrekSamplerProvider;
-import opendoja.audio.mld.ma3.MA3SamplerProvider;
 import opendoja.audio.mld.MLD;
+import opendoja.audio.mld.MldSynth;
 import opendoja.audio.mld.MLDPlayer;
 import opendoja.audio.mld.MLDPlayerEvent;
 import opendoja.audio.mld.SamplerProvider;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 
 public final class MldRenderProbe {
     private MldRenderProbe() {
@@ -27,19 +25,9 @@ public final class MldRenderProbe {
         if (iterations < 0) {
             throw new IllegalArgumentException("iterations must be non-negative");
         }
-        String synth = System.getProperty("opendoja.mldSynth", "ma3").trim().toLowerCase(Locale.ROOT);
-        SamplerProvider provider;
-        float sampleRate;
-        if ("fuetrek".equals(synth)) {
-            provider = new FueTrekSamplerProvider();
-            sampleRate = FueTrekSamplerProvider.SAMPLE_RATE;
-        } else {
-            provider = new MA3SamplerProvider(
-                    MA3SamplerProvider.FM_MA3_4OP,
-                    MA3SamplerProvider.FM_MA3_4OP,
-                    MA3SamplerProvider.WAVE_DRUM_MA3);
-            sampleRate = MA3SamplerProvider.SAMPLE_RATE;
-        }
+        MldSynth synth = MldSynth.resolveConfigured();
+        SamplerProvider provider = synth.createSamplerProvider();
+        float sampleRate = synth.defaultSampleRate;
         MLDPlayer player = new MLDPlayer(mld, provider, sampleRate);
         player.setPlaybackEventsEnabled(true);
         float[] samples = new float[256 * 2];

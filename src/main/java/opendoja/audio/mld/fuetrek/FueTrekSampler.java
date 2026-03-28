@@ -104,6 +104,7 @@ final class FueTrekSampler implements Sampler {
         if (resolved == null || resolved.zone.sampleA == null) {
             return;
         }
+        cullNativeEvenGroupConflicts(channel, resolved);
         if (!state.drum) {
             keyOff(channel, key);
         }
@@ -507,10 +508,16 @@ final class FueTrekSampler implements Sampler {
                 updateActiveVoiceModSeed(state);
                 return;
             case MLD.EVENT_WAVE_CHANNEL_VOLUME:
-                state.rawLevel6 = value;
-                state.updateRawLevelChannelVolume();
+                // lib002 player `0x1003d1ac` writes the low 6-bit pitch cache
+                // at `+0xd5`, rebuilds `(((hi << 5) + lo) << 3) - 0x100`, and
+                // commits that word immediately through the synth pitch setter.
+                state.rawPitchLow6 = value;
+                state.updateRawPitchBend();
+                commitChannelPitch(state);
                 return;
             case MLD.EVENT_WAVE_CHANNEL_PANPOT:
+                // lib002 player `0x1003d200` only updates the cached low 6-bit
+                // lane at `+0xd5`; it does not commit the paired pitch word.
                 state.rawPitchLow6 = value;
                 return;
             case 0xea:
@@ -650,6 +657,24 @@ final class FueTrekSampler implements Sampler {
             }
         }
         return oldestIndex;
+    }
+
+    private void cullNativeEvenGroupConflicts(int channel, ResolvedZone resolved) {
+        if ((resolved.groupId & 1) != 0) {
+            return;
+        }
+        for (int i = 0; i < voiceSlots.length; i++) {
+            Voice voice = voiceSlots[i];
+            if (voice == null || voice.channelIndex != channel || voice.groupId != resolved.groupId) {
+                continue;
+            }
+            // Native even-group note-on walks the live voice list and forces an
+            // exact same-note conflict through the hard-stop vtable slot before
+            // allocating the new voice (`0x10004140 -> 0x10004276..0x1000428a`).
+            if (voice.midiKey == resolved.noteByte) {
+                voiceSlots[i] = null;
+            }
+        }
     }
 
     private void clearAllVoices() {
@@ -2144,7 +2169,6 @@ final class FueTrekSampler implements Sampler {
                 mixed = clamp16(mixed + scaledB);
             }
             int shaped = toneShape.apply((short) (envBOut >> 4), (short) mixed);
-
             int envDriven = clamp16(mulRoundShift(zoneGainByte << 5, envAOut, 11));
             int leftControl = clamp16(mulRoundShift((mixLeftWord >> 2) & ~3, envDriven, 11));
             int leftVoice = clamp16(mulRoundShift((leftControl >> 3) & ~7, shaped, 9));
@@ -2225,6 +2249,9 @@ final class FueTrekSampler implements Sampler {
             if (groupId == 0x78 && subGroupId == 0) {
                 leftWord = scaleUnsignedWord(leftWord, rom.panLawTable[0x7f - drumPanIndex]);
                 rightWord = scaleUnsignedWord(rightWord, rom.panLawTable[drumPanIndex]);
+                int shapeIndex = FueTrekNoteShapeTables.noteShapeIndex(midiKey);
+                leftWord = FueTrekNoteShapeTables.scaleReverse(leftWord, shapeIndex);
+                rightWord = FueTrekNoteShapeTables.scaleForward(rightWord, shapeIndex);
             }
             mixLeftWord = clampRange(leftWord << 1, 0, 0x7fff);
             mixRightWord = clampRange(rightWord << 1, 0, 0x7fff);
