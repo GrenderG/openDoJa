@@ -109,6 +109,9 @@ public class PalettedImage extends Image {
             throw new ArrayIndexOutOfBoundsException(index);
         }
         this.transparentIndex = index;
+        if (transparentEnabled) {
+            this.appliedTransparentIndex = index;
+        }
     }
 
     public int getTransparentIndex() {
@@ -193,7 +196,12 @@ public class PalettedImage extends Image {
         result.pixels = pixels;
         result.palette = new Palette(colors);
         result.transparentIndex = colorModel.getTransparentPixel();
-        result.appliedTransparentIndex = -1;
+        if (result.transparentIndex >= 0) {
+            result.transparentEnabled = true;
+            result.appliedTransparentIndex = result.transparentIndex;
+        } else {
+            result.appliedTransparentIndex = -1;
+        }
         return result;
     }
 
