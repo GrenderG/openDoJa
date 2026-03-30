@@ -38,4 +38,15 @@ For local development without packaging, the original CLI host path still works:
 java -cp out/classes:<game-jar> opendoja.host.JamLauncher <game.jam>
 ```
 
+## Reporting Broken Games
+
+If a game does not work, please open a GitHub issue using the broken game report template.
+
+Include:
+
+- a text description of the issue
+- the exact game that does not work
+- screenshots or videos if they help explain the problem
+- logs or stack traces if the issue is a crash
+
 For the bundled local workflow used during development, see `scripts/`.
