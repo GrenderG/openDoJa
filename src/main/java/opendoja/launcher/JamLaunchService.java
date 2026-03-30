@@ -1,5 +1,7 @@
 package opendoja.launcher;
 
+import javax.swing.JFileChooser;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.Component;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -9,19 +11,30 @@ final class JamLaunchService {
     private final JamGameJarResolver gameJarResolver = new JamGameJarResolver();
     private final LauncherProcessSupport processSupport = new LauncherProcessSupport();
     private final LauncherPreferencesStore preferencesStore;
-    private final TextOnlyFileChooserSupport fileChooserSupport;
 
     JamLaunchService() {
-        this(new LauncherPreferencesStore(), new TextOnlyFileChooserSupport());
+        this(new LauncherPreferencesStore());
     }
 
-    JamLaunchService(LauncherPreferencesStore preferencesStore, TextOnlyFileChooserSupport fileChooserSupport) {
+    JamLaunchService(LauncherPreferencesStore preferencesStore) {
         this.preferencesStore = preferencesStore;
-        this.fileChooserSupport = fileChooserSupport;
     }
 
     Path chooseJamFile(Component parent) {
-        Path jamPath = fileChooserSupport.chooseJamFile(parent, preferencesStore.lastDirectory());
+        Path initialDirectory = preferencesStore.lastDirectory();
+        JFileChooser chooser = initialDirectory == null
+                ? new JFileChooser()
+                : new JFileChooser(initialDirectory.toFile());
+        chooser.setDialogTitle("Load JAM");
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+        chooser.setMultiSelectionEnabled(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("JAM files (*.jam)", "jam"));
+        int result = chooser.showOpenDialog(parent);
+        if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
+            return null;
+        }
+        Path jamPath = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
         if (jamPath != null) {
             preferencesStore.rememberLastDirectory(jamPath.getParent());
         }

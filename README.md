@@ -32,12 +32,6 @@ Launch a specific JAM directly through the packaged launcher:
 java -jar target/opendoja-0.1.0-SNAPSHOT.jar --run-jam <game.jam>
 ```
 
-Launch a JAM headless through the packaged launcher by passing the JAM path directly:
-
-```bash
-java -Djava.awt.headless=true -jar target/opendoja-0.1.0-SNAPSHOT.jar <game.jam>
-```
-
 For local development without packaging, the original CLI host path still works:
 
 ```bash
