@@ -7,7 +7,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: true
 
 jobs:
   build-nightly-jar:
@@ -38,9 +42,23 @@ jobs:
       - name: Build standalone JAR
         run: mvn -B -DskipTests package
 
-      - name: Upload nightly artifact
-        uses: actions/upload-artifact@v4
+      - name: Prepare nightly asset
+        run: cp target/opendoja-${{ steps.project.outputs.version }}.jar target/opendoja-nightly.jar
+
+      - name: Move nightly tag
+        shell: bash
+        run: |
+          git tag -f nightly
+          git push origin refs/tags/nightly --force
+
+      - name: Publish nightly release
+        uses: softprops/action-gh-release@v2
         with:
-          name: opendoja-nightly-${{ steps.project.outputs.version }}-${{ github.sha }}
-          path: target/opendoja-${{ steps.project.outputs.version }}.jar
-          if-no-files-found: error
+          tag_name: nightly
+          name: openDoJa nightly
+          body: Rolling nightly build from `${{ github.sha }}`.
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: target/opendoja-nightly.jar
