@@ -784,7 +784,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
             if (TRACE_3D_CALLS) {
                 OpenDoJaLog.debug(Graphics.class, () -> "3D call setScreenCenter x=" + x + " y=" + y);
             }
-            threeD.setOptScreenCenter(originX + x, originY + y);
+            // opt.ui.j3d screen-space state is defined in absolute canvas coordinates rather
+            // than inheriting Graphics.setOrigin() like the 2D drawing methods do.
+            threeD.setOptScreenCenter(x, y);
         } catch (RuntimeException e) {
             throw traceFailure("setScreenCenter", e);
         }
@@ -856,7 +858,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
             if (TRACE_3D_CALLS) {
                 OpenDoJaLog.debug(Graphics.class, () -> "3D call renderFigure " + describeOptFigure(handle));
             }
-            threeD.renderOptFigure(delegate, surface.image(), originX, originY, surface.width(), surface.height(), handle);
+            threeD.renderOptFigure(delegate, surface.image(), 0, 0, surface.width(), surface.height(), handle);
         } catch (RuntimeException e) {
             throw traceFailure("renderFigure", e);
         }
@@ -1003,7 +1005,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
                     + " textures=" + describeTextures(threeD.primitiveTexturesSnapshot())
                     + " selectedTexture=" + threeD.primitiveTextureIndex());
         }
-        threeD.renderOptPrimitives(delegate, surface.image(), originX, originY, surface.width(), surface.height(), primitives, attr);
+        threeD.renderOptPrimitives(delegate, surface.image(), 0, 0, surface.width(), surface.height(), primitives, attr);
     }
 
     @Override
@@ -1020,7 +1022,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
                     + " selectedTexture=" + threeD.primitiveTextureIndex());
         }
         // The three-int DoJa overload renders a slice of the PrimitiveArray.
-        threeD.renderOptPrimitivesRange(delegate, surface.image(), originX, originY, surface.width(), surface.height(), primitives, start, count, attr);
+        threeD.renderOptPrimitivesRange(delegate, surface.image(), 0, 0, surface.width(), surface.height(), primitives, start, count, attr);
     }
 
     @Override
