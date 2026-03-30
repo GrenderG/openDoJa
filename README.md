@@ -18,13 +18,13 @@ mvn -q -DskipTests package
 Open the desktop launcher UI:
 
 ```bash
-java -jar target/opendoja-0.1.0-SNAPSHOT.jar
+java -jar target/opendoja-{version}.jar
 ```
 
 Launch a specific JAM directly through the packaged launcher:
 
 ```bash
-java -jar target/opendoja-0.1.0-SNAPSHOT.jar --run-jam <game.jam>
+java -jar target/opendoja-{version}.jar --run-jam <game.jam>
 ```
 
 For local development without packaging, the original CLI host path still works:

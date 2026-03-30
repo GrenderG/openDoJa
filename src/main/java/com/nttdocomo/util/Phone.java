@@ -1,6 +1,7 @@
 package com.nttdocomo.util;
 
 import com.nttdocomo.lang.XString;
+import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.DoJaRuntime;
 import opendoja.host.system.DoJaExternalActionSupport;
 
@@ -99,10 +100,10 @@ public final class Phone {
         }
         DoJaRuntime runtime = DoJaRuntime.current();
         if (TERMINAL_ID.equals(key)) {
-            return "opendoja-desktop";
+            return OpenDoJaIdentity.terminalId();
         }
         if (USER_ID.equals(key)) {
-            return System.getProperty("user.name", "desktop-user");
+            return OpenDoJaIdentity.userId();
         }
         if (UIM_VERSION.equals(key)) {
             return "2";

@@ -1,15 +1,20 @@
 package opendoja.launcher;
 
 import opendoja.audio.mld.MldSynth;
+import opendoja.host.OpenDoJaIdentity;
 
-record LauncherSettings(int hostScale, String synthId) {
+record LauncherSettings(int hostScale, String synthId, String terminalId, String userId) {
     LauncherSettings {
         hostScale = normalizeHostScale(hostScale);
         synthId = normalizeSynthId(synthId);
+        terminalId = OpenDoJaIdentity.normalizeTerminalId(terminalId);
+        userId = OpenDoJaIdentity.normalizeUserId(userId);
     }
 
     static LauncherSettings defaults() {
-        return new LauncherSettings(1, MldSynth.DEFAULT.id);
+        return new LauncherSettings(1, MldSynth.DEFAULT.id,
+                OpenDoJaIdentity.defaultTerminalId(),
+                OpenDoJaIdentity.defaultUserId());
     }
 
     private static int normalizeHostScale(int candidate) {

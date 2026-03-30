@@ -73,6 +73,19 @@ final class OpenDoJaLauncherFrame extends JFrame {
         settingsMenu.addSeparator();
         settingsMenu.add(buildHostScaleMenu());
         settingsMenu.add(buildSynthMenu());
+        settingsMenu.addSeparator();
+        settingsMenu.add(new JMenuItem(new AbstractAction("Terminal ID...") {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                updateTerminalId();
+            }
+        }));
+        settingsMenu.add(new JMenuItem(new AbstractAction("User ID...") {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                updateUserId();
+            }
+        }));
 
         JMenu helpMenu = new JMenu("Help");
         helpMenu.add(new JMenuItem(new AbstractAction("About") {
@@ -178,7 +191,11 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 @Override
                 public void actionPerformed(ActionEvent event) {
                     LauncherSettings current = jamLaunchService.loadSettings();
-                    jamLaunchService.saveSettings(new LauncherSettings(selectedScale, current.synthId()));
+                    jamLaunchService.saveSettings(new LauncherSettings(
+                            selectedScale,
+                            current.synthId(),
+                            current.terminalId(),
+                            current.userId()));
                 }
             });
             item.setSelected(settings.hostScale() == scale);
@@ -197,7 +214,11 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 @Override
                 public void actionPerformed(ActionEvent event) {
                     LauncherSettings current = jamLaunchService.loadSettings();
-                    jamLaunchService.saveSettings(new LauncherSettings(current.hostScale(), synth.id));
+                    jamLaunchService.saveSettings(new LauncherSettings(
+                            current.hostScale(),
+                            synth.id,
+                            current.terminalId(),
+                            current.userId()));
                 }
             });
             item.setSelected(settings.synthId().equals(synth.id));
@@ -205,6 +226,32 @@ final class OpenDoJaLauncherFrame extends JFrame {
             synthMenu.add(item);
         }
         return synthMenu;
+    }
+
+    private void updateTerminalId() {
+        LauncherSettings current = jamLaunchService.loadSettings();
+        String updated = settingsController.promptTerminalId(this, current.terminalId());
+        if (updated == null) {
+            return;
+        }
+        jamLaunchService.saveSettings(new LauncherSettings(
+                current.hostScale(),
+                current.synthId(),
+                updated,
+                current.userId()));
+    }
+
+    private void updateUserId() {
+        LauncherSettings current = jamLaunchService.loadSettings();
+        String updated = settingsController.promptUserId(this, current.userId());
+        if (updated == null) {
+            return;
+        }
+        jamLaunchService.saveSettings(new LauncherSettings(
+                current.hostScale(),
+                current.synthId(),
+                current.terminalId(),
+                updated));
     }
 
     private static String formatSynthLabel(MldSynth synth) {

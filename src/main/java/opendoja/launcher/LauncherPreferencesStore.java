@@ -1,5 +1,6 @@
 package opendoja.launcher;
 
+import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.OpenDoJaLaunchArgs;
 
 import java.nio.file.Path;
@@ -12,22 +13,30 @@ final class LauncherPreferencesStore {
     private static final int MAX_RECENTS = 5;
     private static final String HOST_SCALE_KEY = "hostScale";
     private static final String SYNTH_ID_KEY = "synthId";
+    private static final String TERMINAL_ID_KEY = "terminalId";
+    private static final String USER_ID_KEY = "userId";
     private static final String LAST_DIRECTORY_KEY = "lastDirectory";
     private static final String RECENT_JAM_KEY_PREFIX = "recentJam.";
 
     private final Preferences preferences = Preferences.userNodeForPackage(OpenDoJaLauncher.class);
 
     LauncherSettings loadSettings() {
-        int defaultHostScale = OpenDoJaLaunchArgs.getInt(OpenDoJaLaunchArgs.HOST_SCALE);
-        String defaultSynthId = OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.MLD_SYNTH);
+        int storedHostScale = preferences.getInt(HOST_SCALE_KEY, OpenDoJaLaunchArgs.getInt(OpenDoJaLaunchArgs.HOST_SCALE));
+        String storedSynthId = preferences.get(SYNTH_ID_KEY, OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.MLD_SYNTH));
+        String storedTerminalId = preferences.get(TERMINAL_ID_KEY, OpenDoJaIdentity.defaultTerminalId());
+        String storedUserId = preferences.get(USER_ID_KEY, OpenDoJaIdentity.defaultUserId());
         return new LauncherSettings(
-                preferences.getInt(HOST_SCALE_KEY, defaultHostScale),
-                preferences.get(SYNTH_ID_KEY, defaultSynthId));
+                OpenDoJaLaunchArgs.getInt(OpenDoJaLaunchArgs.HOST_SCALE, storedHostScale),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.MLD_SYNTH, storedSynthId),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.TERMINAL_ID, storedTerminalId),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.USER_ID, storedUserId));
     }
 
     void saveSettings(LauncherSettings settings) {
         preferences.putInt(HOST_SCALE_KEY, settings.hostScale());
         preferences.put(SYNTH_ID_KEY, settings.synthId());
+        preferences.put(TERMINAL_ID_KEY, settings.terminalId());
+        preferences.put(USER_ID_KEY, settings.userId());
     }
 
     Path lastDirectory() {

@@ -11,7 +11,7 @@ import java.nio.file.Path;
 
 public final class OpenDoJaLauncher {
     static final String APP_NAME = "openDoJa Launcher";
-    static final String VERSION = "0.1.0";
+    static final String VERSION = "0.1.1";
     private static final String RUN_JAM_FLAG = "--run-jam";
     private static final String RUN_JAM_INTERNAL_FLAG = "--run-jam-internal";
     private static final String SPAWN_JAM_FLAG = "--spawn-jam";
@@ -89,7 +89,7 @@ public final class OpenDoJaLauncher {
     private static String helpText() {
         return usageLine()
                 + "\n\nPass custom runtime properties before -jar, for example:"
-                + "\n  java -D" + OpenDoJaLaunchArgs.HOST_SCALE + "=2 -jar target/opendoja-0.1.0-SNAPSHOT.jar <game.jam>"
+                + "\n  java -D" + OpenDoJaLaunchArgs.HOST_SCALE + "=2 -jar target/opendoja-{version}.jar <game.jam>"
                 + "\n\n" + OpenDoJaLaunchArgs.formatProperties();
     }
 

@@ -4,12 +4,14 @@ import com.nttdocomo.io.HttpConnection;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 
 public final class DesktopHttpConnection implements HttpConnection {
     private static final String DEFAULT_USER_AGENT = "DoCoMo/2.0 DOJA_INET_CLIENT(c100;TJ)";
@@ -21,9 +23,11 @@ public final class DesktopHttpConnection implements HttpConnection {
     private String requestMethod = GET;
     private long ifModifiedSince = 0L;
     private boolean userAgentProvidedByGame;
+    private boolean requestLogged;
+    private boolean responseLogged;
 
     public DesktopHttpConnection(URL url, int mode, boolean timeouts) {
-        this.url = url;
+        this.url = rewriteOutboundUrl(url);
         this.mode = mode;
         this.timeouts = timeouts;
     }
@@ -31,7 +35,7 @@ public final class DesktopHttpConnection implements HttpConnection {
     @Override
     public void connect() throws IOException {
         ensureConnection();
-        debug(() -> "HTTP connect " + requestSummary());
+        logRequestIfNeeded();
         try {
             connection.connect();
         } catch (IOException exception) {
@@ -50,10 +54,10 @@ public final class DesktopHttpConnection implements HttpConnection {
     @Override
     public InputStream openInputStream() throws IOException {
         ensureConnection();
-        debug(() -> "HTTP openInputStream " + requestSummary());
+        logRequestIfNeeded();
         try {
             InputStream stream = connection.getInputStream();
-            debug(() -> "HTTP input ready " + responseSummary());
+            logResponseIfNeeded();
             return stream;
         } catch (IOException exception) {
             OpenDoJaLog.warn(DesktopHttpConnection.class, "HTTP openInputStream failed " + requestSummary(), exception);
@@ -70,9 +74,9 @@ public final class DesktopHttpConnection implements HttpConnection {
     public OutputStream openOutputStream() throws IOException {
         ensureConnection();
         connection.setDoOutput(true);
-        debug(() -> "HTTP openOutputStream " + requestSummary());
+        logRequestIfNeeded();
         try {
-            return connection.getOutputStream();
+            return maybeWrapOutputStream(connection.getOutputStream());
         } catch (IOException exception) {
             OpenDoJaLog.warn(DesktopHttpConnection.class, "HTTP openOutputStream failed " + requestSummary(), exception);
             throw exception;
@@ -92,7 +96,6 @@ public final class DesktopHttpConnection implements HttpConnection {
     @Override
     public void setRequestMethod(String method) throws IOException {
         this.requestMethod = method;
-        debug(() -> "HTTP setRequestMethod method=" + method + " url=" + url);
         if (connection != null) {
             connection.setRequestMethod(method);
         }
@@ -104,16 +107,16 @@ public final class DesktopHttpConnection implements HttpConnection {
             userAgentProvidedByGame = true;
         }
         ensureConnection();
-        debug(() -> "HTTP setRequestProperty " + key + "=" + value + " url=" + url);
-        connection.setRequestProperty(key, value);
+        connection.setRequestProperty(key, OpenDoJaIdentity.replaceDefaultUserIdToken(value));
     }
 
     @Override
     public int getResponseCode() throws IOException {
         ensureConnection();
+        logRequestIfNeeded();
         try {
             int code = connection.getResponseCode();
-            debug(() -> "HTTP response " + responseSummary(code));
+            logResponseIfNeeded(code);
             return code;
         } catch (IOException exception) {
             OpenDoJaLog.warn(DesktopHttpConnection.class, "HTTP getResponseCode failed " + requestSummary(), exception);
@@ -214,7 +217,6 @@ public final class DesktopHttpConnection implements HttpConnection {
             throw new IOException("Unsupported non-HTTP URL: " + url);
         }
         connection = httpURLConnection;
-        debug(() -> "HTTP create " + requestSummary());
         connection.setRequestMethod(requestMethod);
         connection.setInstanceFollowRedirects(true);
         connection.setUseCaches(false);
@@ -229,7 +231,6 @@ public final class DesktopHttpConnection implements HttpConnection {
         }
         connection.setRequestProperty("Connection", "keep-alive");
         if (!userAgentProvidedByGame) {
-            debug(() -> "HTTP default User-Agent " + DEFAULT_USER_AGENT + " url=" + url);
             connection.setRequestProperty("User-Agent", DEFAULT_USER_AGENT);
         }
     }
@@ -238,15 +239,59 @@ public final class DesktopHttpConnection implements HttpConnection {
         return key != null && "User-Agent".equalsIgnoreCase(key);
     }
 
+    private static URL rewriteOutboundUrl(URL rawUrl) {
+        try {
+            return OpenDoJaIdentity.replaceDefaultUserIdToken(rawUrl);
+        } catch (IOException exception) {
+            return rawUrl;
+        }
+    }
+
+    private static OutputStream maybeWrapOutputStream(OutputStream delegate) {
+        if (OpenDoJaIdentity.defaultUserId().equals(OpenDoJaIdentity.userId())) {
+            return delegate;
+        }
+        return new UserIdRewriteOutputStream(delegate);
+    }
+
     private void debug(java.util.function.Supplier<String> messageSupplier) {
         OpenDoJaLog.debug(DesktopHttpConnection.class, messageSupplier);
+    }
+
+    private void logRequestIfNeeded() {
+        if (requestLogged) {
+            return;
+        }
+        requestLogged = true;
+        debug(() -> "HTTP request " + requestSummary());
+    }
+
+    private void logResponseIfNeeded() {
+        if (responseLogged) {
+            return;
+        }
+        int code;
+        try {
+            code = connection.getResponseCode();
+        } catch (IOException exception) {
+            code = -1;
+        }
+        logResponseIfNeeded(code);
+    }
+
+    private void logResponseIfNeeded(int code) {
+        if (responseLogged) {
+            return;
+        }
+        responseLogged = true;
+        debug(() -> "HTTP response " + responseSummary(code));
     }
 
     private String requestSummary() {
         return "method=" + requestMethod
                 + " url=" + url
-                + " mode=" + mode
-                + " timeouts=" + timeouts;
+                + " type=" + valueOrUnset(connection.getRequestProperty("Content-Type"))
+                + " length=" + valueOrUnset(connection.getRequestProperty("Content-Length"));
     }
 
     private String responseSummary() {
@@ -270,6 +315,86 @@ public final class DesktopHttpConnection implements HttpConnection {
                 + " code=" + code
                 + " message=" + message
                 + " type=" + connection.getContentType()
+                + " encoding=" + connection.getContentEncoding()
                 + " length=" + connection.getContentLengthLong();
+    }
+
+    private static String valueOrUnset(String value) {
+        return value == null || value.isBlank() ? "<unset>" : value;
+    }
+
+    private static final class UserIdRewriteOutputStream extends FilterOutputStream {
+        private final byte[] target = OpenDoJaIdentity.defaultUserId().getBytes(StandardCharsets.US_ASCII);
+        private final byte[] replacement = OpenDoJaIdentity.userId().getBytes(StandardCharsets.US_ASCII);
+        private final java.io.ByteArrayOutputStream pending = new java.io.ByteArrayOutputStream();
+        private boolean closed;
+
+        private UserIdRewriteOutputStream(OutputStream delegate) {
+            super(delegate);
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            pending.write(value);
+            drain(false);
+        }
+
+        @Override
+        public void write(byte[] data, int offset, int length) throws IOException {
+            pending.write(data, offset, length);
+            drain(false);
+        }
+
+        @Override
+        public void flush() throws IOException {
+            drain(false);
+            out.flush();
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            drain(true);
+            out.flush();
+            out.close();
+        }
+
+        private void drain(boolean finalFlush) throws IOException {
+            byte[] buffered = pending.toByteArray();
+            int keep = finalFlush ? 0 : Math.max(0, target.length - 1);
+            int writeLength = Math.max(0, buffered.length - keep);
+            if (writeLength > 0) {
+                out.write(rewriteMatches(buffered, writeLength));
+            }
+            pending.reset();
+            if (!finalFlush && keep > 0 && buffered.length > writeLength) {
+                pending.write(buffered, writeLength, buffered.length - writeLength);
+            }
+        }
+
+        private byte[] rewriteMatches(byte[] source, int length) {
+            byte[] rewritten = java.util.Arrays.copyOf(source, length);
+            int lastStart = length - target.length;
+            for (int i = 0; i <= lastStart; i++) {
+                if (!matchesAt(source, i)) {
+                    continue;
+                }
+                System.arraycopy(replacement, 0, rewritten, i, target.length);
+                i += target.length - 1;
+            }
+            return rewritten;
+        }
+
+        private boolean matchesAt(byte[] source, int offset) {
+            for (int i = 0; i < target.length; i++) {
+                if (source[offset + i] != target[i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 }
