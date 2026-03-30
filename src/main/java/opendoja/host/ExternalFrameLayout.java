@@ -6,6 +6,7 @@ import java.awt.Rectangle;
 record ExternalFrameLayout(
         boolean enabled,
         int scale,
+        Rectangle screenArea,
         Rectangle drawArea,
         Rectangle topBar,
         Rectangle bottomBar,

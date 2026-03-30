@@ -13,6 +13,11 @@ import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 final class ExternalFrameRenderer {
+    private static final int SIDE_WIDTH = 2;
+    private static final int TOP_HEIGHT = 18;
+    private static final int BOTTOM_HEIGHT = 20;
+    private static final int HORIZONTAL_INSET = 2;
+    private static final int VERTICAL_INSET = 2;
     private static final int[] SOFT_KEYS = {
             Frame.SOFT_KEY_1,
             Frame.SOFT_KEY_2
@@ -44,35 +49,31 @@ final class ExternalFrameRenderer {
     ExternalFrameLayout layoutFor(int viewportWidth, int viewportHeight, int scale) {
         int clampedScale = Math.max(1, scale);
         if (!enabled) {
+            Rectangle screenArea = new Rectangle(0, 0, viewportWidth, viewportHeight);
             Rectangle drawArea = new Rectangle(0, 0, viewportWidth, viewportHeight);
-            return new ExternalFrameLayout(false, clampedScale, drawArea, new Rectangle(), new Rectangle(),
+            return new ExternalFrameLayout(false, clampedScale, screenArea, drawArea, new Rectangle(), new Rectangle(),
                     new Rectangle(), new Rectangle(), new Rectangle(), new Rectangle(),
                     new Dimension(viewportWidth * clampedScale, viewportHeight * clampedScale));
         }
 
-        int minDimension = Math.max(1, Math.min(viewportWidth, viewportHeight));
-        int sideWidth = Math.max(2, Math.round(viewportWidth * 0.015f));
-        int topHeight = Math.max(8, Math.round(viewportHeight * 0.075f));
-        int bottomHeight = Math.max(12, Math.round(viewportHeight * 0.095f));
-        int outerWidth = viewportWidth + sideWidth * 2;
-        int outerHeight = viewportHeight + topHeight + bottomHeight;
+        int outerWidth = viewportWidth + SIDE_WIDTH * 2;
+        int outerHeight = viewportHeight + TOP_HEIGHT + BOTTOM_HEIGHT;
 
-        Rectangle drawArea = new Rectangle(sideWidth, topHeight, viewportWidth, viewportHeight);
-        Rectangle topBar = new Rectangle(0, 0, outerWidth, topHeight);
-        Rectangle bottomBar = new Rectangle(0, topHeight + viewportHeight, outerWidth, bottomHeight);
-        Rectangle leftConnector = new Rectangle(0, topHeight, sideWidth, viewportHeight);
-        Rectangle rightConnector = new Rectangle(sideWidth + viewportWidth, topHeight, sideWidth, viewportHeight);
+        Rectangle screenArea = new Rectangle(SIDE_WIDTH, TOP_HEIGHT, viewportWidth, viewportHeight);
+        Rectangle drawArea = new Rectangle(screenArea);
+        Rectangle topBar = new Rectangle(0, 0, outerWidth, TOP_HEIGHT);
+        Rectangle bottomBar = new Rectangle(0, TOP_HEIGHT + viewportHeight, outerWidth, BOTTOM_HEIGHT);
+        Rectangle leftConnector = new Rectangle(0, TOP_HEIGHT, SIDE_WIDTH, viewportHeight);
+        Rectangle rightConnector = new Rectangle(SIDE_WIDTH + viewportWidth, TOP_HEIGHT, SIDE_WIDTH, viewportHeight);
 
-        int horizontalInset = Math.max(3, Math.round(minDimension * 0.018f));
-        int verticalInset = Math.max(1, Math.round(minDimension * 0.01f));
-        Rectangle statusArea = new Rectangle(horizontalInset, verticalInset,
-                Math.max(0, outerWidth - horizontalInset * 2),
-                Math.max(0, topHeight - verticalInset * 2));
-        Rectangle softKeyArea = new Rectangle(horizontalInset, bottomBar.y + verticalInset,
-                Math.max(0, outerWidth - horizontalInset * 2),
-                Math.max(0, bottomHeight - verticalInset * 2));
+        Rectangle statusArea = new Rectangle(HORIZONTAL_INSET, VERTICAL_INSET,
+                Math.max(0, outerWidth - HORIZONTAL_INSET * 2),
+                Math.max(0, TOP_HEIGHT - VERTICAL_INSET * 2));
+        Rectangle softKeyArea = new Rectangle(HORIZONTAL_INSET, bottomBar.y + VERTICAL_INSET,
+                Math.max(0, outerWidth - HORIZONTAL_INSET * 2),
+                Math.max(0, BOTTOM_HEIGHT - VERTICAL_INSET * 2));
 
-        return new ExternalFrameLayout(true, clampedScale, drawArea, topBar, bottomBar,
+        return new ExternalFrameLayout(true, clampedScale, screenArea, drawArea, topBar, bottomBar,
                 leftConnector, rightConnector, statusArea, softKeyArea,
                 new Dimension(outerWidth * clampedScale, outerHeight * clampedScale));
     }
@@ -89,7 +90,7 @@ final class ExternalFrameRenderer {
             if (layout.enabled()) {
                 paintChrome(g, layout, frame);
             }
-            paintDrawArea(g, layout.drawArea(), drawImage);
+            paintDrawArea(g, layout.screenArea(), layout.drawArea(), drawImage);
             paintOverlays(g, layout, frame, drawImage);
         } finally {
             g.dispose();
@@ -108,9 +109,9 @@ final class ExternalFrameRenderer {
         paintSoftKeys(g, layout.softKeyArea(), frame);
     }
 
-    private void paintDrawArea(Graphics2D g, Rectangle drawArea, BufferedImage drawImage) {
+    private void paintDrawArea(Graphics2D g, Rectangle screenArea, Rectangle drawArea, BufferedImage drawImage) {
         g.setColor(Color.BLACK);
-        g.fillRect(drawArea.x, drawArea.y, drawArea.width, drawArea.height);
+        g.fillRect(screenArea.x, screenArea.y, screenArea.width, screenArea.height);
         if (drawImage != null) {
             g.drawImage(drawImage, drawArea.x, drawArea.y, drawArea.width, drawArea.height, null);
         }
