@@ -268,7 +268,7 @@ public class RadioTuner {
             currentFrequency = frequencies[indexOf(tunerType)];
         }
         try {
-            int delayMs = java.lang.Math.max(0, Integer.getInteger("opendoja.radiotuner.seekDelayMs", 0));
+            int delayMs = java.lang.Math.max(0, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.RADIOTUNER_SEEK_DELAY_MS));
             if (delayMs > 0) {
                 synchronized (this) {
                     wait(delayMs);

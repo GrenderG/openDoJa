@@ -71,8 +71,8 @@ public final class SystemApiProbe {
      * @throws Exception if any assertion fails
      */
     public static void main(String[] args) throws Exception {
-        System.setProperty("opendoja.owner.phone1", "09012345678");
-        System.setProperty("opendoja.owner.email1", "owner@example.com");
+        System.setProperty(opendoja.host.OpenDoJaLaunchArgs.OWNER_PHONE1, "09012345678");
+        System.setProperty(opendoja.host.OpenDoJaLaunchArgs.OWNER_EMAIL1, "owner@example.com");
 
         LaunchConfig config = LaunchConfig.builder(DummyApp.class)
                 .launchType(IApplication.LAUNCHED_FROM_MENU)

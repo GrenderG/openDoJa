@@ -16,9 +16,9 @@ public class PointingDevice {
     public static final int MAX_DIRECTION_Y = 127;
     /** Minimum Y-axis direction component (=-128). */
     public static final int MIN_DIRECTION_Y = -128;
-    private static final boolean AVAILABLE = !Boolean.getBoolean("opendoja.pointingDeviceUnavailable");
+    private static final boolean AVAILABLE = !opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.POINTING_DEVICE_UNAVAILABLE);
     private static final int CONFIGURED_MAX_DIRECTION_Z =
-            Math.max(0, Integer.getInteger("opendoja.pointingDeviceMaxDirectionZ", 0));
+            Math.max(0, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.POINTING_DEVICE_MAX_DIRECTION_Z));
 
     private static boolean enabled;
     private static boolean visible = true;

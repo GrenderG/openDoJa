@@ -17,7 +17,7 @@ import java.util.Map;
  * and automatic-launch settings.
  */
 public abstract class IApplication {
-    private static final boolean TRACE_FAILURES = Boolean.getBoolean("opendoja.traceFailures");
+    private static final boolean TRACE_FAILURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_FAILURES);
     /** Launch type indicating that the application was started from the menu (=0). */
     public static final int LAUNCHED_FROM_MENU = 0;
     /** Launch type indicating that the application was started immediately after download (=1). */

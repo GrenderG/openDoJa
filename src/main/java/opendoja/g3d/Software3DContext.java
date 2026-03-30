@@ -16,16 +16,16 @@ import java.util.Arrays;
 import java.util.List;
 
 public final class Software3DContext {
-    private static final boolean DEBUG_3D = Boolean.getBoolean("opendoja.debug3d");
+    private static final boolean DEBUG_3D = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.DEBUG3D);
     private static volatile boolean debugProjectionLogged;
     private static volatile boolean debugFigureStatsLogged;
     private static final float DEPTH_EPSILON = 0.000001f;
     private static final int RASTER_SUBPIXEL_SHIFT = 4;
     private static final int RASTER_SUBPIXEL_SCALE = 1 << RASTER_SUBPIXEL_SHIFT;
-    private static final int CULL_SIGN = Integer.getInteger("opendoja.cullSign", 1);
-    private static final boolean CULL_FIGURES = Boolean.getBoolean("opendoja.cullFigures");
-    private static final boolean CLIP_SCREEN_PLANES = Boolean.getBoolean("opendoja.clipScreenPlanes");
-    private static final float UI_FIGURE_VERTEX_SCALE = Float.parseFloat(System.getProperty("opendoja.uiFigureVertexScale", "0.015625"));
+    private static final int CULL_SIGN = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.CULL_SIGN);
+    private static final boolean CULL_FIGURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.CULL_FIGURES);
+    private static final boolean CLIP_SCREEN_PLANES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.CLIP_SCREEN_PLANES);
+    private static final float UI_FIGURE_VERTEX_SCALE = opendoja.host.OpenDoJaLaunchArgs.getFloat(opendoja.host.OpenDoJaLaunchArgs.UI_FIGURE_VERTEX_SCALE);
 
     private Rectangle uiClip;
     private float[] uiTransform = identity();

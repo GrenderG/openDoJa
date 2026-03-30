@@ -5,8 +5,8 @@ import opendoja.g3d.SoftwareTexture;
 import opendoja.host.OpenDoJaLog;
 
 public class Figure extends DrawableObject3D {
-    private static final boolean TRACE_FAILURES = Boolean.getBoolean("opendoja.traceFailures");
-    private static final boolean TRACE_3D_CALLS = Boolean.getBoolean("opendoja.debug3dCalls");
+    private static final boolean TRACE_FAILURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_FAILURES);
+    private static final boolean TRACE_3D_CALLS = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.DEBUG3D_CALLS);
     private final MascotFigure handle;
 
     Figure(MascotFigure handle) {

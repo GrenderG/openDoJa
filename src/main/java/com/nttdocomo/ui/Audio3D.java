@@ -10,9 +10,9 @@ import com.nttdocomo.ui.sound3d.SoundPosition;
  */
 public class Audio3D {
     private static final int TOTAL_RESOURCES =
-            java.lang.Math.max(1, Integer.getInteger("opendoja.audio3dResources", 1));
+            java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.AUDIO3D_RESOURCES));
     private static final int TIME_RESOLUTION_MS =
-            java.lang.Math.max(1, Integer.getInteger("opendoja.audio3dTimeResolutionMs", 100));
+            java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.AUDIO3D_TIME_RESOLUTION_MS));
     private static final Object RESOURCE_LOCK = new Object();
     private static int allocatedResources;
 

@@ -71,11 +71,11 @@ public final class ThruRWOfflineFelica extends OfflineFelica {
         if (baudRate != BAUDRATE_212_KBPS && baudRate != BAUDRATE_424_KBPS) {
             throw new IllegalArgumentException("baudRate");
         }
-        boolean supportsDiscovery = !Boolean.getBoolean("opendoja.felicaExternalNoSpeedDiscovery");
-        boolean supports212 = Boolean.parseBoolean(System.getProperty("opendoja.felicaExternalSupports212", "true"));
-        boolean supports424 = Boolean.parseBoolean(System.getProperty("opendoja.felicaExternalSupports424", "true"));
+        boolean supportsDiscovery = !opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.FELICA_EXTERNAL_NO_SPEED_DISCOVERY);
+        boolean supports212 = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.FELICA_EXTERNAL_SUPPORTS212);
+        boolean supports424 = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.FELICA_EXTERNAL_SUPPORTS424);
         byte[] polledIdm = getIDm();
-        String overrideIdm = System.getProperty("opendoja.felicaExternalPolledIdm", "").trim();
+        String overrideIdm = opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.FELICA_EXTERNAL_POLLED_IDM).trim();
         if (!overrideIdm.isEmpty()) {
             polledIdm = decodeIdm(overrideIdm);
         }

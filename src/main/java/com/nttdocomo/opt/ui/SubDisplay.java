@@ -6,8 +6,8 @@ import com.nttdocomo.ui.Image;
  * Provides access to the optional sub display.
  */
 public class SubDisplay {
-    private static final int WIDTH = Integer.getInteger("opendoja.subDisplayWidth", 0);
-    private static final int HEIGHT = Integer.getInteger("opendoja.subDisplayHeight", 0);
+    private static final int WIDTH = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SUB_DISPLAY_WIDTH);
+    private static final int HEIGHT = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SUB_DISPLAY_HEIGHT);
     private static volatile Image image;
 
     /**

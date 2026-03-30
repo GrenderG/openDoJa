@@ -8,15 +8,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class LaunchCompatibility {
-    private static final String APPLIED_PROPERTY = "opendoja.launchCompatApplied";
-    private static final String DEFAULT_ENCODING_PROPERTY = "opendoja.defaultEncoding";
-    private static final String KEEP_EXPLICIT_GC_PROPERTY = "opendoja.keepExplicitGc";
-
     private LaunchCompatibility() {
     }
 
     static void reexecJamLauncherIfNeeded(Path jamPath) throws IOException, InterruptedException {
-        if (Boolean.getBoolean(APPLIED_PROPERTY)) {
+        if (Boolean.getBoolean(OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED)) {
             return;
         }
         String targetEncoding = targetDefaultEncoding();
@@ -38,7 +34,7 @@ final class LaunchCompatibility {
         List<String> command = new ArrayList<>();
         command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
         for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
-            if (arg.startsWith("-D" + APPLIED_PROPERTY + "=")
+            if (arg.startsWith("-D" + OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED + "=")
                     || arg.startsWith("-Dfile.encoding=")
                     || arg.equals("-XX:+DisableExplicitGC")
                     || arg.equals("-XX:-DisableExplicitGC")) {
@@ -46,7 +42,7 @@ final class LaunchCompatibility {
             }
             command.add(arg);
         }
-        command.add("-D" + APPLIED_PROPERTY + "=true");
+        command.add("-D" + OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED + "=true");
         if (disableExplicitGc) {
             // Games issue System.gc() liberally around UI/resource transitions as a lightweight
             // handset-era memory hint. On desktop HotSpot that becomes a blocking full GC, which
@@ -72,7 +68,7 @@ final class LaunchCompatibility {
         if (explicitFileEncodingArgument() != null) {
             return null;
         }
-        String override = System.getProperty(DEFAULT_ENCODING_PROPERTY);
+        String override = System.getProperty(OpenDoJaLaunchArgs.DEFAULT_ENCODING);
         if (override != null) {
             String value = override.trim();
             return value.isEmpty() ? null : value;
@@ -90,7 +86,7 @@ final class LaunchCompatibility {
     }
 
     private static boolean shouldDisableExplicitGc() {
-        if (Boolean.getBoolean(KEEP_EXPLICIT_GC_PROPERTY)) {
+        if (Boolean.getBoolean(OpenDoJaLaunchArgs.KEEP_EXPLICIT_GC)) {
             return false;
         }
         return explicitGcArgument() == null;

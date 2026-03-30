@@ -37,7 +37,7 @@ class _BitmapFont extends Font {
     private static final int IDEOGRAPHIC_SPACE = 0x3000;
     private static final java.awt.Font PLACEHOLDER_FONT = new java.awt.Font(java.awt.Font.DIALOG, java.awt.Font.PLAIN, 12);
     private static final Map<Integer, Strike> STRIKES = loadStrikes();
-    private static final int MAX_RENDER_CACHE_ENTRIES = Integer.getInteger("opendoja.bitmapFontCacheEntries", 256);
+    private static final int MAX_RENDER_CACHE_ENTRIES = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.BITMAP_FONT_CACHE_ENTRIES);
     // UI-heavy titles redraw the same handset strings every frame. Cache the rasterized result so
     // repeated dialog/menu paints do not allocate and blit glyph bitmaps from scratch each time.
     private static final Map<RenderKey, BufferedImage> RENDER_CACHE = new LinkedHashMap<>(64, 0.75f, true) {

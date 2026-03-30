@@ -11,7 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 
 public final class SoftwareTexture {
-    private static final boolean TRACE_3D_CALLS = Boolean.getBoolean("opendoja.debug3dCalls");
+    private static final boolean TRACE_3D_CALLS = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.DEBUG3D_CALLS);
     private final BufferedImage image;
     private final boolean sphereMap;
     private final int[] indexedPixels;

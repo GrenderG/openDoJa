@@ -19,7 +19,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class AudioPresenter implements MediaPresenter, AutoCloseable {
-    private static final boolean TRACE_AUDIO_FAILURES = Boolean.getBoolean("opendoja.traceAudioFailures");
+    private static final boolean TRACE_AUDIO_FAILURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_AUDIO_FAILURES);
     public static final int AUDIO_PLAYING = 1;
     public static final int AUDIO_STOPPED = 2;
     public static final int AUDIO_COMPLETE = 3;

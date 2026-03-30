@@ -164,13 +164,13 @@ public final class OnlineFelica {
             throw new DeviceException(DeviceException.ILLEGAL_STATE, "Online processing has already started");
         }
         validateDestination(destination);
-        if (Boolean.getBoolean("opendoja.felicaOnlineNoResources")) {
+        if (opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.FELICA_ONLINE_NO_RESOURCES)) {
             throw new ConnectionException(ConnectionException.NO_RESOURCES,
                     "Configured FeliCa online resource exhaustion");
         }
         FelicaSupport.onlineProcessing = true;
-        int status = Integer.getInteger("opendoja.felicaOnlineStatus", 0);
-        long delay = Long.getLong("opendoja.felicaOnlineDelayMillis", 200L);
+        int status = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.FELICA_ONLINE_STATUS);
+        long delay = opendoja.host.OpenDoJaLaunchArgs.getLong(opendoja.host.OpenDoJaLaunchArgs.FELICA_ONLINE_DELAY_MILLIS);
         completionTask = FelicaSupport.EXECUTOR.schedule(() -> finishOnline(status), delay, TimeUnit.MILLISECONDS);
     }
 

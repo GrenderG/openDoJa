@@ -19,14 +19,13 @@ public final class MLDPCMPlayer implements AutoCloseable {
             MA3SamplerProvider.WAVE_DRUM_MA3);
     private static final FueTrekSamplerProvider FUETREK_SAMPLER_PROVIDER = new FueTrekSamplerProvider();
     private static final SynthProfile SYNTH_PROFILE = resolveSynthProfile();
-    private static final float DEFAULT_SAMPLE_RATE = Float.parseFloat(
-            System.getProperty("opendoja.mldSampleRate",
-                    Float.toString(SYNTH_PROFILE.defaultSampleRate)));
+    private static final float DEFAULT_SAMPLE_RATE =
+            opendoja.host.OpenDoJaLaunchArgs.getFloat(opendoja.host.OpenDoJaLaunchArgs.MLD_SAMPLE_RATE);
     private static final int BUFFER_FRAMES = normalizeBufferFrames(
-            Integer.getInteger("opendoja.mldBufferFrames", SYNTH_PROFILE.defaultBufferFrames),
+            opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.MLD_BUFFER_FRAMES),
             SYNTH_PROFILE.defaultBufferFrames);
-    private static final int LINE_BUFFER_FRAMES = Integer.getInteger(
-            "opendoja.mldLineBufferFrames", BUFFER_FRAMES * 4);
+    private static final int LINE_BUFFER_FRAMES =
+            opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.MLD_LINE_BUFFER_FRAMES, BUFFER_FRAMES * 4);
     private static final AudioFormat OUTPUT_FORMAT = new AudioFormat(
             DEFAULT_SAMPLE_RATE, 16, 2, true, false);
     private static final SamplerProvider SAMPLER_PROVIDER = SYNTH_PROFILE.samplerProvider;

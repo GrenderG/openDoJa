@@ -20,7 +20,7 @@ public final class DirectCanvasUnlockFalseProbe {
 
     public static void main(String[] args) throws Exception {
         System.setProperty("java.awt.headless", "true");
-        System.setProperty("opendoja.syncUnlockIntervalMs", "120");
+        System.setProperty(opendoja.host.OpenDoJaLaunchArgs.SYNC_UNLOCK_INTERVAL_MS, "120");
         ProbeApp app = (ProbeApp) DesktopLauncher.launch(ProbeApp.class);
         try {
             app.canvas.awaitFrameCount(8);

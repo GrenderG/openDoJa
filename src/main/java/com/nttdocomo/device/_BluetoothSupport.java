@@ -34,7 +34,7 @@ final class _BluetoothSupport {
     }
 
     boolean isSupported() {
-        return Boolean.parseBoolean(System.getProperty("opendoja.bluetoothSupported", "true"));
+        return opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.BLUETOOTH_SUPPORTED);
     }
 
     RemoteDevice scan() {
@@ -54,7 +54,7 @@ final class _BluetoothSupport {
                 return null;
             }
             List<DeviceDescriptor> known = new ArrayList<>(discoveredDevices.values());
-            return toRemoteDevice(known.get(selectedIndex(known.size(), "opendoja.bluetoothSelectionIndex")));
+            return toRemoteDevice(known.get(selectedIndex(known.size(), opendoja.host.OpenDoJaLaunchArgs.BLUETOOTH_SELECTION_INDEX)));
         }
     }
 
@@ -67,7 +67,7 @@ final class _BluetoothSupport {
             for (DeviceDescriptor descriptor : configured) {
                 discoveredDevices.put(descriptor.address(), descriptor);
             }
-            return toRemoteDevice(configured.get(selectedIndex(configured.size(), "opendoja.bluetoothSearchSelectionIndex")));
+            return toRemoteDevice(configured.get(selectedIndex(configured.size(), opendoja.host.OpenDoJaLaunchArgs.BLUETOOTH_SEARCH_SELECTION_INDEX)));
         }
     }
 
@@ -108,7 +108,7 @@ final class _BluetoothSupport {
         if (configured.isEmpty()) {
             return null;
         }
-        int configuredIndex = Integer.getInteger("opendoja.bluetoothScanIndex", -1);
+        int configuredIndex = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.BLUETOOTH_SCAN_INDEX);
         if (configuredIndex >= 0 && configuredIndex < configured.size()) {
             return configured.get(configuredIndex);
         }
@@ -124,7 +124,7 @@ final class _BluetoothSupport {
         if (size <= 0) {
             return 0;
         }
-        int index = Integer.getInteger(property, 0);
+        int index = opendoja.host.OpenDoJaLaunchArgs.getInt(property);
         if (index < 0) {
             return 0;
         }
@@ -135,7 +135,7 @@ final class _BluetoothSupport {
     }
 
     private static List<DeviceDescriptor> configuredDevices() {
-        String raw = System.getProperty("opendoja.bluetoothDevices", "").trim();
+        String raw = opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.BLUETOOTH_DEVICES).trim();
         if (raw.isEmpty()) {
             return List.of();
         }

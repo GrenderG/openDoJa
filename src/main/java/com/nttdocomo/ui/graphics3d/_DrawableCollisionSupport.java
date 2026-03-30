@@ -10,7 +10,7 @@ import java.util.List;
 
 final class _DrawableCollisionSupport {
     private static final float FIGURE_VERTEX_SCALE =
-            Float.parseFloat(System.getProperty("opendoja.uiFigureVertexScale", "0.015625"));
+            opendoja.host.OpenDoJaLaunchArgs.getFloat(opendoja.host.OpenDoJaLaunchArgs.UI_FIGURE_VERTEX_SCALE);
     private static final float EPSILON = 1.0e-5f;
 
     private _DrawableCollisionSupport() {

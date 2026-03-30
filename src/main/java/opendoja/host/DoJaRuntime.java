@@ -45,12 +45,12 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public final class DoJaRuntime {
     private static final ThreadLocal<LaunchConfig> PREPARED_LAUNCH = new ThreadLocal<>();
-    private static final boolean TRACE_EVENTS = Boolean.getBoolean("opendoja.traceEvents");
+    private static final boolean TRACE_EVENTS = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_EVENTS);
     private static final long MINIMUM_SELECT_PRESS_NANOS =
-            java.lang.Math.max(0L, Long.getLong("opendoja.input.minimumSelectPressMs", 75L)) * 1_000_000L;
+            java.lang.Math.max(0L, opendoja.host.OpenDoJaLaunchArgs.getLong(opendoja.host.OpenDoJaLaunchArgs.INPUT_MINIMUM_SELECT_PRESS_MS)) * 1_000_000L;
     // A short release debounce collapses desktop auto-repeat release/press pairs into a stable hold.
     private static final int KEY_REPEAT_RELEASE_DEBOUNCE_MS =
-            java.lang.Math.max(0, Integer.getInteger("opendoja.input.keyRepeatReleaseDebounceMs", 25));
+            java.lang.Math.max(0, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS));
     private static volatile DoJaRuntime current;
 
     private final LaunchConfig config;
@@ -661,23 +661,13 @@ public final class DoJaRuntime {
     }
 
     private static int resolveHostScale(LaunchConfig config) {
-        String raw = System.getProperty("opendoja.hostScale");
-        if (raw == null || raw.isBlank()) {
-            return 1;
-        }
-        try {
-            return java.lang.Math.max(1, Integer.parseInt(raw.trim()));
-        } catch (NumberFormatException ignored) {
-            return 1;
-        }
+        return java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.HOST_SCALE));
     }
 
     private static boolean resolveExternalFrameEnabled(LaunchConfig config) {
-        String raw = System.getProperty("opendoja.externalFrame");
-        if (raw == null || raw.isBlank()) {
-            return config == null || config.externalFrameEnabled();
-        }
-        return Boolean.parseBoolean(raw);
+        return opendoja.host.OpenDoJaLaunchArgs.getBoolean(
+                opendoja.host.OpenDoJaLaunchArgs.EXTERNAL_FRAME,
+                config == null || config.externalFrameEnabled());
     }
 
     private void repackWindow() {

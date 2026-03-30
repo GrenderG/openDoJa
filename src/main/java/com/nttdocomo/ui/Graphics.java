@@ -21,8 +21,8 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 
 public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.nttdocomo.opt.ui.j3d.Graphics3D {
-    private static final boolean TRACE_FAILURES = Boolean.getBoolean("opendoja.traceFailures");
-    private static final boolean TRACE_3D_CALLS = Boolean.getBoolean("opendoja.debug3dCalls");
+    private static final boolean TRACE_FAILURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_FAILURES);
+    private static final boolean TRACE_3D_CALLS = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.DEBUG3D_CALLS);
     public static final int BLACK = 0;
     public static final int BLUE = 1;
     public static final int LIME = 2;

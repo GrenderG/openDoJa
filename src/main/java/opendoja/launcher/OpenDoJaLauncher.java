@@ -1,6 +1,7 @@
 package opendoja.launcher;
 
 import opendoja.host.JamLauncher;
+import opendoja.host.OpenDoJaLaunchArgs;
 import opendoja.host.OpenDoJaLog;
 
 import javax.swing.JOptionPane;
@@ -76,8 +77,8 @@ public final class OpenDoJaLauncher {
     }
 
     private static void printUsage() {
-        OpenDoJaLog.configureIfUnset(OpenDoJaLog.Level.INFO);
-        OpenDoJaLog.info(OpenDoJaLauncher.class, usageLine());
+        OpenDoJaLog.configure(OpenDoJaLog.Level.INFO);
+        OpenDoJaLog.info(OpenDoJaLauncher.class, helpText());
     }
 
     private static String usageLine() {
@@ -85,12 +86,19 @@ public final class OpenDoJaLauncher {
                 + SPAWN_JAM_FLAG + " <path-to-jam>]";
     }
 
+    private static String helpText() {
+        return usageLine()
+                + "\n\nPass custom runtime properties before -jar, for example:"
+                + "\n  java -D" + OpenDoJaLaunchArgs.HOST_SCALE + "=2 -jar target/opendoja-0.1.0-SNAPSHOT.jar <game.jam>"
+                + "\n\n" + OpenDoJaLaunchArgs.formatProperties();
+    }
+
     private static boolean looksLikeJamPath(String arg) {
         return arg.toLowerCase().endsWith(".jam");
     }
 
     private static void reportFailure(String[] args, Exception e) {
-        OpenDoJaLog.configureIfUnset(OpenDoJaLog.Level.ERROR);
+        OpenDoJaLog.configure(OpenDoJaLog.Level.ERROR);
         OpenDoJaLog.error(OpenDoJaLauncher.class, e.getMessage());
         if (args.length == 0) {
             JOptionPane.showMessageDialog(

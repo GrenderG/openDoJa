@@ -11,14 +11,14 @@ import java.util.Arrays;
  * Sample-based FueTrek renderer built from the extracted MFiSynth_ft ROM image.
  */
 final class FueTrekSampler implements Sampler {
-    private static final boolean DEBUG_NOTES = Boolean.getBoolean("opendoja.debugFueTrekNotes");
-    private static final boolean DEBUG_CONTROL = Boolean.getBoolean("opendoja.debugFueTrekControl");
+    private static final boolean DEBUG_NOTES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.DEBUG_FUE_TREK_NOTES);
+    private static final boolean DEBUG_CONTROL = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.DEBUG_FUE_TREK_CONTROL);
     private static final int CHANNEL_COUNT = 16;
     private static final int CUSTOM_SLOT_COUNT = 16;
     private static final int MIDI_A4 = 69;
     private static final float ROM_SAMPLE_RATE = FueTrekSamplerProvider.SAMPLE_RATE;
     private static final float OUTPUT_SCALE = 1.0f / 32768.0f;
-    private static final int MIX_PROFILE_MODE = Integer.getInteger("opendoja.fuetrekMixProfile", 0);
+    private static final int MIX_PROFILE_MODE = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.FUETREK_MIX_PROFILE);
 
     private final FueTrekRom rom;
     private final ChannelState[] channels = new ChannelState[CHANNEL_COUNT];

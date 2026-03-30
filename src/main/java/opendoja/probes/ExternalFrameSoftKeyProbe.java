@@ -38,11 +38,11 @@ public final class ExternalFrameSoftKeyProbe {
                 .viewport(viewportWidth, viewportHeight)
                 .title("ExternalFrameSoftKeyProbe");
         LaunchConfig config = builder.build();
-        String previousHostScale = System.getProperty("opendoja.hostScale");
+        String previousHostScale = System.getProperty(opendoja.host.OpenDoJaLaunchArgs.HOST_SCALE);
         if (configuredScale == null) {
-            System.clearProperty("opendoja.hostScale");
+            System.clearProperty(opendoja.host.OpenDoJaLaunchArgs.HOST_SCALE);
         } else {
-            System.setProperty("opendoja.hostScale", configuredScale);
+            System.setProperty(opendoja.host.OpenDoJaLaunchArgs.HOST_SCALE, configuredScale);
         }
         DoJaRuntime.prepareLaunch(config);
         try {
@@ -103,9 +103,9 @@ public final class ExternalFrameSoftKeyProbe {
             }
         } finally {
             if (previousHostScale == null) {
-                System.clearProperty("opendoja.hostScale");
+                System.clearProperty(opendoja.host.OpenDoJaLaunchArgs.HOST_SCALE);
             } else {
-                System.setProperty("opendoja.hostScale", previousHostScale);
+                System.setProperty(opendoja.host.OpenDoJaLaunchArgs.HOST_SCALE, previousHostScale);
             }
         }
     }

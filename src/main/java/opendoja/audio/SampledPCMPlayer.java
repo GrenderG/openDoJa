@@ -7,7 +7,7 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.SourceDataLine;
 
 public final class SampledPCMPlayer implements AutoCloseable {
-    private static final int CHUNK_BYTES = Integer.getInteger("opendoja.sampledChunkBytes", 4096);
+    private static final int CHUNK_BYTES = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SAMPLED_CHUNK_BYTES);
 
     public interface Listener {
         void onLoop();

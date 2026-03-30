@@ -94,7 +94,7 @@ public class SpeechRecognizer {
      */
     public String getName() {
         ensureAvailable();
-        return System.getProperty("opendoja.speechName", "openDoJa Speech Frontend/5.1");
+        return opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.SPEECH_NAME);
     }
 
     /**
@@ -106,7 +106,7 @@ public class SpeechRecognizer {
      */
     public int getMaxSpeechTime() {
         ensureAvailable();
-        return Integer.getInteger("opendoja.speechMaxSpeechTime", 10_000);
+        return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SPEECH_MAX_SPEECH_TIME);
     }
 
     /**
@@ -143,7 +143,7 @@ public class SpeechRecognizer {
     public int getReadyTime(String codec) {
         ensureAvailable();
         requireSupportedCodec(codec);
-        return Integer.getInteger("opendoja.speechReadyTime", 500);
+        return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SPEECH_READY_TIME);
     }
 
     /**
@@ -280,11 +280,11 @@ public class SpeechRecognizer {
     }
 
     private static boolean isSupported() {
-        return Boolean.parseBoolean(System.getProperty("opendoja.speechSupported", "true"));
+        return opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.SPEECH_SUPPORTED);
     }
 
     private static String[] availableCodecs() {
-        String raw = System.getProperty("opendoja.speechCodecs", "audio/amr");
+        String raw = opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.SPEECH_CODECS);
         String[] tokens = raw.split("[,;]");
         List<String> values = new ArrayList<>();
         for (String token : tokens) {
@@ -297,7 +297,7 @@ public class SpeechRecognizer {
     }
 
     private static int[] availableTypes() {
-        String raw = System.getProperty("opendoja.speechTypes", "1");
+        String raw = opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.SPEECH_TYPES);
         String[] tokens = raw.split("[,;]");
         List<Integer> values = new ArrayList<>();
         for (String token : tokens) {
@@ -320,7 +320,7 @@ public class SpeechRecognizer {
     }
 
     private static byte[][] featureChunks() {
-        String raw = System.getProperty("opendoja.speechFeatureChunks", "01020304;05060708;090a0b0c");
+        String raw = opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.SPEECH_FEATURE_CHUNKS);
         String[] tokens = raw.split(";");
         List<byte[]> result = new ArrayList<>();
         for (String token : tokens) {
@@ -365,11 +365,11 @@ public class SpeechRecognizer {
 
     private synchronized void scheduleFeatureProductionLocked() {
         byte[][] chunks = featureChunks();
-        int readyTime = Integer.getInteger("opendoja.speechReadyTime", 500);
-        int interval = Integer.getInteger("opendoja.speechFeatureInterval", 200);
-        int level = Integer.getInteger("opendoja.speechLevel", 60);
-        int snr = Integer.getInteger("opendoja.speechSignalToNoiseRatio", 70);
-        int voiceActivity = Integer.getInteger("opendoja.speechVoiceActivity", 1);
+        int readyTime = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SPEECH_READY_TIME);
+        int interval = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SPEECH_FEATURE_INTERVAL);
+        int level = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SPEECH_LEVEL);
+        int snr = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SPEECH_SIGNAL_TO_NOISE_RATIO);
+        int voiceActivity = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SPEECH_VOICE_ACTIVITY);
         featureTask = EXECUTOR.scheduleAtFixedRate(new Runnable() {
             private int index;
 

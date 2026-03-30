@@ -9,7 +9,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class LaunchConfig {
-    public static final String STATUS_BAR_ICON_DEVICE_PROPERTY = "opendoja.statusBarIconDevice";
     public static final String DEFAULT_STATUS_BAR_ICON_DEVICE = "n900i";
 
     private final Class<? extends IApplication> applicationClass;
@@ -215,7 +214,7 @@ public final class LaunchConfig {
     }
 
     private static String resolveDefaultStatusBarIconDevice() {
-        String raw = System.getProperty(STATUS_BAR_ICON_DEVICE_PROPERTY);
+        String raw = System.getProperty(OpenDoJaLaunchArgs.STATUS_BAR_ICON_DEVICE);
         if (raw == null || raw.isBlank()) {
             return DEFAULT_STATUS_BAR_ICON_DEVICE;
         }

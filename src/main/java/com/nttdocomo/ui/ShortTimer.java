@@ -14,9 +14,9 @@ import java.util.concurrent.TimeUnit;
  */
 public final class ShortTimer implements TimeKeeper {
     private static final int MIN_TIME_INTERVAL =
-            java.lang.Math.max(1, Integer.getInteger("opendoja.shortTimerMinTimeInterval", 1));
+            java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SHORT_TIMER_MIN_TIME_INTERVAL));
     private static final int RESOLUTION =
-            java.lang.Math.max(1, Integer.getInteger("opendoja.shortTimerResolution", 1));
+            java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SHORT_TIMER_RESOLUTION));
     private static final Map<Canvas, Map<Integer, ShortTimer>> REGISTRY = new WeakHashMap<>();
     // Bundled DoJa titles schedule gameplay-step timers with values like 100, but those same
     // titles only progress correctly when the desktop runtime treats the interval as handset timer
@@ -24,7 +24,7 @@ public final class ShortTimer implements TimeKeeper {
     // behavior and keeps this timer usable as a general game-step primitive.
     private static final int DEFAULT_INTERVAL_DIVISOR = 10;
     private static final int INTERVAL_DIVISOR = java.lang.Math.max(
-            1, Integer.getInteger("opendoja.shortTimerIntervalDivisor", DEFAULT_INTERVAL_DIVISOR));
+            1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SHORT_TIMER_INTERVAL_DIVISOR, DEFAULT_INTERVAL_DIVISOR));
     private final Canvas canvas;
     private final int timerId;
     private final int interval;

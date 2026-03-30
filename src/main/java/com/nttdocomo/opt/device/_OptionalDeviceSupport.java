@@ -38,20 +38,20 @@ final class _OptionalDeviceSupport {
             IrReceiver.STOP_HIGH_MAX, IrReceiver.STOP_HIGH_MIN,
             IrReceiver.STOP_LOW_MAX, IrReceiver.STOP_LOW_MIN
     };
-    private static final int DEFAULT_MIN_HEIGHT_MM = Integer.getInteger("opendoja.pedometer.minHeightMm", 500);
-    private static final int DEFAULT_MAX_HEIGHT_MM = Integer.getInteger("opendoja.pedometer.maxHeightMm", 2500);
-    private static final int DEFAULT_MIN_WEIGHT_G = Integer.getInteger("opendoja.pedometer.minWeightG", 10000);
-    private static final int DEFAULT_MAX_WEIGHT_G = Integer.getInteger("opendoja.pedometer.maxWeightG", 200000);
-    private static final int HEIGHT_UNIT_MM = java.lang.Math.max(1, Integer.getInteger("opendoja.pedometer.heightUnitMm", 10));
-    private static final int WEIGHT_UNIT_G = java.lang.Math.max(1, Integer.getInteger("opendoja.pedometer.weightUnitG", 1000));
-    private static final int DISTANCE_PER_STEP_MM = java.lang.Math.max(1, Integer.getInteger("opendoja.pedometer.distancePerStepMm", 700));
-    private static final int PULSE_WARMUP_MS = java.lang.Math.max(0, Integer.getInteger("opendoja.pulsemeter.warmupMs", 500));
+    private static final int DEFAULT_MIN_HEIGHT_MM = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_MIN_HEIGHT_MM);
+    private static final int DEFAULT_MAX_HEIGHT_MM = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_MAX_HEIGHT_MM);
+    private static final int DEFAULT_MIN_WEIGHT_G = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_MIN_WEIGHT_G);
+    private static final int DEFAULT_MAX_WEIGHT_G = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_MAX_WEIGHT_G);
+    private static final int HEIGHT_UNIT_MM = java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_HEIGHT_UNIT_MM));
+    private static final int WEIGHT_UNIT_G = java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_WEIGHT_UNIT_G));
+    private static final int DISTANCE_PER_STEP_MM = java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_DISTANCE_PER_STEP_MM));
+    private static final int PULSE_WARMUP_MS = java.lang.Math.max(0, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PULSEMETER_WARMUP_MS));
 
     private static final Map<Integer, Integer> irAttributeValues = new HashMap<>();
     private static boolean irReceiving;
     private static long mediaPlayerLastStoppedPosition;
-    private static int bodyHeightMm = roundToUnit(Integer.getInteger("opendoja.pedometer.defaultHeightMm", 1700), HEIGHT_UNIT_MM);
-    private static int bodyWeightG = roundToUnit(Integer.getInteger("opendoja.pedometer.defaultWeightG", 70000), WEIGHT_UNIT_G);
+    private static int bodyHeightMm = roundToUnit(opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_DEFAULT_HEIGHT_MM), HEIGHT_UNIT_MM);
+    private static int bodyWeightG = roundToUnit(opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_DEFAULT_WEIGHT_G), WEIGHT_UNIT_G);
 
     private _OptionalDeviceSupport() {
     }
@@ -157,9 +157,9 @@ final class _OptionalDeviceSupport {
             throw new IllegalArgumentException("position");
         }
         file.getLength();
-        long configured = Long.getLong("opendoja.mediaplayer.stopPosition", position);
+        long configured = opendoja.host.OpenDoJaLaunchArgs.getLong(opendoja.host.OpenDoJaLaunchArgs.MEDIAPLAYER_STOP_POSITION, position);
         mediaPlayerLastStoppedPosition = java.lang.Math.max(0L, configured);
-        return Integer.getInteger("opendoja.mediaplayer.status", MediaPlayer.STATUS_COMPLETED);
+        return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.MEDIAPLAYER_STATUS);
     }
 
     static synchronized long lastStoppedPosition() {
@@ -289,7 +289,7 @@ final class _OptionalDeviceSupport {
         if (!state.started) {
             return Pulsemeter.STATUS_STOP;
         }
-        return Integer.getInteger("opendoja.pulsemeter.status", Pulsemeter.STATUS_NONE);
+        return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PULSEMETER_STATUS);
     }
 
     static synchronized int pulsemeterRate(Pulsemeter pulsemeter) {
@@ -306,8 +306,8 @@ final class _OptionalDeviceSupport {
 
     static int[] stationsForTuner(int tunerType) {
         String property = System.getProperty(tunerType == RadioTuner.TUNERTYPE_FM
-                ? "opendoja.radiotuner.fmStations"
-                : "opendoja.radiotuner.amStations");
+                ? opendoja.host.OpenDoJaLaunchArgs.RADIOTUNER_FM_STATIONS
+                : opendoja.host.OpenDoJaLaunchArgs.RADIOTUNER_AM_STATIONS);
         if (property == null || property.isBlank()) {
             return tunerType == RadioTuner.TUNERTYPE_FM
                     ? new int[]{78000, 82500, 90000}
@@ -338,7 +338,7 @@ final class _OptionalDeviceSupport {
         if (elapsed < PULSE_WARMUP_MS) {
             return -1;
         }
-        return Integer.getInteger("opendoja.pulsemeter.rate", 72);
+        return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PULSEMETER_RATE);
     }
 
     private static void ensurePedometerReadable() {
@@ -348,14 +348,14 @@ final class _OptionalDeviceSupport {
     }
 
     private static int pedometerState() {
-        return Boolean.parseBoolean(System.getProperty("opendoja.pedometer.off", "false"))
+        return opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_OFF)
                 ? Pedometer.ATTR_PEDOMETER_OFF
                 : Pedometer.ATTR_PEDOMETER_ON;
     }
 
     private static List<PedometerData> pedometerHistory() {
-        int days = java.lang.Math.max(1, Integer.getInteger("opendoja.pedometer.historyDays", 7));
-        int todaySteps = java.lang.Math.max(0, Integer.getInteger("opendoja.pedometer.todaySteps", 6000));
+        int days = java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_HISTORY_DAYS));
+        int todaySteps = java.lang.Math.max(0, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_TODAY_STEPS));
         List<PedometerData> history = new ArrayList<>(days);
         LocalDate today = LocalDate.now();
         for (int i = 0; i < days; i++) {
@@ -375,7 +375,7 @@ final class _OptionalDeviceSupport {
     }
 
     private static int[] fingerprintIds() {
-        String property = System.getProperty("opendoja.fingerprint.ids", "0");
+        String property = opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.FINGERPRINT_IDS);
         return Arrays.stream(property.split(","))
                 .map(String::trim)
                 .filter(token -> !token.isEmpty())
@@ -387,11 +387,11 @@ final class _OptionalDeviceSupport {
         if (registered.length == 0) {
             return -1;
         }
-        return Integer.getInteger("opendoja.fingerprint.matchId", registered[0]);
+        return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.FINGERPRINT_MATCH_ID, registered[0]);
     }
 
     private static int maxFingerprintCandidates() {
-        return java.lang.Math.max(1, Integer.getInteger("opendoja.fingerprint.maxCandidates", 16));
+        return java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.FINGERPRINT_MAX_CANDIDATES));
     }
 
     private static boolean contains(int[] values, int candidate) {
@@ -440,7 +440,7 @@ final class _OptionalDeviceSupport {
     }
 
     private static byte[] payloadBytes() {
-        return System.getProperty("opendoja.irreceiver.data", "IR-RECEIVE")
+        return opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.IRRECEIVER_DATA)
                 .getBytes(StandardCharsets.UTF_8);
     }
 

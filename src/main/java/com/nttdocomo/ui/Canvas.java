@@ -12,7 +12,7 @@ import javax.swing.JOptionPane;
  */
 public abstract class Canvas extends Frame {
     private static final long DIRECT_SYNC_UNLOCK_INTERVAL_NANOS =
-            java.lang.Math.max(0L, Long.getLong("opendoja.syncUnlockIntervalMs", 90L)) * 1_000_000L;
+            java.lang.Math.max(0L, opendoja.host.OpenDoJaLaunchArgs.getLong(opendoja.host.OpenDoJaLaunchArgs.SYNC_UNLOCK_INTERVAL_MS)) * 1_000_000L;
     /**
      * Indicates that IME input has been committed (=0).
      * This value is passed as the {@code type} argument of

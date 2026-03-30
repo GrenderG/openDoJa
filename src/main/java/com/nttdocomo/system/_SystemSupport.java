@@ -1314,8 +1314,8 @@ final class _SystemSupport {
                     OwnerProfile.EMAIL_ADDRESS_2, OwnerProfile.POSTAL_CODE, OwnerProfile.ADDRESS,
                     OwnerProfile.ADDRESS_REGION, OwnerProfile.ADDRESS_LOCALITY, OwnerProfile.ADDRESS_STREET,
                     OwnerProfile.ADDRESS_EXTENDED -> "";
-            case OwnerProfile.TELEPHONE_NUMBER_1 -> System.getProperty("opendoja.owner.phone1", "");
-            case OwnerProfile.EMAIL_ADDRESS_1 -> System.getProperty("opendoja.owner.email1", "");
+            case OwnerProfile.TELEPHONE_NUMBER_1 -> opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.OWNER_PHONE1);
+            case OwnerProfile.EMAIL_ADDRESS_1 -> opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.OWNER_EMAIL1);
             case OwnerProfile.BIRTH_DATE -> "00000000";
             case OwnerProfile.BIRTH_DATE_YEAR -> "0000";
             case OwnerProfile.BIRTH_DATE_MONTH, OwnerProfile.BIRTH_DATE_DAY -> "00";

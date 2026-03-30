@@ -107,7 +107,7 @@ public final class DoJaCameraSupport {
      *         capture is unavailable
      */
     public static long getMaxMovieLength() {
-        return Long.getLong("opendoja.camera.maxMovieLength", 1_048_576L);
+        return opendoja.host.OpenDoJaLaunchArgs.getLong(opendoja.host.OpenDoJaLaunchArgs.CAMERA_MAX_MOVIE_LENGTH);
     }
 
     /**

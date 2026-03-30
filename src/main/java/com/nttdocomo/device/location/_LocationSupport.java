@@ -25,29 +25,29 @@ final class _LocationSupport {
     }
 
     static boolean gpsSupported() {
-        return Boolean.parseBoolean(System.getProperty("opendoja.gpsSupported", "true"));
+        return opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.GPS_SUPPORTED);
     }
 
     static boolean trackingSupported() {
         if (!gpsSupported()) {
             return false;
         }
-        if (!Boolean.parseBoolean(System.getProperty("opendoja.gpsTrackingSupported", "true"))) {
+        if (!opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.GPS_TRACKING_SUPPORTED)) {
             return false;
         }
         return minimalInterval() >= 0;
     }
 
     static int minimalInterval() {
-        return Integer.getInteger("opendoja.gpsMinimalInterval", 1000);
+        return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.GPS_MINIMAL_INTERVAL);
     }
 
     static boolean compassSupported() {
-        return Boolean.parseBoolean(System.getProperty("opendoja.compassSupported", Boolean.toString(gpsSupported())));
+        return opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.COMPASS_SUPPORTED);
     }
 
     static boolean accelerationSupported() {
-        return Boolean.parseBoolean(System.getProperty("opendoja.accelerationSupported", "true"));
+        return opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.ACCELERATION_SUPPORTED);
     }
 
     static int[] availableLocationMethods() {
@@ -102,24 +102,24 @@ final class _LocationSupport {
     }
 
     static Location currentLocation() {
-        Degree latitude = new Degree(Double.parseDouble(System.getProperty("opendoja.gpsLatitude", "35.681236")));
-        Degree longitude = new Degree(Double.parseDouble(System.getProperty("opendoja.gpsLongitude", "139.767125")));
-        int altitude = Integer.getInteger("opendoja.gpsAltitude", Location.ALTITUDE_UNKNOWN);
-        int datum = Integer.getInteger("opendoja.gpsDatum", LocationProvider.DATUM_WGS84);
-        int accuracy = Integer.getInteger("opendoja.gpsAccuracy", Location.ACCURACY_NORMAL);
+        Degree latitude = new Degree(opendoja.host.OpenDoJaLaunchArgs.getDouble(opendoja.host.OpenDoJaLaunchArgs.GPS_LATITUDE));
+        Degree longitude = new Degree(opendoja.host.OpenDoJaLaunchArgs.getDouble(opendoja.host.OpenDoJaLaunchArgs.GPS_LONGITUDE));
+        int altitude = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.GPS_ALTITUDE);
+        int datum = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.GPS_DATUM);
+        int accuracy = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.GPS_ACCURACY);
         return new Location(latitude, longitude, altitude, datum, System.currentTimeMillis(), accuracy);
     }
 
     static Degree currentAzimuth() {
-        return new Degree(Double.parseDouble(System.getProperty("opendoja.compassAzimuth", "0.0")));
+        return new Degree(opendoja.host.OpenDoJaLaunchArgs.getDouble(opendoja.host.OpenDoJaLaunchArgs.COMPASS_AZIMUTH));
     }
 
     static long positioningDelayMillis() {
-        return Math.max(0L, Long.getLong("opendoja.gpsDelayMillis", 0L));
+        return Math.max(0L, opendoja.host.OpenDoJaLaunchArgs.getLong(opendoja.host.OpenDoJaLaunchArgs.GPS_DELAY_MILLIS));
     }
 
     static LocationException configuredLocationFailure() {
-        String raw = System.getProperty("opendoja.gpsFailure", "").trim().toLowerCase(Locale.ROOT);
+        String raw = opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.GPS_FAILURE).trim().toLowerCase(Locale.ROOT);
         if (raw.isEmpty()) {
             return null;
         }
@@ -141,7 +141,7 @@ final class _LocationSupport {
 
     static int[] availableAccelerationData() {
         return parseIntList(
-                System.getProperty("opendoja.accelerationAvailableData", "1,2,3,4,5,6"),
+                opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.ACCELERATION_AVAILABLE_DATA),
                 new int[]{
                         AccelerationSensor.ACCELERATION_X,
                         AccelerationSensor.ACCELERATION_Y,
@@ -154,33 +154,33 @@ final class _LocationSupport {
     }
 
     static int[] availableAccelerationEvents() {
-        if (!Boolean.parseBoolean(System.getProperty("opendoja.accelerationEventSupported", "true"))) {
+        if (!opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.ACCELERATION_EVENT_SUPPORTED)) {
             return null;
         }
         return parseIntList(
-                System.getProperty("opendoja.accelerationAvailableEvent", "1,2"),
+                opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.ACCELERATION_AVAILABLE_EVENT),
                 new int[]{AccelerationSensor.EVENT_SCREEN_ORIENTATION, AccelerationSensor.EVENT_DOUBLE_TAP}
         );
     }
 
     static int accelerationIntervalResolution() {
-        return Math.max(1, Integer.getInteger("opendoja.accelerationIntervalResolution", 50));
+        return Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.ACCELERATION_INTERVAL_RESOLUTION));
     }
 
     static int maxAccelerationDataSize() {
-        return Math.max(1, Integer.getInteger("opendoja.accelerationMaxDataSize", 32));
+        return Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.ACCELERATION_MAX_DATA_SIZE));
     }
 
     static int[] accelerationSample() {
-        return parseSixTuple(System.getProperty("opendoja.accelerationCurrent", "0,0,1000,0,0,0"));
+        return parseSixTuple(opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.ACCELERATION_CURRENT));
     }
 
     static int screenOrientationEventValue() {
-        return Integer.getInteger("opendoja.accelerationEventScreenOrientation", 0);
+        return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.ACCELERATION_EVENT_SCREEN_ORIENTATION);
     }
 
     static int doubleTapEventValue() {
-        return Integer.getInteger("opendoja.accelerationEventDoubleTap", AccelerationSensor.DOUBLE_TAP_FRONT);
+        return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.ACCELERATION_EVENT_DOUBLE_TAP);
     }
 
     static int minAccelerationValue(int type) {

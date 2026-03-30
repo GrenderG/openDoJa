@@ -35,7 +35,7 @@ import java.util.Set;
  * {@link #getFont(int, int)}.</p>
  */
 public class Font {
-    private static final float HANDSET_FONT_SCALE = Float.parseFloat(System.getProperty("opendoja.fontScale", "0.85"));
+    private static final float HANDSET_FONT_SCALE = opendoja.host.OpenDoJaLaunchArgs.getFloat(opendoja.host.OpenDoJaLaunchArgs.FONT_SCALE);
     private static final Object TEXT_ANTIALIAS_HINT = resolveTextAntialiasHint();
     /**
      * A font type that represents the default font ({@code =0x00000000}).
@@ -624,7 +624,7 @@ public class Font {
     }
 
     private static Object resolveTextAntialiasHint() {
-        String value = System.getProperty("opendoja.textAntialias", "gasp").toLowerCase(Locale.ROOT);
+        String value = opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.TEXT_ANTIALIAS).toLowerCase(Locale.ROOT);
         return switch (value) {
             case "off" -> RenderingHints.VALUE_TEXT_ANTIALIAS_OFF;
             case "gasp" -> RenderingHints.VALUE_TEXT_ANTIALIAS_GASP;

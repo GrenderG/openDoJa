@@ -24,9 +24,9 @@ public final class SecondPassProbe {
     }
 
     public static void main(String[] args) {
-        System.setProperty("opendoja.audio3dResources", "1");
-        System.setProperty("opendoja.audio3dTimeResolutionMs", "80");
-        System.setProperty("opendoja.pointingDeviceMaxDirectionZ", "7");
+        System.setProperty(opendoja.host.OpenDoJaLaunchArgs.AUDIO3D_RESOURCES, "1");
+        System.setProperty(opendoja.host.OpenDoJaLaunchArgs.AUDIO3D_TIME_RESOLUTION_MS, "80");
+        System.setProperty(opendoja.host.OpenDoJaLaunchArgs.POINTING_DEVICE_MAX_DIRECTION_Z, "7");
 
         verifyConnectionException();
         verifyShortTimer();

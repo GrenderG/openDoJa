@@ -4,6 +4,7 @@ import opendoja.audio.mld.fuetrek.FueTrekSamplerProvider;
 import opendoja.audio.mld.ma3.MA3SamplerProvider;
 import opendoja.host.DoJaRuntime;
 import opendoja.host.LaunchConfig;
+import opendoja.host.OpenDoJaLaunchArgs;
 
 import java.util.Locale;
 import java.util.Map;
@@ -25,7 +26,6 @@ public enum MldSynth {
         }
     };
 
-    private static final String PROPERTY_NAME = "opendoja.mldSynth";
     private static final String PARAMETER_KEY = "OpenDoJaMldSynth";
 
     public static final MldSynth DEFAULT = FUETREK;
@@ -56,7 +56,7 @@ public enum MldSynth {
     }
 
     public static MldSynth resolveConfigured() {
-        MldSynth fromProperty = fromId(System.getProperty(PROPERTY_NAME));
+        MldSynth fromProperty = fromId(System.getProperty(OpenDoJaLaunchArgs.MLD_SYNTH));
         if (fromProperty != null) {
             return fromProperty;
         }
