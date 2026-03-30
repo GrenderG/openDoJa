@@ -177,9 +177,43 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         return new DesktopImage(copy);
     }
 
+    // DoJa titles scroll cached surfaces with copyArea requests that can hang partly outside
+    // the backing image; clip the source rectangle but keep dx/dy as translation offsets.
     public void copyArea(int x, int y, int width, int height, int dx, int dy) {
-        BufferedImage source = surface.image().getSubimage(originX + x, originY + y, width, height);
-        delegate.drawImage(source, originX + dx, originY + dy, null);
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        int srcX = originX + x;
+        int srcY = originY + y;
+        int clippedSrcX = java.lang.Math.max(0, srcX);
+        int clippedSrcY = java.lang.Math.max(0, srcY);
+        int clippedSrcRight = java.lang.Math.min(srcX + width, surface.width());
+        int clippedSrcBottom = java.lang.Math.min(srcY + height, surface.height());
+        int clippedWidth = clippedSrcRight - clippedSrcX;
+        int clippedHeight = clippedSrcBottom - clippedSrcY;
+        if (clippedWidth <= 0 || clippedHeight <= 0) {
+            return;
+        }
+
+        int destX = clippedSrcX + dx;
+        int destY = clippedSrcY + dy;
+        BufferedImage source = new BufferedImage(clippedWidth, clippedHeight, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D sourceGraphics = source.createGraphics();
+        try {
+            sourceGraphics.drawImage(surface.image(),
+                    0,
+                    0,
+                    clippedWidth,
+                    clippedHeight,
+                    clippedSrcX,
+                    clippedSrcY,
+                    clippedSrcX + clippedWidth,
+                    clippedSrcY + clippedHeight,
+                    null);
+        } finally {
+            sourceGraphics.dispose();
+        }
+        delegate.drawImage(source, destX, destY, null);
         flushSurfacePresentation();
     }
 
