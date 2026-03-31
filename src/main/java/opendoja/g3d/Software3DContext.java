@@ -541,19 +541,19 @@ public final class Software3DContext {
         return originY + centerY + (invertScreenY ? -projectedOffsetY : projectedOffsetY);
     }
 
-    private static boolean isIdentityTransform(float[] matrix) {
+    private static boolean hasIdentityBasis(float[] matrix) {
         return matrix != null
                 && matrix.length >= 12
-                && matrix[0] == 1f && matrix[1] == 0f && matrix[2] == 0f && matrix[3] == 0f
-                && matrix[4] == 0f && matrix[5] == 1f && matrix[6] == 0f && matrix[7] == 0f
-                && matrix[8] == 0f && matrix[9] == 0f && matrix[10] == 1f && matrix[11] == 0f;
+                && matrix[0] == 1f && matrix[1] == 0f && matrix[2] == 0f
+                && matrix[4] == 0f && matrix[5] == 1f && matrix[6] == 0f
+                && matrix[8] == 0f && matrix[9] == 0f && matrix[10] == 1f;
     }
 
     private static boolean resolveOptPrimitiveScreenYFlip(float[] matrix) {
         // opt.ui.j3d primitive scenes can submit either a reflected camera basis or
         // identity-pretransformed billboard vertices, so the screen-Y rule must follow
         // the submitted view transform instead of assuming one fixed primitive convention.
-        if (isIdentityTransform(matrix)) {
+        if (hasIdentityBasis(matrix)) {
             return false;
         }
         return matrix == null || matrix.length < 6 || matrix[5] >= 0f;
@@ -1315,13 +1315,10 @@ public final class Software3DContext {
     }
 
     private static boolean resolveOptFigureScreenYFlip(float[] matrix) {
-        if (matrix == null || matrix.length < 6) {
-            return true;
-        }
-        // Opt figure callers can legally submit a view basis whose Y axis is already reflected
-        // relative to the primitive/lookAt path. In that case subtracting screen Y again flips
-        // the model upside down, so follow the submitted Y basis sign instead of hard-wiring it.
-        return matrix[5] >= 0f;
+        // opt.ui.j3d figures rendered under the default camera basis still follow the native
+        // centerY - projectedY projection rule. Once a title submits a non-identity basis, that
+        // basis already encodes the camera orientation and must not be flipped again.
+        return hasIdentityBasis(matrix);
     }
 
     private static int clamp(int value, int min, int max) {

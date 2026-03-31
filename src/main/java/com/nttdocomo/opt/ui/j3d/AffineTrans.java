@@ -341,7 +341,7 @@ public class AffineTrans {
         side.cross(forward, up);
         side.normalize();
         Vector3D actualUp = new Vector3D();
-        actualUp.cross(side, forward);
+        actualUp.cross(forward, side);
         // The orientation rows are 4.12 fixed-point unit vectors. The secondary cross-product
         // therefore needs another normalization pass before it is stored into the matrix.
         actualUp.normalize();

@@ -11,8 +11,9 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 
 /**
- * Verifies that opt PrimitiveArray batches stay upright both in the default case and when the
- * submitted quad geometry is vertically reflected relative to its texture coordinates.
+ * Verifies that opt PrimitiveArray batches keep the expected texture orientation for the default
+ * basis, the translation-only identity-basis path used by titles like Ridge Racers, and a quad
+ * whose submitted geometry itself is vertically mirrored.
  */
 public final class OptPrimitiveOrientationProbe {
     private OptPrimitiveOrientationProbe() {
@@ -21,11 +22,17 @@ public final class OptPrimitiveOrientationProbe {
     public static void main(String[] args) throws Exception {
         DemoLog.enableInfoLogging();
 
-        assertUpright("identity", false);
-        assertUpright("mirrored-geometry", true);
+        assertUpright("identity", identity(), false);
+        assertUpright("identity-basis-translation", translatedIdentity(580f), false);
+        assertOrientation("mirrored-geometry", identity(), true, 0xFF0000FF, 0xFFFF0000);
     }
 
-    private static void assertUpright(String label, boolean mirroredGeometry) throws Exception {
+    private static void assertUpright(String label, float[] transform, boolean mirroredGeometry) throws Exception {
+        assertOrientation(label, transform, mirroredGeometry, 0xFFFF0000, 0xFF0000FF);
+    }
+
+    private static void assertOrientation(String label, float[] transform, boolean mirroredGeometry,
+                                          int expectedTop, int expectedBottom) throws Exception {
         PrimitiveArray primitives = new PrimitiveArray(Graphics3D.PRIMITIVE_QUADS, Graphics3D.TEXTURE_COORD_PER_VERTEX, 1);
         int[] vertices = primitives.getVertexArray();
         int[] uvs = primitives.getTextureCoordArray();
@@ -35,7 +42,7 @@ public final class OptPrimitiveOrientationProbe {
         Software3DContext context = new Software3DContext();
         context.setOptScreenCenter(96, 72);
         context.setOptScreenScale(4096, 4096);
-        context.setOptViewTransform(identity());
+        context.setOptViewTransform(transform);
         context.setPrimitiveTextures(new SoftwareTexture[]{makeTexture()});
         context.setPrimitiveTexture(0);
 
@@ -49,7 +56,7 @@ public final class OptPrimitiveOrientationProbe {
 
         int topColor = image.getRGB(96, 48);
         int bottomColor = image.getRGB(96, 96);
-        if (topColor != 0xFFFF0000 || bottomColor != 0xFF0000FF) {
+        if (topColor != expectedTop || bottomColor != expectedBottom) {
             throw new IllegalStateException(String.format(
                     "Unexpected opt primitive orientation %s top=%08x bottom=%08x",
                     label,
@@ -63,6 +70,10 @@ public final class OptPrimitiveOrientationProbe {
                 topColor,
                 bottomColor
         ));
+    }
+
+    private static void assertUpright(String label, boolean mirroredGeometry) throws Exception {
+        assertUpright(label, identity(), mirroredGeometry);
     }
 
     private static void writeQuad(int[] vertices, int left, int right, int top, int bottom, int z, boolean mirroredGeometry) {
@@ -111,6 +122,15 @@ public final class OptPrimitiveOrientationProbe {
                 1f, 0f, 0f, 0f,
                 0f, 1f, 0f, 0f,
                 0f, 0f, 1f, 0f,
+                0f, 0f, 0f, 1f
+        };
+    }
+
+    private static float[] translatedIdentity(float z) {
+        return new float[]{
+                1f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f,
+                0f, 0f, 1f, z,
                 0f, 0f, 0f, 1f
         };
     }

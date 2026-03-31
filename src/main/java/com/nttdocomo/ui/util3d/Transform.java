@@ -144,7 +144,8 @@ public class Transform {
         side.cross(forward, up);
         side.normalize();
         Vector3D actualUp = new Vector3D();
-        actualUp.cross(side, forward);
+        actualUp.cross(forward, side);
+        actualUp.normalize();
         setIdentity();
         matrix[0] = side.getX();
         matrix[1] = side.getY();
