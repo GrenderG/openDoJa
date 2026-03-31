@@ -6,6 +6,8 @@ import javax.swing.AbstractAction;
 import javax.swing.Action;
 import javax.swing.JButton;
 import javax.swing.JFrame;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
@@ -13,15 +15,25 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JRadioButtonMenuItem;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingConstants;
+import javax.swing.TransferHandler;
 import javax.swing.ButtonGroup;
 import java.awt.BorderLayout;
 import java.awt.Cursor;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridBagLayout;
 import java.awt.event.ActionEvent;
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -106,12 +118,19 @@ final class OpenDoJaLauncherFrame extends JFrame {
         JButton loadButton = new JButton(loadJamAction);
         loadButton.setFont(loadButton.getFont().deriveFont(Font.BOLD, 20f));
         loadButton.setPreferredSize(new Dimension(180, 72));
+        JLabel dragDropHint = new JLabel("Or, drag and drop a .jam file here.", SwingConstants.CENTER);
+        dragDropHint.setFont(dragDropHint.getFont().deriveFont(13f));
+
+        JPanel contentPanel = new JPanel(new BorderLayout(0, 10));
+        contentPanel.add(loadButton, BorderLayout.CENTER);
+        contentPanel.add(dragDropHint, BorderLayout.SOUTH);
 
         JPanel centerPanel = new JPanel(new GridBagLayout());
-        centerPanel.add(loadButton);
+        centerPanel.add(contentPanel);
 
         JPanel root = new JPanel(new BorderLayout());
         root.add(centerPanel, BorderLayout.CENTER);
+        installJamDropHandler(root, loadButton);
         return root;
     }
 
@@ -146,6 +165,82 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 });
             }
         });
+    }
+
+    private void installJamDropHandler(JComponent... components) {
+        TransferHandler handler = new TransferHandler() {
+            @Override
+            public boolean canImport(TransferSupport support) {
+                if (!loadJamAction.isEnabled()) {
+                    return false;
+                }
+                boolean supported = support.isDataFlavorSupported(DataFlavor.javaFileListFlavor)
+                        || support.isDataFlavorSupported(DataFlavor.stringFlavor);
+                if (supported && support.isDrop()) {
+                    support.setDropAction(COPY);
+                }
+                return supported;
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support)) {
+                    return false;
+                }
+                try {
+                    Path jamPath = JamLaunchService.droppedJamPath(extractDroppedPaths(support.getTransferable()));
+                    launchJam(jamPath);
+                    return true;
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(
+                            OpenDoJaLauncherFrame.this,
+                            e.getMessage(),
+                            OpenDoJaLauncher.APP_NAME,
+                            JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+            }
+        };
+        setTransferHandler(handler);
+        getRootPane().setTransferHandler(handler);
+        for (JComponent component : components) {
+            component.setTransferHandler(handler);
+        }
+    }
+
+    private List<Path> extractDroppedPaths(Transferable transferable) throws IOException, UnsupportedFlavorException {
+        if (transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+            @SuppressWarnings("unchecked")
+            List<File> files = (List<File>) transferable.getTransferData(DataFlavor.javaFileListFlavor);
+            return files.stream().map(File::toPath).toList();
+        }
+        if (transferable.isDataFlavorSupported(DataFlavor.stringFlavor)) {
+            return parseUriList((String) transferable.getTransferData(DataFlavor.stringFlavor));
+        }
+        throw new IOException("Dropped content is not a file.");
+    }
+
+    private List<Path> parseUriList(String raw) throws IOException {
+        List<Path> paths = new ArrayList<>();
+        if (raw == null || raw.isBlank()) {
+            return paths;
+        }
+        for (String line : raw.split("\\R")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                continue;
+            }
+            try {
+                URI uri = new URI(trimmed);
+                if (!"file".equalsIgnoreCase(uri.getScheme())) {
+                    continue;
+                }
+                paths.add(Path.of(uri));
+            } catch (URISyntaxException | IllegalArgumentException e) {
+                throw new IOException("Dropped file path is invalid.", e);
+            }
+        }
+        return paths;
     }
 
     private void setLaunchControlsEnabled(boolean enabled) {
