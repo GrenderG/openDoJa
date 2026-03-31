@@ -9,6 +9,8 @@
 
 package opendoja.audio.mld.ma3;
 
+import opendoja.host.DoJaEncoding;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;

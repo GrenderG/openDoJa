@@ -11,7 +11,6 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
-import java.nio.charset.StandardCharsets;
 
 public final class DesktopHttpConnection implements HttpConnection {
     private static final String DEFAULT_USER_AGENT = "DoCoMo/2.0 DOJA_INET_CLIENT(c100;TJ)";
@@ -324,8 +323,8 @@ public final class DesktopHttpConnection implements HttpConnection {
     }
 
     private static final class UserIdRewriteOutputStream extends FilterOutputStream {
-        private final byte[] target = OpenDoJaIdentity.defaultUserId().getBytes(StandardCharsets.US_ASCII);
-        private final byte[] replacement = OpenDoJaIdentity.userId().getBytes(StandardCharsets.US_ASCII);
+        private final byte[] target = OpenDoJaIdentity.defaultUserId().getBytes(DoJaEncoding.DEFAULT_CHARSET);
+        private final byte[] replacement = OpenDoJaIdentity.userId().getBytes(DoJaEncoding.DEFAULT_CHARSET);
         private final java.io.ByteArrayOutputStream pending = new java.io.ByteArrayOutputStream();
         private boolean closed;
 

@@ -1,10 +1,9 @@
 package com.nttdocomo.device;
 
 import com.nttdocomo.system.InterruptedOperationException;
+import opendoja.host.DoJaEncoding;
 import opendoja.host.device.DoJaCameraSupport;
 
-import java.nio.charset.Charset;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -179,15 +178,15 @@ public class CodeReader {
 
     /**
      * Gets the recognition result as a string.
-     * The byte sequence is converted with the platform's default character
-     * encoding, which is the same result as {@code new String(getBytes())}.
+     * The byte sequence is converted with the default DoJa character
+     * encoding.
      *
      * @return the recognition result as a string, or {@code null} if no result
      *         is held
      */
     public String getString() {
         byte[] bytes = result.bytes;
-        return bytes == null ? null : new String(bytes, Charset.defaultCharset());
+        return bytes == null ? null : new String(bytes, DoJaEncoding.DEFAULT_CHARSET);
     }
 
     /**

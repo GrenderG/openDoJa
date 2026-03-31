@@ -6,10 +6,10 @@ import com.nttdocomo.fs.DoJaStorageService;
 import com.nttdocomo.fs.FileNotAccessibleException;
 import com.nttdocomo.fs.FileSystemFullException;
 import com.nttdocomo.fs.MediaNotFoundException;
+import opendoja.host.DoJaEncoding;
 import opendoja.host.DoJaRuntime;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
@@ -237,7 +237,7 @@ public final class DoJaStorageHost {
 
     private static String stableId(String raw) {
         String normalized = raw == null ? "" : raw.trim();
-        byte[] bytes = normalized.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = normalized.getBytes(DoJaEncoding.DEFAULT_CHARSET);
         return UUID.nameUUIDFromBytes(bytes).toString().replace("-", "").toLowerCase(Locale.ROOT);
     }
 

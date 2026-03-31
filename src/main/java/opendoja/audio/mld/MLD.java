@@ -32,6 +32,9 @@
 // ---------------------------------------------------------------------------
 
 package opendoja.audio.mld;
+
+import opendoja.host.DoJaEncoding;
+
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -1079,18 +1082,12 @@ public class MLD
 	}
 	
 	/**
-	 * Decode a string as Shift_JIS
+	 * Decode a string with the default DoJa charset.
 	 */
 	String shiftJIS(byte[] bytes)
 	{
-		try
-		{
-			return new String(bytes, "Shift_JIS");
-		}
-		catch (Exception e)
-		{
-			return null;
-		}
+		return (bytes == null ? null :
+			new String(bytes, DoJaEncoding.DEFAULT_CHARSET));
 	}
 	
 	/**

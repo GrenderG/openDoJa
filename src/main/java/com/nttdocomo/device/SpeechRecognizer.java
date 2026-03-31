@@ -3,6 +3,7 @@ package com.nttdocomo.device;
 import com.nttdocomo.lang.IllegalStateException;
 import com.nttdocomo.lang.UnsupportedOperationException;
 import opendoja.host.DoJaApiUnimplemented;
+import opendoja.host.DoJaEncoding;
 
 import java.nio.charset.Charset;
 import java.nio.charset.UnsupportedCharsetException;
@@ -338,7 +339,7 @@ public class SpeechRecognizer {
     private static byte[] decodeChunk(String token) {
         String normalized = token.replace("0x", "").replace(" ", "");
         if ((normalized.length() & 1) == 1) {
-            return token.getBytes(Charset.forName("US-ASCII"));
+            return token.getBytes(DoJaEncoding.DEFAULT_CHARSET);
         }
         byte[] bytes = new byte[normalized.length() / 2];
         try {
@@ -347,7 +348,7 @@ public class SpeechRecognizer {
             }
             return bytes;
         } catch (NumberFormatException exception) {
-            return token.getBytes(Charset.forName("US-ASCII"));
+            return token.getBytes(DoJaEncoding.DEFAULT_CHARSET);
         }
     }
 

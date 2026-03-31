@@ -3,11 +3,11 @@ package com.nttdocomo.opt.device;
 import com.nttdocomo.device.DeviceException;
 import com.nttdocomo.fs.File;
 import com.nttdocomo.system.StoreException;
+import opendoja.host.DoJaEncoding;
 import opendoja.host.device.DoJaCameraSupport;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -441,7 +441,7 @@ final class _OptionalDeviceSupport {
 
     private static byte[] payloadBytes() {
         return opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.IRRECEIVER_DATA)
-                .getBytes(StandardCharsets.UTF_8);
+                .getBytes(DoJaEncoding.DEFAULT_CHARSET);
     }
 
     private static int roundToUnit(int value, int unit) {
