@@ -7,6 +7,7 @@ import com.nttdocomo.fs.FileNotAccessibleException;
 import com.nttdocomo.fs.FileSystemFullException;
 import com.nttdocomo.fs.MediaNotFoundException;
 import opendoja.host.DoJaEncoding;
+import opendoja.host.OpenDoJaPaths;
 import opendoja.host.DoJaRuntime;
 
 import java.io.IOException;
@@ -30,7 +31,6 @@ public final class DoJaStorageHost {
     public static final String EXTERNAL_DEVICE_NAME = "/ext0";
     public static final String PRINT_NAME = "SD Memory Card";
 
-    private static final Path EXTERNAL_ROOT = Path.of(".opendoja", "storage", "ext0");
     private static final String[] ALL_CAPABILITIES = {
             StorageDevice.CAPABILITY_SD,
             StorageDevice.CAPABILITY_FAT32,
@@ -62,7 +62,7 @@ public final class DoJaStorageHost {
     }
 
     public static Path deviceRoot() {
-        return EXTERNAL_ROOT;
+        return OpenDoJaPaths.hostDataRoot().resolve("storage").resolve("ext0");
     }
 
     public static String[] getCapabilities(String category) {
@@ -78,7 +78,7 @@ public final class DoJaStorageHost {
     }
 
     public static String mediaId() {
-        String base = stableId(EXTERNAL_ROOT.toAbsolutePath().normalize().toString());
+        String base = stableId(deviceRoot().toAbsolutePath().normalize().toString());
         return "odjext0" + base.substring(0, java.lang.Math.min(24, base.length()));
     }
 
@@ -89,7 +89,7 @@ public final class DoJaStorageHost {
             case DoJaStorageService.SHARE_CONTENTS_PROVIDER -> "cp-" + stableId(contentsProviderScopeKey());
             default -> throw new IllegalArgumentException("Unsupported share mode: " + token.getShare());
         };
-        return EXTERNAL_ROOT.resolve(scopeName).resolve("access-" + token.getAccess());
+        return deviceRoot().resolve(scopeName).resolve("access-" + token.getAccess());
     }
 
     public static void ensureNamespaceExists(Path namespaceRoot) throws IOException {
@@ -104,7 +104,7 @@ public final class DoJaStorageHost {
         Path probe = namespaceRoot;
         if (!Files.exists(probe)) {
             Path parent = probe.getParent();
-            probe = parent == null ? EXTERNAL_ROOT : parent;
+            probe = parent == null ? deviceRoot() : parent;
         }
         Files.createDirectories(probe);
         FileStore store = Files.getFileStore(probe);

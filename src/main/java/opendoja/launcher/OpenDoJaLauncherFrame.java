@@ -58,7 +58,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 chooseAndLaunchJam();
             }
         };
-        this.recentMenu = new JMenu("Load recents...");
+        this.recentMenu = new JMenu("Load Recents...");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setJMenuBar(buildMenuBar());
         setContentPane(buildContent());
@@ -72,6 +72,12 @@ final class OpenDoJaLauncherFrame extends JFrame {
         JMenu fileMenu = new JMenu("File");
         fileMenu.add(new JMenuItem(loadJamAction));
         fileMenu.add(recentMenu);
+        fileMenu.add(new JMenuItem(new AbstractAction("Open SD Card Folder") {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                openSdCardFolder();
+            }
+        }));
         fileMenu.addSeparator();
         fileMenu.add(new JMenuItem(new AbstractAction("Exit") {
             @Override
@@ -147,6 +153,18 @@ final class OpenDoJaLauncherFrame extends JFrame {
             return;
         }
         launchJam(jamPath);
+    }
+
+    private void openSdCardFolder() {
+        try {
+            FolderOpenSupport.openDirectory(JamLaunchService.ensureSdCardFolder());
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    e.getMessage(),
+                    OpenDoJaLauncher.APP_NAME,
+                    JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void launchJam(Path jamPath) {

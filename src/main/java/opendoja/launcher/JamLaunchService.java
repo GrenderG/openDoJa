@@ -1,5 +1,7 @@
 package opendoja.launcher;
 
+import opendoja.host.storage.DoJaStorageHost;
+
 import javax.swing.JFileChooser;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.Component;
@@ -113,5 +115,11 @@ final class JamLaunchService {
 
     void saveSettings(LauncherSettings settings) {
         preferencesStore.saveSettings(settings);
+    }
+
+    static Path ensureSdCardFolder() throws IOException {
+        Path sdCardFolder = DoJaStorageHost.deviceRoot().toAbsolutePath().normalize();
+        Files.createDirectories(sdCardFolder);
+        return sdCardFolder;
     }
 }

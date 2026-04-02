@@ -3,7 +3,6 @@ package opendoja.host;
 import com.nttdocomo.ui.IApplication;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
@@ -133,7 +132,6 @@ public final class LaunchConfig {
         private Builder(Class<? extends IApplication> applicationClass) {
             this.applicationClass = applicationClass;
             this.title = applicationClass.getSimpleName();
-            this.scratchpadRoot = Paths.get(".opendoja", applicationClass.getName());
         }
 
         public Builder viewport(int width, int height) {

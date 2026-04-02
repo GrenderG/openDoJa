@@ -14,6 +14,8 @@ import javax.microedition.io.Connector;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -24,7 +26,11 @@ public final class RuntimeSmoke {
     public static void main(String[] args) throws Exception {
         DemoLog.enableInfoLogging();
         System.setProperty("java.awt.headless", "true");
-        IApplication app = opendoja.host.DesktopLauncher.launch(SmokeApp.class);
+        Path scratchpadRoot = Files.createTempDirectory("runtime-smoke-scratchpad");
+        IApplication app = opendoja.host.DesktopLauncher.launch(
+                opendoja.host.LaunchConfig.builder(SmokeApp.class)
+                        .scratchpadRoot(scratchpadRoot)
+                        .build());
         if (!(Display.getCurrent() instanceof SmokeCanvas)) {
             throw new IllegalStateException("Display current frame was not set");
         }
