@@ -125,7 +125,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         JButton loadButton = new JButton(loadJamAction);
         loadButton.setFont(loadButton.getFont().deriveFont(Font.BOLD, 20f));
         loadButton.setPreferredSize(new Dimension(180, 72));
-        JLabel dragDropHint = new JLabel("Or, drag and drop a .jam file here.", SwingConstants.CENTER);
+        JLabel dragDropHint = new JLabel("Or, drag and drop a .jam file or game folder here.", SwingConstants.CENTER);
         dragDropHint.setFont(dragDropHint.getFont().deriveFont(13f));
 
         JPanel contentPanel = new JPanel(new BorderLayout(0, 10));
@@ -196,6 +196,9 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 }
                 try {
                     Path jamPath = JamLaunchService.droppedJamPath(extractDroppedPaths(support.getTransferable()));
+                    if (jamPath == null) {
+                        return true;
+                    }
                     launchJam(jamPath);
                     return true;
                 } catch (Exception e) {

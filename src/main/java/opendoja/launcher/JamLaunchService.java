@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Stream;
 
 final class JamLaunchService {
     private final JamGameJarResolver gameJarResolver = new JamGameJarResolver();
@@ -56,15 +58,45 @@ final class JamLaunchService {
         if (droppedPaths.size() != 1) {
             throw new IOException("Drop exactly one .jam file.");
         }
-        Path normalizedJam = droppedPaths.getFirst().toAbsolutePath().normalize();
-        String fileName = normalizedJam.getFileName() == null ? normalizedJam.toString() : normalizedJam.getFileName().toString();
-        if (!fileName.toLowerCase().endsWith(".jam")) {
+        Path droppedPath = droppedPaths.getFirst().toAbsolutePath().normalize();
+        if (Files.isDirectory(droppedPath)) {
+            return droppedJamPathFromDirectory(droppedPath);
+        }
+        String fileName = droppedPath.getFileName() == null ? droppedPath.toString() : droppedPath.getFileName().toString();
+        if (!hasJamExtension(fileName)) {
             throw new IOException("Dropped file is not a .jam: " + fileName);
         }
-        if (!Files.isRegularFile(normalizedJam)) {
-            throw new IOException("Dropped JAM file does not exist: " + normalizedJam);
+        if (!Files.isRegularFile(droppedPath)) {
+            throw new IOException("Dropped JAM file does not exist: " + droppedPath);
         }
-        return normalizedJam;
+        return droppedPath;
+    }
+
+    private static Path droppedJamPathFromDirectory(Path directory) throws IOException {
+        Path rootJam = firstJamInDirectory(directory);
+        if (rootJam != null) {
+            return rootJam;
+        }
+        Path binDirectory = directory.resolve("bin");
+        if (!Files.isDirectory(binDirectory)) {
+            return null;
+        }
+        return firstJamInDirectory(binDirectory);
+    }
+
+    private static Path firstJamInDirectory(Path directory) throws IOException {
+        try (Stream<Path> children = Files.list(directory)) {
+            return children
+                    .filter(Files::isRegularFile)
+                    .filter(path -> hasJamExtension(path.getFileName().toString()))
+                    .sorted()
+                    .findFirst()
+                    .orElse(null);
+        }
+    }
+
+    private static boolean hasJamExtension(String fileName) {
+        return fileName.toLowerCase(Locale.ROOT).endsWith(".jam");
     }
 
     List<Path> recentJamPaths() {
