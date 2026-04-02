@@ -79,7 +79,9 @@ public final class DoJaRuntime {
     private volatile int keypadState;
     private volatile long selectLatchedUntilNanos;
     private String previousMicroeditionPlatform;
+    private String previousMicroeditionProfiles;
     private boolean restoreMicroeditionPlatform;
+    private boolean restoreMicroeditionProfiles;
 
     private DoJaRuntime(LaunchConfig config) {
         this.config = config;
@@ -654,19 +656,35 @@ public final class DoJaRuntime {
             System.setProperty("microedition.platform", launchPlatform);
             restoreMicroeditionPlatform = true;
         }
+        previousMicroeditionProfiles = System.getProperty("microedition.profiles");
+        String launchProfiles = launchMicroeditionProfiles();
+        if ((previousMicroeditionProfiles == null || previousMicroeditionProfiles.isBlank())
+                && launchProfiles != null
+                && !launchProfiles.isBlank()) {
+            System.setProperty("microedition.profiles", launchProfiles);
+            restoreMicroeditionProfiles = true;
+        }
     }
 
     private void restoreLaunchSystemProperties() {
-        if (!restoreMicroeditionPlatform) {
-            return;
+        if (restoreMicroeditionPlatform) {
+            if (previousMicroeditionPlatform == null) {
+                System.clearProperty("microedition.platform");
+            } else {
+                System.setProperty("microedition.platform", previousMicroeditionPlatform);
+            }
+            restoreMicroeditionPlatform = false;
+            previousMicroeditionPlatform = null;
         }
-        if (previousMicroeditionPlatform == null) {
-            System.clearProperty("microedition.platform");
-        } else {
-            System.setProperty("microedition.platform", previousMicroeditionPlatform);
+        if (restoreMicroeditionProfiles) {
+            if (previousMicroeditionProfiles == null) {
+                System.clearProperty("microedition.profiles");
+            } else {
+                System.setProperty("microedition.profiles", previousMicroeditionProfiles);
+            }
+            restoreMicroeditionProfiles = false;
+            previousMicroeditionProfiles = null;
         }
-        restoreMicroeditionPlatform = false;
-        previousMicroeditionPlatform = null;
     }
 
     private String launchMicroeditionPlatform() {
@@ -675,6 +693,35 @@ public final class DoJaRuntime {
             return targetDevice.trim();
         }
         return "openDoJa";
+    }
+
+    private String launchMicroeditionProfiles() {
+        String profileVer = config.parameters().get("ProfileVer");
+        DoJaProfile configured = DoJaProfile.parse(profileVer);
+        if (configured.isKnown()) {
+            return configured.toString();
+        }
+        // Older JAMs sometimes omit ProfileVer, but some titles still branch on
+        // microedition.profiles during startup. When the launch metadata still identifies the
+        // handset family, expose the documented runtime profile for that family; otherwise fall
+        // back to the empty string so callers never hit a null property value.
+        DoJaProfile documented = DoJaProfile.fromDocumentedDeviceIdentity(launchDeviceIdentity());
+        if (documented.isKnown()) {
+            return documented.toString();
+        }
+        return "";
+    }
+
+    private String launchDeviceIdentity() {
+        String targetDevice = config.parameters().get("TargetDevice");
+        if (targetDevice != null && !targetDevice.isBlank()) {
+            return targetDevice.trim();
+        }
+        String packageUrl = config.parameters().get("PackageURL");
+        if (packageUrl != null && !packageUrl.isBlank()) {
+            return packageUrl.trim();
+        }
+        return null;
     }
 
     private int mapKeyCode(int awtKeyCode) {
