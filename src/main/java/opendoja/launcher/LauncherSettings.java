@@ -4,7 +4,14 @@ import opendoja.audio.mld.MldSynth;
 import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.LaunchConfig;
 
-record LauncherSettings(int hostScale, String synthId, String terminalId, String userId, String fontType) {
+record LauncherSettings(
+        int hostScale,
+        String synthId,
+        String terminalId,
+        String userId,
+        String fontType,
+        boolean disableBytecodeVerification,
+        boolean disableOsDpiScaling) {
     LauncherSettings {
         hostScale = normalizeHostScale(hostScale);
         synthId = normalizeSynthId(synthId);
@@ -17,7 +24,9 @@ record LauncherSettings(int hostScale, String synthId, String terminalId, String
         return new LauncherSettings(1, MldSynth.DEFAULT.id,
                 OpenDoJaIdentity.defaultTerminalId(),
                 OpenDoJaIdentity.defaultUserId(),
-                LaunchConfig.FontType.BITMAP.id);
+                LaunchConfig.FontType.BITMAP.id,
+                false,
+                false);
     }
 
     private static int normalizeHostScale(int candidate) {

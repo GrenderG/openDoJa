@@ -16,6 +16,8 @@ final class LauncherPreferencesStore {
     private static final String TERMINAL_ID_KEY = "terminalId";
     private static final String USER_ID_KEY = "userId";
     private static final String FONT_TYPE_KEY = "fontType";
+    private static final String DISABLE_BYTECODE_VERIFICATION_KEY = "disableBytecodeVerification";
+    private static final String DISABLE_OS_DPI_SCALING_KEY = "disableOsDpiScaling";
     private static final String LAST_DIRECTORY_KEY = "lastDirectory";
     private static final String RECENT_JAM_KEY_PREFIX = "recentJam.";
 
@@ -27,12 +29,16 @@ final class LauncherPreferencesStore {
         String storedTerminalId = preferences.get(TERMINAL_ID_KEY, OpenDoJaIdentity.defaultTerminalId());
         String storedUserId = preferences.get(USER_ID_KEY, OpenDoJaIdentity.defaultUserId());
         String storedFontType = preferences.get(FONT_TYPE_KEY, OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.FONT_TYPE));
+        boolean storedDisableBytecodeVerification = preferences.getBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, false);
+        boolean storedDisableOsDpiScaling = preferences.getBoolean(DISABLE_OS_DPI_SCALING_KEY, false);
         return new LauncherSettings(
                 OpenDoJaLaunchArgs.getInt(OpenDoJaLaunchArgs.HOST_SCALE, storedHostScale),
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.MLD_SYNTH, storedSynthId),
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.TERMINAL_ID, storedTerminalId),
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.USER_ID, storedUserId),
-                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.FONT_TYPE, storedFontType));
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.FONT_TYPE, storedFontType),
+                storedDisableBytecodeVerification,
+                storedDisableOsDpiScaling);
     }
 
     void saveSettings(LauncherSettings settings) {
@@ -41,6 +47,8 @@ final class LauncherPreferencesStore {
         preferences.put(TERMINAL_ID_KEY, settings.terminalId());
         preferences.put(USER_ID_KEY, settings.userId());
         preferences.put(FONT_TYPE_KEY, settings.fontType());
+        preferences.putBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, settings.disableBytecodeVerification());
+        preferences.putBoolean(DISABLE_OS_DPI_SCALING_KEY, settings.disableOsDpiScaling());
     }
 
     Path lastDirectory() {
