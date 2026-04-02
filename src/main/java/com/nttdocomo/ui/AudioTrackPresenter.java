@@ -21,7 +21,7 @@ public class AudioTrackPresenter extends AudioPresenter {
      * @param time the start position in milliseconds from the beginning
      */
     public void play(int time) {
-        super.play();
+        super.play(time);
     }
 
     /**

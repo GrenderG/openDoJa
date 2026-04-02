@@ -109,10 +109,13 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
 
     @Override
     public void play() {
-        play(1);
+        play(0);
     }
 
-    public void play(int loopCount) {
+    public void play(int time) {
+        if (time < 0) {
+            throw new IllegalArgumentException("time");
+        }
         registerWithRuntime();
         stopPlayback();
         if (!(resource instanceof MediaManager.BasicMediaSound sound)) {
@@ -122,14 +125,24 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
         try {
             MediaManager.PreparedSound prepared = sound.prepared();
+            int loopCount = configuredLoopCount();
+            if (time >= singlePlaybackDurationMillis(prepared)) {
+                playing = false;
+                notifyListener(AUDIO_PLAYING, 0);
+                notifyListener(AUDIO_COMPLETE, 0);
+                return;
+            }
             if (prepared.kind() == MediaManager.PreparedSound.Kind.MIDI) {
                 sequencer = MidiSystem.getSequencer();
                 sequencer.open();
                 sequencer.setSequence(new ByteArrayInputStream(prepared.bytes()));
-                if (loopCount <= 0) {
+                if (loopCount < 0) {
                     sequencer.setLoopCount(Sequencer.LOOP_CONTINUOUSLY);
-                } else if (loopCount > 1) {
-                    sequencer.setLoopCount(loopCount - 1);
+                } else {
+                    sequencer.setLoopCount(loopCount);
+                }
+                if (time > 0) {
+                    sequencer.setMicrosecondPosition(Math.min((long) time * 1_000L, sequencer.getMicrosecondLength()));
                 }
                 sequencer.start();
             } else if (prepared.kind() == MediaManager.PreparedSound.Kind.MLD) {
@@ -137,17 +150,17 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                     mldPlayer = new MLDPCMPlayer(new MldListener());
                 }
                 mldPlayer.setVolumeLevel(currentVolumeLevel());
-                mldPlayer.start(prepared, loopCount);
+                mldPlayer.start(prepared, loopCount, time);
             } else {
                 if (sampledPlayer == null) {
                     sampledPlayer = new SampledPCMPlayer(new SampledListener());
                 }
                 sampledPlayer.setVolumeLevel(currentVolumeLevel());
-                sampledPlayer.start(prepared, loopCount);
+                sampledPlayer.start(prepared, loopCount, time);
             }
             playing = true;
             notifyListener(AUDIO_PLAYING, 0);
-            scheduleSyncEvents(prepared);
+            scheduleSyncEvents(prepared, time);
         } catch (Exception e) {
             playing = false;
             if (TRACE_AUDIO_FAILURES) {
@@ -275,6 +288,14 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
 
     @Override
     public void setAttribute(int key, int value) {
+        if (key == LOOP_COUNT) {
+            if (value < -1) {
+                throw new IllegalArgumentException("value");
+            }
+            if (playing) {
+                return;
+            }
+        }
         attributes.put(key, value);
         if (key == SET_VOLUME) {
             int level = currentVolumeLevel();
@@ -309,6 +330,10 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         return Math.max(0, Math.min(100, attributes.getOrDefault(SET_VOLUME, 100)));
     }
 
+    private int configuredLoopCount() {
+        return attributes.getOrDefault(LOOP_COUNT, 0);
+    }
+
     private boolean hasUsableMediaResource() {
         if (resource == null) {
             return false;
@@ -327,7 +352,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         return playing;
     }
 
-    private void scheduleSyncEvents(MediaManager.PreparedSound prepared) {
+    private void scheduleSyncEvents(MediaManager.PreparedSound prepared, int offsetMillis) {
         if (attributes.getOrDefault(SYNC_MODE, ATTR_SYNC_OFF) != ATTR_SYNC_ON) {
             return;
         }
@@ -337,7 +362,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         if (prepared.kind() != MediaManager.PreparedSound.Kind.MIDI || sequencer == null) {
             return;
         }
-        scheduleSyncEventsForSequence(sequencer.getSequence(), 0);
+        scheduleSyncEventsForSequence(sequencer.getSequence(), offsetMillis);
     }
 
     private void scheduleSyncEventsForSequence(Sequence sequence, int offsetMillis) {
@@ -387,6 +412,29 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             future.cancel(false);
         }
         syncEventTasks.clear();
+    }
+
+    private static int singlePlaybackDurationMillis(MediaManager.PreparedSound prepared) throws Exception {
+        return switch (prepared.kind()) {
+            case MIDI -> {
+                Sequence sequence = MidiSystem.getSequence(new ByteArrayInputStream(prepared.bytes()));
+                yield (int) Math.round(sequence.getMicrosecondLength() / 1_000.0d);
+            }
+            case MLD -> {
+                double seconds = prepared.mld().getDuration(true);
+                yield Double.isFinite(seconds) ? (int) Math.round(seconds * 1_000.0d) : Integer.MAX_VALUE;
+            }
+            case SAMPLED -> {
+                if (prepared.sampledFormat() == null) {
+                    yield 0;
+                }
+                int frameSize = Math.max(1, prepared.sampledFormat().getFrameSize());
+                float frameRate = Math.max(1.0f, prepared.sampledFormat().getFrameRate());
+                int totalFrames = prepared.bytes().length / frameSize;
+                yield (int) Math.round((totalFrames * 1_000.0d) / frameRate);
+            }
+            case UNKNOWN -> 0;
+        };
     }
 
     private final class MldListener implements MLDPCMPlayer.Listener {

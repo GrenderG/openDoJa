@@ -45,8 +45,8 @@ public final class MLDPCMPlayer implements AutoCloseable {
         this.handle = ENGINE.open(listener);
     }
 
-    public void start(MediaManager.PreparedSound sound, int loopCount) {
-        handle.start(sound, loopCount);
+    public void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis) {
+        handle.start(sound, loopCount, startPositionMillis);
     }
 
     public void pause() {
@@ -104,15 +104,12 @@ public final class MLDPCMPlayer implements AutoCloseable {
         return (clamped + mask) & ~mask;
     }
 
-    private static int totalTimeFor(MLD mld, int loopCount) {
+    private static int totalTimeFor(MLD mld) {
         double baseSeconds = mld.getDuration(true);
         if (!Double.isFinite(baseSeconds)) {
             return 0;
         }
-        if (loopCount <= 0) {
-            return (int) Math.round(baseSeconds * 1000.0);
-        }
-        return (int) Math.round(baseSeconds * loopCount * 1000.0);
+        return (int) Math.round(baseSeconds * 1000.0);
     }
 
     private static final class SharedEngine {
@@ -273,6 +270,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
         private PlaybackSession activeSession;
         private MediaManager.PreparedSound pendingSound;
         private int pendingLoopCount;
+        private int pendingStartPositionMillis;
         private boolean pendingStop;
         private boolean paused;
         private boolean closed;
@@ -285,14 +283,15 @@ public final class MLDPCMPlayer implements AutoCloseable {
             this.listener = listener;
         }
 
-        void start(MediaManager.PreparedSound sound, int loopCount) {
+        void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis) {
             synchronized (stateLock) {
                 pendingSound = sound;
                 pendingLoopCount = loopCount;
+                pendingStartPositionMillis = Math.max(0, startPositionMillis);
                 pendingStop = false;
                 paused = false;
                 currentTimeMillis = 0;
-                totalTimeMillis = totalTimeFor(sound.mld(), loopCount);
+                totalTimeMillis = totalTimeFor(sound.mld());
             }
             engine.wake();
         }
@@ -390,8 +389,9 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 }
                 if (pendingSound != null) {
                     activeSession = sessions.computeIfAbsent(pendingSound, PlaybackSession::new);
-                    activeSession.reset(pendingLoopCount);
+                    activeSession.reset(pendingLoopCount, pendingStartPositionMillis);
                     pendingSound = null;
+                    pendingStartPositionMillis = 0;
                 }
                 if (paused || activeSession == null) {
                     return 0;
@@ -409,23 +409,19 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 final int renderedFrames = Math.max(rendered, 0);
 
                 session.player.drainEvents(event -> {
-                    if (event.type == MLDPlayer.EVENT_LOOP) {
-                        if (listener != null) {
-                            notifications.add(listener::onLoop);
-                        }
-                        if (session.remainingRepeats != Integer.MAX_VALUE && session.remainingRepeats > 0) {
-                            session.remainingRepeats--;
-                            if (session.remainingRepeats == 0) {
-                                session.player.setLoopEnabled(false);
-                            }
-                        }
-                    } else if (event.type == MLDPlayer.EVENT_END) {
+                    if (event.type == MLDPlayer.EVENT_END) {
                         if (session.remainingRepeats == Integer.MAX_VALUE) {
                             session.player.reset();
+                            if (listener != null) {
+                                notifications.add(listener::onLoop);
+                            }
                             restarted[0] = true;
-                        } else if (!session.cuepointLooping && session.remainingRepeats > 0) {
+                        } else if (session.remainingRepeats > 0) {
                             session.remainingRepeats--;
                             session.player.reset();
+                            if (listener != null) {
+                                notifications.add(listener::onLoop);
+                            }
                             restarted[0] = true;
                         } else {
                             finished[0] = true;
@@ -477,20 +473,22 @@ public final class MLDPCMPlayer implements AutoCloseable {
             this.cuepointLooping = Double.isInfinite(sound.mld().getDuration(false));
         }
 
-        private void reset(int loopCount) {
+        private void reset(int loopCount, int startPositionMillis) {
             player.setPlaybackEventsEnabled(true);
             // The native Yamaha phrase engine loops in-place and lets note
             // releases run through the boundary; killing every voice here is
             // what made cuepoint loops sound clipped.
             player.setLoopStopAll(false);
-            if (loopCount <= 0) {
+            if (loopCount < 0) {
                 remainingRepeats = Integer.MAX_VALUE;
-                player.setLoopEnabled(cuepointLooping);
             } else {
-                remainingRepeats = Math.max(0, loopCount - 1);
-                player.setLoopEnabled(cuepointLooping && remainingRepeats > 0);
+                remainingRepeats = Math.max(0, loopCount);
             }
+            player.setLoopEnabled(cuepointLooping && loopCount != 0);
             player.reset();
+            if (startPositionMillis > 0) {
+                player.setTime(startPositionMillis / 1000.0);
+            }
         }
     }
 

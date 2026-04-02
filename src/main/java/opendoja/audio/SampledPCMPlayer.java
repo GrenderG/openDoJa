@@ -36,13 +36,13 @@ public final class SampledPCMPlayer implements AutoCloseable {
         this.listener = listener;
     }
 
-    public void start(MediaManager.PreparedSound sound, int loopCount) throws Exception {
+    public void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis) throws Exception {
         synchronized (stateLock) {
             ensureWorker();
             ensureLine(sound.sampledFormat());
             this.sound = sound;
             this.loopCount = loopCount;
-            this.bytePosition = 0;
+            this.bytePosition = clampStartBytePosition(sound, startPositionMillis);
             this.active = true;
             this.paused = false;
             this.pendingReset = true;
@@ -89,8 +89,7 @@ public final class SampledPCMPlayer implements AutoCloseable {
             int frameSize = Math.max(1, sound.sampledFormat().getFrameSize());
             float frameRate = Math.max(1.0f, sound.sampledFormat().getFrameRate());
             int totalFrames = sound.bytes().length / frameSize;
-            int repeats = loopCount <= 0 ? 1 : loopCount;
-            return (int) Math.round((totalFrames * repeats * 1000.0) / frameRate);
+            return (int) Math.round((totalFrames * 1000.0) / frameRate);
         }
     }
 
@@ -200,7 +199,7 @@ public final class SampledPCMPlayer implements AutoCloseable {
                             break;
                         }
                         if (bytePosition >= pcm.length) {
-                            if (localLoopCount == 1) {
+                            if (localLoopCount == 0) {
                                 active = false;
                                 bytePosition = 0;
                                 if (line != null) {
@@ -211,7 +210,7 @@ public final class SampledPCMPlayer implements AutoCloseable {
                                 }
                                 break;
                             }
-                            if (localLoopCount > 1) {
+                            if (localLoopCount > 0) {
                                 localLoopCount--;
                                 loopCount = localLoopCount;
                             }
@@ -259,5 +258,17 @@ public final class SampledPCMPlayer implements AutoCloseable {
 
     private static int clampVolumeLevel(int volumeLevel) {
         return Math.max(0, Math.min(100, volumeLevel));
+    }
+
+    private static int clampStartBytePosition(MediaManager.PreparedSound sound, int startPositionMillis) {
+        if (sound == null || sound.sampledFormat() == null || startPositionMillis <= 0) {
+            return 0;
+        }
+        int frameSize = Math.max(1, sound.sampledFormat().getFrameSize());
+        float frameRate = Math.max(1.0f, sound.sampledFormat().getFrameRate());
+        long targetFrames = Math.round((startPositionMillis / 1000.0d) * frameRate);
+        long targetBytes = Math.max(0L, targetFrames * frameSize);
+        long maxBytes = sound.bytes().length - (sound.bytes().length % frameSize);
+        return (int) Math.min(targetBytes, Math.max(0L, maxBytes));
     }
 }
