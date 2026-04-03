@@ -18,31 +18,106 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Defines the presenter object used to play audio media data.
+ */
 public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private static final boolean TRACE_AUDIO_FAILURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_AUDIO_FAILURES);
+    /**
+     * Event type indicating that playback started.
+     */
     public static final int AUDIO_PLAYING = 1;
+    /**
+     * Event type indicating that playback stopped.
+     */
     public static final int AUDIO_STOPPED = 2;
+    /**
+     * Event type indicating that playback reached the end of the media.
+     */
     public static final int AUDIO_COMPLETE = 3;
+    /**
+     * Event type indicating that an embedded synchronization event fired.
+     */
     public static final int AUDIO_SYNC = 4;
+    /**
+     * Event type indicating that playback paused.
+     */
     public static final int AUDIO_PAUSED = 5;
+    /**
+     * Event type indicating that playback restarted from a paused state.
+     */
     public static final int AUDIO_RESTARTED = 6;
+    /**
+     * Event type indicating that playback looped.
+     */
     public static final int AUDIO_LOOPED = 7;
+    /**
+     * Attribute key that specifies playback priority.
+     */
     public static final int PRIORITY = 1;
+    /**
+     * Attribute key that enables or disables synchronization events.
+     */
     public static final int SYNC_MODE = 2;
+    /**
+     * Attribute key that transposes playback pitch in semitone units.
+     */
     public static final int TRANSPOSE_KEY = 3;
+    /**
+     * Attribute key that specifies relative playback volume in percent.
+     */
     public static final int SET_VOLUME = 4;
+    /**
+     * Attribute key that specifies relative playback tempo in percent.
+     */
     public static final int CHANGE_TEMPO = 5;
+    /**
+     * Attribute key that specifies how many times the whole medium loops.
+     */
     public static final int LOOP_COUNT = 6;
+    /**
+     * Attribute value that disables synchronization events.
+     */
     public static final int ATTR_SYNC_OFF = 0;
+    /**
+     * Attribute value that enables synchronization events.
+     */
     public static final int ATTR_SYNC_ON = 1;
+    /**
+     * Lowest playback-priority value.
+     */
     public static final int MIN_PRIORITY = 1;
+    /**
+     * Normal playback-priority value.
+     */
     public static final int NORM_PRIORITY = 5;
+    /**
+     * Highest playback-priority value.
+     */
     public static final int MAX_PRIORITY = 10;
+    /**
+     * Smallest option-defined attribute identifier.
+     */
     public static final int MIN_OPTION_ATTR = 128;
+    /**
+     * Largest option-defined attribute identifier.
+     */
     public static final int MAX_OPTION_ATTR = 255;
+    /**
+     * Smallest vendor-defined attribute identifier.
+     */
     protected static final int MIN_VENDOR_ATTR = 64;
+    /**
+     * Largest vendor-defined attribute identifier.
+     */
     protected static final int MAX_VENDOR_ATTR = 127;
+    /**
+     * Smallest vendor-defined audio-event identifier.
+     */
     protected static final int MIN_VENDOR_AUDIO_EVENT = 64;
+    /**
+     * Largest vendor-defined audio-event identifier.
+     */
     protected static final int MAX_VENDOR_AUDIO_EVENT = 127;
     private static final int SYNC_EVENT_PRECISION_MS = 100;
 
@@ -59,6 +134,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private int syncEventKey = -1;
     private volatile boolean playing;
 
+    /**
+     * Applications cannot create this class directly.
+     */
     protected AudioPresenter() {
         registerWithRuntime();
         // DoJa titles often construct presenters during loading and expect the first MLD effect
@@ -76,10 +154,21 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         return audio3D;
     }
 
+    /**
+     * Gets a new audio presenter.
+     *
+     * @return the audio presenter
+     */
     public static AudioPresenter getAudioPresenter() {
         return new AudioPresenter();
     }
 
+    /**
+     * Gets a new audio presenter for the specified output port.
+     *
+     * @param port the output port
+     * @return the audio presenter
+     */
     public static AudioPresenter getAudioPresenter(int port) {
         return new AudioPresenter();
     }
@@ -93,25 +182,50 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         return new AudioTrackPresenter();
     }
 
+    /**
+     * Sets the media sound played by this presenter.
+     *
+     * @param sound the media sound to play
+     */
     public void setSound(MediaSound sound) {
         this.resource = sound;
     }
 
+    /**
+     * Sets the media data played by this presenter.
+     *
+     * @param data the media data to play
+     */
     @Override
     public void setData(MediaData data) {
         this.resource = data;
     }
 
+    /**
+     * Gets the media resource currently associated with this presenter.
+     *
+     * @return the current media resource
+     */
     @Override
     public MediaResource getMediaResource() {
         return resource;
     }
 
+    /**
+     * Starts playback from the beginning of the current media.
+     */
     @Override
     public void play() {
         play(0);
     }
 
+    /**
+     * Starts playback from the specified position in milliseconds measured
+     * from the beginning of the media.
+     *
+     * @param time the playback start position in milliseconds
+     * @throws IllegalArgumentException if {@code time} is negative
+     */
     public void play(int time) {
         if (time < 0) {
             throw new IllegalArgumentException("time");
@@ -170,6 +284,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
     }
 
+    /**
+     * Pauses playback.
+     */
     public void pause() {
         if (sampledPlayer != null) {
             sampledPlayer.pause();
@@ -190,6 +307,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
     }
 
+    /**
+     * Restarts playback after a pause.
+     */
     public void restart() {
         if (sampledPlayer != null) {
             sampledPlayer.restart();
@@ -208,6 +328,11 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
     }
 
+    /**
+     * Gets the current playback position in milliseconds.
+     *
+     * @return the current playback time in milliseconds
+     */
     public int getCurrentTime() {
         if (sampledPlayer != null) {
             return sampledPlayer.getCurrentTimeMillis();
@@ -221,6 +346,11 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         return 0;
     }
 
+    /**
+     * Gets the total playback time in milliseconds.
+     *
+     * @return the total playback time in milliseconds
+     */
     public int getTotalTime() {
         if (sampledPlayer != null) {
             return sampledPlayer.getTotalTimeMillis();
@@ -234,6 +364,12 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         return 0;
     }
 
+    /**
+     * Registers the channel and key used for synchronization events.
+     *
+     * @param channel the synchronization channel
+     * @param key the synchronization key
+     */
     public void setSyncEvent(int channel, int key) {
         if (playing) {
             return;
@@ -248,6 +384,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         syncEventKey = key;
     }
 
+    /**
+     * Stops playback of the current media.
+     */
     @Override
     public void stop() {
         if (requiresStrictStopState() && !hasUsableMediaResource()) {
@@ -273,6 +412,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
     }
 
+    /**
+     * Closes this presenter and releases any playback resources it is holding.
+     */
     @Override
     public void close() {
         stopPlayback();
@@ -286,6 +428,12 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
     }
 
+    /**
+     * Sets a playback attribute on this presenter.
+     *
+     * @param key the attribute identifier
+     * @param value the attribute value
+     */
     @Override
     public void setAttribute(int key, int value) {
         if (key == LOOP_COUNT) {
@@ -308,6 +456,12 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
     }
 
+    /**
+     * Registers a single media listener for this presenter. Passing
+     * {@code null} removes the current listener.
+     *
+     * @param listener the listener to register, or {@code null}
+     */
     @Override
     public void setMediaListener(MediaListener listener) {
         this.mediaListener = listener;

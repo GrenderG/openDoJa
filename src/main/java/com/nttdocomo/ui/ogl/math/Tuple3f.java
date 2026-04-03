@@ -4,8 +4,17 @@ package com.nttdocomo.ui.ogl.math;
  * Defines a 3-element float tuple.
  */
 public abstract class Tuple3f {
+    /**
+     * Constant for x.
+     */
     public float x;
+    /**
+     * Constant for y.
+     */
     public float y;
+    /**
+     * Constant for z.
+     */
     public float z;
 
     /**

@@ -1,5 +1,8 @@
 package com.nttdocomo.ui;
 
+/**
+ * Defines the push Manager type.
+ */
 public class PushManager {
     private String parameter;
     private long pushedTime;
@@ -8,14 +11,23 @@ public class PushManager {
     PushManager() {
     }
 
+    /**
+     * Gets parameter.
+     */
     public String getParameter() {
         return parameter;
     }
 
+    /**
+     * Gets parameter Pushed Time.
+     */
     public long getParameterPushedTime() {
         return pushedTime;
     }
 
+    /**
+     * Sets parameter Push Listener.
+     */
     public void setParameterPushListener(ParameterPushListener listener) {
         this.listener = listener;
     }

@@ -10,11 +10,20 @@ import java.util.concurrent.ConcurrentHashMap;
  * Manages optional illumination display data.
  */
 public class IlluminationDisplay {
+    /**
+     * Theme identifier for package.
+     */
     public static final int THEME_PACKAGE = 0;
 
     private static final Map<Integer, byte[]> DATA = new ConcurrentHashMap<>();
     private static volatile byte[] previewData;
     private static volatile int themeId = -1;
+
+    /**
+     * Applications cannot create this object directly.
+     */
+    protected IlluminationDisplay() {
+    }
 
     /**
      * Saves illumination data to the specified native slot.

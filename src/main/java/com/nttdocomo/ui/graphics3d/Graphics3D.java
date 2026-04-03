@@ -2,6 +2,9 @@ package com.nttdocomo.ui.graphics3d;
 
 import com.nttdocomo.ui.util3d.Transform;
 
+/**
+ * Defines the graphics3 D type used by the graphics3d API.
+ */
 public interface Graphics3D {
     void setClipRectFor3D(int x, int y, int width, int height);
 

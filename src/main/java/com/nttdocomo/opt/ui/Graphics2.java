@@ -14,10 +14,25 @@ import java.util.concurrent.locks.LockSupport;
  * Extends {@link Graphics} with DoJa 5.1 optional drawing features.
  */
 public class Graphics2 extends Graphics {
+    /**
+     * Coordinate mode that uses normal pixel coordinates.
+     */
     public static final int CM_NORMAL = 0;
+    /**
+     * Coordinate mode that uses zoom-style coordinates.
+     */
     public static final int CM_ZOOM = 256;
+    /**
+     * Render operator that replaces the destination.
+     */
     public static final int OP_REPL = 0;
+    /**
+     * Render operator that adds source and destination.
+     */
     public static final int OP_ADD = 1;
+    /**
+     * Render operator that subtracts the source from the destination.
+     */
     public static final int OP_SUB = 2;
 
     private static final int DEFAULT_SYNC_UNLOCK_INTERVAL_US = 1_000_000 / 60;
@@ -42,6 +57,12 @@ public class Graphics2 extends Graphics {
         super(surface);
     }
 
+    /**
+     * Sets the drawing origin used by this graphics context.
+     *
+     * @param x the origin x coordinate
+     * @param y the origin y coordinate
+     */
     @Override
     public void setOrigin(int x, int y) {
         requestedOriginX = x;

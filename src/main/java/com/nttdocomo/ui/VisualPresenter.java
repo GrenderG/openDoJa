@@ -52,9 +52,21 @@ public class VisualPresenter extends Component implements MediaPresenter {
     /** Event type indicating that playback finished (=3). */
     public static final int VISUAL_COMPLETE = 3;
 
+    /**
+     * Minimum value for vendor attr.
+     */
     protected static final int MIN_VENDOR_ATTR = 64;
+    /**
+     * Maximum value for vendor attr.
+     */
     protected static final int MAX_VENDOR_ATTR = 127;
+    /**
+     * Minimum value for vendor visual event.
+     */
     protected static final int MIN_VENDOR_VISUAL_EVENT = 64;
+    /**
+     * Maximum value for vendor visual event.
+     */
     protected static final int MAX_VENDOR_VISUAL_EVENT = 127;
 
     private final Map<Integer, Integer> attributes = new HashMap<>();
@@ -85,6 +97,9 @@ public class VisualPresenter extends Component implements MediaPresenter {
         setResource(image);
     }
 
+    /**
+     * Sets size.
+     */
     @Override
     public void setSize(int width, int height) {
         super.setSize(width, height);

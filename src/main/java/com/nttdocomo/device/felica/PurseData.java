@@ -38,6 +38,9 @@ public abstract class PurseData extends FelicaData {
         this.execID = execID;
     }
 
+    /**
+     * Performs validate Unsigned Int32.
+     */
     protected static void validateUnsignedInt32(long value, String label) {
         if (value < 0L || value > 0xFFFF_FFFFL) {
             throw new IllegalArgumentException(label);

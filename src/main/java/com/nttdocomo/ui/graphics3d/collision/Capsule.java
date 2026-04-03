@@ -9,24 +9,39 @@ public class Capsule extends AbstractBV {
     private float radius;
     private float height;
 
+    /**
+     * Creates a capsule instance.
+     */
     public Capsule(float radius, float height) {
         super(TYPE_CAPSULE);
         set(radius, height);
     }
 
+    /**
+     * Sets set.
+     */
     public void set(float radius, float height) {
         this.radius = java.lang.Math.max(0f, radius);
         this.height = java.lang.Math.max(0f, height);
     }
 
+    /**
+     * Gets radius.
+     */
     public float getRadius() {
         return radius;
     }
 
+    /**
+     * Gets height.
+     */
     public float getHeight() {
         return height;
     }
 
+    /**
+     * Gets effective Radius.
+     */
     @Override
     public float getEffectiveRadius(Vector3D direction) {
         if (direction == null) {
@@ -41,6 +56,9 @@ public class Capsule extends AbstractBV {
         return (radius * getScale()) + ((height * getScale() * 0.5f) * axial / len);
     }
 
+    /**
+     * Creates mesh.
+     */
     @Override
     public void createMesh(int slice, int stack, float scale) {
         super.createMesh(slice, stack, scale);

@@ -14,13 +14,28 @@ import java.util.Map;
 public class Collision {
     private CollisionObserver observer;
 
+    /**
+     * Creates a collision helper.
+     */
     public Collision() {
     }
 
+    /**
+     * Sets the observer notified by hit-testing and picking operations.
+     *
+     * @param observer the collision observer, or {@code null}
+     */
     public void setObserver(CollisionObserver observer) {
         this.observer = observer;
     }
 
+    /**
+     * Gets the distance between a point and a shape.
+     *
+     * @param point the point
+     * @param shape the shape
+     * @return the distance between the point and the shape
+     */
     public static float getDistance(Point point, Shape shape) {
         if (point == null || shape == null) {
             throw new NullPointerException();
@@ -28,6 +43,13 @@ public class Collision {
         return CollisionSupport.distancePointToShape(point.getPosition(true), shape);
     }
 
+    /**
+     * Gets the distance between two line segments.
+     *
+     * @param left the first line segment
+     * @param right the second line segment
+     * @return the distance between the two line segments
+     */
     public static float getDistance(Line left, Line right) {
         if (left == null || right == null) {
             throw new NullPointerException();
@@ -35,6 +57,13 @@ public class Collision {
         return CollisionSupport.distanceSegmentToSegment(left.getStartPosition(true), left.getEndPosition(true), right.getStartPosition(true), right.getEndPosition(true));
     }
 
+    /**
+     * Gets the distance between two spheres.
+     *
+     * @param left the first sphere
+     * @param right the second sphere
+     * @return the distance between the two spheres
+     */
     public static float getDistance(Sphere left, Sphere right) {
         if (left == null || right == null) {
             throw new NullPointerException();
@@ -43,6 +72,13 @@ public class Collision {
         return distance - (left.getRadius() * left.getScale()) - (right.getRadius() * right.getScale());
     }
 
+    /**
+     * Gets the intersection point between a ray and a shape.
+     *
+     * @param ray the ray
+     * @param shape the shape
+     * @return the intersection point, or {@code null} if they do not intersect
+     */
     public static Vector3D getIntersection(Ray ray, Shape shape) {
         if (ray == null || shape == null) {
             throw new NullPointerException();
@@ -50,6 +86,14 @@ public class Collision {
         return CollisionSupport.intersection(ray, shape);
     }
 
+    /**
+     * Tests whether two shapes hit each other.
+     *
+     * @param left the first shape
+     * @param right the second shape
+     * @param notify {@code true} to notify the observer
+     * @return {@code true} if the shapes hit each other
+     */
     public boolean isHit(Shape left, Shape right, boolean notify) {
         if (left == null || right == null) {
             throw new NullPointerException();
@@ -62,6 +106,15 @@ public class Collision {
         return hit;
     }
 
+    /**
+     * Tests whether a shape hits any bounding volume in a figure.
+     *
+     * @param shape the shape to test
+     * @param bvFigure the bounding-volume figure
+     * @param notify {@code true} to notify the observer
+     * @param ignoreDisabled {@code true} to ignore per-bone disabled flags
+     * @return {@code true} if a hit is detected
+     */
     public boolean isHit(Shape shape, BVFigure bvFigure, boolean notify, boolean ignoreDisabled) {
         if (shape == null || bvFigure == null) {
             throw new NullPointerException();
@@ -94,6 +147,16 @@ public class Collision {
         return true;
     }
 
+    /**
+     * Tests whether any bounding volumes in two figures hit each other.
+     *
+     * @param left the first bounding-volume figure
+     * @param right the second bounding-volume figure
+     * @param notify {@code true} to notify the observer
+     * @param ignoreLeftDisabled {@code true} to ignore disabled flags on the left figure
+     * @param ignoreRightDisabled {@code true} to ignore disabled flags on the right figure
+     * @return {@code true} if a hit is detected
+     */
     public boolean isHit(BVFigure left, BVFigure right, boolean notify, boolean ignoreLeftDisabled, boolean ignoreRightDisabled) {
         if (left == null || right == null) {
             throw new NullPointerException();
@@ -114,6 +177,15 @@ public class Collision {
         return false;
     }
 
+    /**
+     * Tests whether a moving sphere hits a shape.
+     *
+     * @param shape the shape to test
+     * @param sphere the sphere before movement
+     * @param velocity the movement vector applied to the sphere center
+     * @param notify {@code true} to notify the observer
+     * @return {@code true} if a hit is detected
+     */
     public boolean isHit(Shape shape, Sphere sphere, Vector3D velocity, boolean notify) {
         if (shape == null || sphere == null || velocity == null) {
             throw new NullPointerException();
@@ -130,6 +202,16 @@ public class Collision {
         return hit;
     }
 
+    /**
+     * Tests whether a ray picks a figure.
+     *
+     * @param ray the picking ray
+     * @param figure the figure to test
+     * @param transform the transform applied to the figure
+     * @param calculateAttribute {@code true} to calculate intersection attributes
+     * @param notify {@code true} to notify the observer
+     * @return {@code true} if the figure is picked
+     */
     public boolean isPicked(Ray ray, Figure figure, Transform transform, boolean calculateAttribute, boolean notify) {
         if (ray == null || figure == null) {
             throw new NullPointerException();

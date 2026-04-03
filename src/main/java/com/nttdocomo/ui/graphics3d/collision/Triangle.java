@@ -9,11 +9,17 @@ public class Triangle extends AbstractShape {
     private final Vector3D[] vertices = {new Vector3D(), new Vector3D(), new Vector3D()};
     private boolean hittingFromBackFaceEnabled;
 
+    /**
+     * Creates a triangle instance.
+     */
     public Triangle(Vector3D v0, Vector3D v1, Vector3D v2) {
         super(TYPE_TRIANGLE);
         set(v0, v1, v2);
     }
 
+    /**
+     * Sets set.
+     */
     public void set(Vector3D v0, Vector3D v1, Vector3D v2) {
         if (v0 == null || v1 == null || v2 == null) {
             throw new NullPointerException("vertex");
@@ -23,6 +29,9 @@ public class Triangle extends AbstractShape {
         vertices[2].set(v2);
     }
 
+    /**
+     * Gets vertices.
+     */
     public Vector3D[] getVertices(boolean transformed) {
         Vector3D[] result = new Vector3D[3];
         for (int i = 0; i < 3; i++) {
@@ -31,6 +40,9 @@ public class Triangle extends AbstractShape {
         return result;
     }
 
+    /**
+     * Gets normal.
+     */
     public Vector3D getNormal(boolean transformed) {
         Vector3D[] values = getVertices(transformed);
         Vector3D ab = new Vector3D(values[1]);
@@ -43,14 +55,23 @@ public class Triangle extends AbstractShape {
         return normal;
     }
 
+    /**
+     * Sets hitting From Back Face Enabled.
+     */
     public void setHittingFromBackFaceEnabled(boolean enabled) {
         hittingFromBackFaceEnabled = enabled;
     }
 
+    /**
+     * Returns whether hitting From Back Face Enabled.
+     */
     public boolean isHittingFromBackFaceEnabled() {
         return hittingFromBackFaceEnabled;
     }
 
+    /**
+     * Creates mesh.
+     */
     @Override
     public void createMesh(int slice, int stack, float scale) {
         super.createMesh(slice, stack, scale);

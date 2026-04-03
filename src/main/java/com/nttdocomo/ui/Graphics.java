@@ -21,6 +21,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 
+/**
+ * Represents the graphics context used for canvases and images.
+ */
 public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.nttdocomo.opt.ui.j3d.Graphics3D {
     private static final boolean TRACE_FAILURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_FAILURES);
     private static final boolean TRACE_3D_CALLS = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.DEBUG3D_CALLS);
@@ -36,29 +39,101 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
                     | com.nttdocomo.opt.ui.j3d.Graphics3D.ATTR_BLEND_HALF
                     | com.nttdocomo.opt.ui.j3d.Graphics3D.ATTR_BLEND_ADD
                     | com.nttdocomo.opt.ui.j3d.Graphics3D.ATTR_BLEND_SUB;
+    /**
+     * Constant for black.
+     */
     public static final int BLACK = 0;
+    /**
+     * Constant for blue.
+     */
     public static final int BLUE = 1;
+    /**
+     * Constant for lime.
+     */
     public static final int LIME = 2;
+    /**
+     * Constant for aqua.
+     */
     public static final int AQUA = 3;
+    /**
+     * Constant for red.
+     */
     public static final int RED = 4;
+    /**
+     * Constant for fuchsia.
+     */
     public static final int FUCHSIA = 5;
+    /**
+     * Constant for yellow.
+     */
     public static final int YELLOW = 6;
+    /**
+     * Constant for white.
+     */
     public static final int WHITE = 7;
+    /**
+     * Constant for gray.
+     */
     public static final int GRAY = 8;
+    /**
+     * Constant for navy.
+     */
     public static final int NAVY = 9;
+    /**
+     * Constant for green.
+     */
     public static final int GREEN = 10;
+    /**
+     * Constant for teal.
+     */
     public static final int TEAL = 11;
+    /**
+     * Constant for maroon.
+     */
     public static final int MAROON = 12;
+    /**
+     * Constant for purple.
+     */
     public static final int PURPLE = 13;
+    /**
+     * Constant for olive.
+     */
     public static final int OLIVE = 14;
+    /**
+     * Constant for silver.
+     */
     public static final int SILVER = 15;
+    /**
+     * Image flip-mode constant for none.
+     */
     public static final int FLIP_NONE = 0;
+    /**
+     * Image flip-mode constant for horizontal.
+     */
     public static final int FLIP_HORIZONTAL = 1;
+    /**
+     * Image flip-mode constant for vertical.
+     */
     public static final int FLIP_VERTICAL = 2;
+    /**
+     * Image flip-mode constant for rotate.
+     */
     public static final int FLIP_ROTATE = 3;
+    /**
+     * Image flip-mode constant for rotate left.
+     */
     public static final int FLIP_ROTATE_LEFT = 4;
+    /**
+     * Image flip-mode constant for rotate right.
+     */
     public static final int FLIP_ROTATE_RIGHT = 5;
+    /**
+     * Image flip-mode constant for rotate right horizontal.
+     */
     public static final int FLIP_ROTATE_RIGHT_HORIZONTAL = 6;
+    /**
+     * Image flip-mode constant for rotate right vertical.
+     */
     public static final int FLIP_ROTATE_RIGHT_VERTICAL = 7;
 
     private final DesktopSurface surface;
@@ -80,6 +155,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         this(new DesktopSurface(1, 1));
     }
 
+    /**
+     * Applications cannot create this object directly.
+     */
     protected Graphics(DesktopSurface surface) {
         this.surface = surface;
         this.delegate = surface.image().createGraphics();
@@ -107,10 +185,16 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Clears clip.
+     */
     public void clearClip() {
         delegate.setClip(0, 0, surface.width(), surface.height());
     }
 
+    /**
+     * Clears rect.
+     */
     public void clearRect(int x, int y, int width, int height) {
         Color old = delegate.getColor();
         delegate.setColor(new Color(surface.backgroundColor(), true));
@@ -119,10 +203,16 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         flushSurfacePresentation();
     }
 
+    /**
+     * Clips rect.
+     */
     public void clipRect(int x, int y, int width, int height) {
         delegate.clipRect(originX + x, originY + y, width, height);
     }
 
+    /**
+     * Copies copy.
+     */
     public Graphics copy() {
         Graphics copy = createPlatformGraphics(surface);
         copy.originX = originX;
@@ -193,6 +283,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
 
     // DoJa titles scroll cached surfaces with copyArea requests that can hang partly outside
     // the backing image; clip the source rectangle but keep dx/dy as translation offsets.
+    /**
+     * Copies area.
+     */
     public void copyArea(int x, int y, int width, int height, int dx, int dy) {
         if (width <= 0 || height <= 0) {
             return;
@@ -231,23 +324,38 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         flushSurfacePresentation();
     }
 
+    /**
+     * Disposes this object and releases its resources.
+     */
     public void dispose() {
         delegate.dispose();
     }
 
+    /**
+     * Draws chars.
+     */
     public void drawChars(char[] data, int x, int y, int offset, int length) {
         // DoJa uses the order (chars, x, y, offset, length), unlike Java SE/AWT.
         drawString(new String(data, offset, length), x, y);
     }
 
+    /**
+     * Draws image.
+     */
     public void drawImage(Image image, int x, int y) {
         drawSubImage(image, x, y, 0, 0, image.getWidth(), image.getHeight(), image.getWidth(), image.getHeight());
     }
 
+    /**
+     * Draws sprite Set.
+     */
     public void drawSpriteSet(SpriteSet spriteSet) {
         drawSpriteSet(spriteSet, 0, 0);
     }
 
+    /**
+     * Draws sprite Set.
+     */
     public void drawSpriteSet(SpriteSet spriteSet, int dx, int dy) {
         if (spriteSet == null) {
             return;
@@ -259,25 +367,40 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Draws image Map.
+     */
     public void drawImageMap(ImageMap imageMap, int x, int y) {
         if (imageMap != null) {
             imageMap.draw(this, x, y);
         }
     }
 
+    /**
+     * Draws image.
+     */
     public void drawImage(Image image, int x, int y, int sx, int sy, int width, int height) {
         drawSubImage(image, x, y, sx, sy, width, height, width, height);
     }
 
+    /**
+     * Draws line.
+     */
     public void drawLine(int x1, int y1, int x2, int y2) {
         delegate.drawLine(originX + x1, originY + y1, originX + x2, originY + y2);
         flushSurfacePresentation();
     }
 
+    /**
+     * Draws polyline.
+     */
     public void drawPolyline(int[] xs, int[] ys, int n) {
         drawPolyline(xs, ys, n, 0);
     }
 
+    /**
+     * Draws polyline.
+     */
     public void drawPolyline(int[] xs, int[] ys, int n, int mode) {
         if (xs == null || ys == null || n <= 0) {
             return;
@@ -292,11 +415,17 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         flushSurfacePresentation();
     }
 
+    /**
+     * Draws rect.
+     */
     public void drawRect(int x, int y, int width, int height) {
         delegate.drawRect(originX + x, originY + y, width, height);
         flushSurfacePresentation();
     }
 
+    /**
+     * Draws string.
+     */
     public void drawString(String text, int x, int y) {
         if (text == null) {
             return;
@@ -305,10 +434,16 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         flushSurfacePresentation();
     }
 
+    /**
+     * Fills polygon.
+     */
     public void fillPolygon(int[] xs, int[] ys, int n) {
         fillPolygon(xs, ys, n, 0);
     }
 
+    /**
+     * Fills polygon.
+     */
     public void fillPolygon(int[] xs, int[] ys, int n, int mode) {
         if (xs == null || ys == null || n <= 0) {
             return;
@@ -323,11 +458,17 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         flushSurfacePresentation();
     }
 
+    /**
+     * Fills rect.
+     */
     public void fillRect(int x, int y, int width, int height) {
         delegate.fillRect(originX + x, originY + y, width, height);
         flushSurfacePresentation();
     }
 
+    /**
+     * Gets color Of Name.
+     */
     public static int getColorOfName(int name) {
         return switch (name) {
             case BLACK -> 0xFF000000;
@@ -350,14 +491,23 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         };
     }
 
+    /**
+     * Gets color Of R G B.
+     */
     public static int getColorOfRGB(int red, int green, int blue) {
         return getColorOfRGB(red, green, blue, 255);
     }
 
+    /**
+     * Gets color Of R G B.
+     */
     public static int getColorOfRGB(int red, int green, int blue, int alpha) {
         return ((alpha & 0xFF) << 24) | ((red & 0xFF) << 16) | ((green & 0xFF) << 8) | (blue & 0xFF);
     }
 
+    /**
+     * Starts double-buffered drawing.
+     */
     public void lock() {
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null) {
@@ -365,15 +515,24 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets clip.
+     */
     public void setClip(int x, int y, int width, int height) {
         delegate.setClip(originX + x, originY + y, width, height);
     }
 
+    /**
+     * Sets color.
+     */
     public void setColor(int color) {
         this.color = color;
         delegate.setColor(new Color(color, true));
     }
 
+    /**
+     * Sets font.
+     */
     public void setFont(Font font) {
         if (font == null) {
             return;
@@ -382,11 +541,17 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         delegate.setFont(font.awtFont());
     }
 
+    /**
+     * Sets origin.
+     */
     public void setOrigin(int x, int y) {
         this.originX = x;
         this.originY = y;
     }
 
+    /**
+     * Sets picto Color Enabled.
+     */
     public void setPictoColorEnabled(boolean enabled) {
         DoJaApiUnimplemented.noOp(
                 "com.nttdocomo.ui.Graphics.setPictoColorEnabled(boolean)",
@@ -394,6 +559,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         );
     }
 
+    /**
+     * Ends double-buffered drawing.
+     */
     public void unlock(boolean flush) {
         DoJaRuntime runtime = DoJaRuntime.current();
         BufferedImage presentedFrame = null;
@@ -427,18 +595,30 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets flip Mode.
+     */
     public void setFlipMode(int flipMode) {
         this.flipMode = flipMode;
     }
 
+    /**
+     * Draws scaled Image.
+     */
     public void drawScaledImage(Image image, int dx, int dy, int dw, int dh, int sx, int sy, int sw, int sh) {
         drawSubImage(image, dx, dy, sx, sy, sw, sh, dw, dh);
     }
 
+    /**
+     * Draws string.
+     */
     public void drawString(XString text, int x, int y) {
         drawString(text == null ? null : text.toString(), x, y);
     }
 
+    /**
+     * Draws string.
+     */
     public void drawString(XString text, int x, int y, int offset, int length) {
         if (text == null) {
             return;
@@ -449,56 +629,92 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         drawString(value.substring(start, end), x, y);
     }
 
+    /**
+     * Draws arc.
+     */
     public void drawArc(int x, int y, int width, int height, int startAngle, int arcAngle) {
         delegate.drawArc(originX + x, originY + y, width, height, startAngle, arcAngle);
         flushSurfacePresentation();
     }
 
+    /**
+     * Fills arc.
+     */
     public void fillArc(int x, int y, int width, int height, int startAngle, int arcAngle) {
         delegate.fillArc(originX + x, originY + y, width, height, startAngle, arcAngle);
         flushSurfacePresentation();
     }
 
+    /**
+     * Gets pixel.
+     */
     public int getPixel(int x, int y) {
         return surface.image().getRGB(originX + x, originY + y);
     }
 
+    /**
+     * Gets r G B Pixel.
+     */
     public int getRGBPixel(int x, int y) {
         return getPixel(x, y);
     }
 
+    /**
+     * Gets pixels.
+     */
     public int[] getPixels(int x, int y, int width, int height, int[] pixels, int offset) {
         return getRGBPixels(x, y, width, height, pixels, offset);
     }
 
+    /**
+     * Gets r G B Pixels.
+     */
     public int[] getRGBPixels(int x, int y, int width, int height, int[] pixels, int offset) {
         int[] target = pixels == null ? new int[offset + (width * height)] : pixels;
         surface.image().getRGB(originX + x, originY + y, width, height, target, offset, width);
         return target;
     }
 
+    /**
+     * Sets pixel.
+     */
     public void setPixel(int x, int y) {
         setRGBPixel(x, y, color);
     }
 
+    /**
+     * Sets pixel.
+     */
     public void setPixel(int x, int y, int color) {
         setRGBPixel(x, y, color);
     }
 
+    /**
+     * Sets r G B Pixel.
+     */
     public void setRGBPixel(int x, int y, int color) {
         surface.image().setRGB(originX + x, originY + y, color);
         flushSurfacePresentation();
     }
 
+    /**
+     * Sets pixels.
+     */
     public void setPixels(int x, int y, int width, int height, int[] pixels, int offset) {
         setRGBPixels(x, y, width, height, pixels, offset);
     }
 
+    /**
+     * Sets r G B Pixels.
+     */
     public void setRGBPixels(int x, int y, int width, int height, int[] pixels, int offset) {
         surface.image().setRGB(originX + x, originY + y, width, height, pixels, offset, width);
         flushSurfacePresentation();
     }
 
+    /**
+     * Draws image.
+     */
     public void drawImage(Image image, int[] points, int sx, int sy, int width, int height) {
         if (points == null || points.length < 4) {
             drawImage(image, 0, 0, sx, sy, width, height);
@@ -517,6 +733,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         drawScaledImage(image, minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), sx, sy, width, height);
     }
 
+    /**
+     * Draws image.
+     */
     public void drawImage(Image image, int[] points) {
         drawImage(image, points, 0, 0, image.getWidth(), image.getHeight());
     }
@@ -650,6 +869,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets clip Rect For3 D.
+     */
     @Override
     public void setClipRectFor3D(int x, int y, int width, int height) {
         try {
@@ -659,6 +881,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets parallel View.
+     */
     @Override
     public void setParallelView(int width, int height) {
         try {
@@ -671,6 +896,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets perspective View.
+     */
     @Override
     public void setPerspectiveView(float a, float b, int c, int d) {
         try {
@@ -683,6 +911,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets perspective View.
+     */
     @Override
     public void setPerspectiveView(float a, float b, float c) {
         try {
@@ -695,6 +926,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Flushes any buffered drawing operations.
+     */
     @Override
     public void flushBuffer() {
         try {
@@ -707,6 +941,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets transform.
+     */
     @Override
     public void setTransform(com.nttdocomo.ui.util3d.Transform transform) {
         try {
@@ -720,6 +957,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Adds light.
+     */
     @Override
     public void addLight(com.nttdocomo.ui.graphics3d.Light light, com.nttdocomo.ui.util3d.Transform transform) {
         if (light == null) {
@@ -732,11 +972,17 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Resets lights.
+     */
     @Override
     public void resetLights() {
         threeD.resetUiLights();
     }
 
+    /**
+     * Sets fog.
+     */
     @Override
     public void setFog(com.nttdocomo.ui.graphics3d.Fog fog) {
         DoJaApiUnimplemented.noOp(
@@ -745,6 +991,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         );
     }
 
+    /**
+     * Renders object3 D.
+     */
     @Override
     public void renderObject3D(com.nttdocomo.ui.graphics3d.DrawableObject3D object, com.nttdocomo.ui.util3d.Transform transform) {
         if (object == null) {
@@ -779,6 +1028,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets view Trans.
+     */
     @Override
     public void setViewTrans(com.nttdocomo.opt.ui.j3d.AffineTrans transform) {
         try {
@@ -792,16 +1044,25 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets view Trans Array.
+     */
     @Override
     public void setViewTransArray(com.nttdocomo.opt.ui.j3d.AffineTrans[] transforms) {
         this.optViewTransforms = transforms == null ? new com.nttdocomo.opt.ui.j3d.AffineTrans[0] : transforms.clone();
     }
 
+    /**
+     * Sets view Trans.
+     */
     @Override
     public void setViewTrans(int index) {
         setViewTrans(optViewTransforms[index]);
     }
 
+    /**
+     * Sets screen Center.
+     */
     @Override
     public void setScreenCenter(int x, int y) {
         try {
@@ -816,6 +1077,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets screen Scale.
+     */
     @Override
     public void setScreenScale(int x, int y) {
         try {
@@ -828,6 +1092,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets screen View.
+     */
     @Override
     public void setScreenView(int x, int y) {
         try {
@@ -841,6 +1108,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets perspective.
+     */
     @Override
     public void setPerspective(int near, int far, int width) {
         try {
@@ -853,6 +1123,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets perspective.
+     */
     @Override
     public void setPerspective(int near, int far, int width, int height) {
         try {
@@ -865,12 +1138,18 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Draws figure.
+     */
     @Override
     public void drawFigure(com.nttdocomo.opt.ui.j3d.Figure figure) {
         renderFigure(figure);
         flush();
     }
 
+    /**
+     * Renders figure.
+     */
     @Override
     public void renderFigure(com.nttdocomo.opt.ui.j3d.Figure figure) {
         if (figure == null) {
@@ -888,6 +1167,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Flushes any buffered drawing operations.
+     */
     @Override
     public void flush() {
         try {
@@ -900,6 +1182,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Enables or disables sphere Map.
+     */
     @Override
     public void enableSphereMap(boolean enabled) {
         DoJaApiUnimplemented.noOp(
@@ -908,6 +1193,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         );
     }
 
+    /**
+     * Sets sphere Texture.
+     */
     @Override
     public void setSphereTexture(com.nttdocomo.opt.ui.j3d.Texture texture) {
         DoJaApiUnimplemented.noOp(
@@ -916,6 +1204,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         );
     }
 
+    /**
+     * Enables or disables light.
+     */
     @Override
     public void enableLight(boolean enabled) {
         if (TRACE_3D_CALLS) {
@@ -924,6 +1215,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         threeD.enableOptLight(enabled);
     }
 
+    /**
+     * Sets ambient Light.
+     */
     @Override
     public void setAmbientLight(int color) {
         if (TRACE_3D_CALLS) {
@@ -931,6 +1225,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Sets direction Light.
+     */
     @Override
     public void setDirectionLight(com.nttdocomo.opt.ui.j3d.Vector3D direction, int color) {
         if (TRACE_3D_CALLS) {
@@ -941,11 +1238,17 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
     }
 
+    /**
+     * Enables or disables semi Transparent.
+     */
     @Override
     public void enableSemiTransparent(boolean enabled) {
         threeD.enableOptSemiTransparent(enabled);
     }
 
+    /**
+     * Sets clip Rect3 D.
+     */
     @Override
     public void setClipRect3D(int x, int y, int width, int height) {
         try {
@@ -966,6 +1269,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         return failure;
     }
 
+    /**
+     * Enables or disables toon Shader.
+     */
     @Override
     public void enableToonShader(boolean enabled) {
         DoJaApiUnimplemented.noOp(
@@ -974,6 +1280,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         );
     }
 
+    /**
+     * Sets toon Param.
+     */
     @Override
     public void setToonParam(int highlight, int mid, int shadow) {
         DoJaApiUnimplemented.noOp(
@@ -982,6 +1291,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         );
     }
 
+    /**
+     * Sets primitive Texture Array.
+     */
     @Override
     public void setPrimitiveTextureArray(com.nttdocomo.opt.ui.j3d.Texture texture) {
         if (TRACE_3D_CALLS) {
@@ -991,6 +1303,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         threeD.setPrimitiveTextures(texture == null ? null : new SoftwareTexture[]{invokeHidden(texture, "handle", SoftwareTexture.class)});
     }
 
+    /**
+     * Sets primitive Texture Array.
+     */
     @Override
     public void setPrimitiveTextureArray(com.nttdocomo.opt.ui.j3d.Texture[] textures) {
         if (textures == null) {
@@ -1010,6 +1325,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         threeD.setPrimitiveTextures(converted);
     }
 
+    /**
+     * Sets primitive Texture.
+     */
     @Override
     public void setPrimitiveTexture(int index) {
         if (TRACE_3D_CALLS) {
@@ -1018,6 +1336,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         threeD.setPrimitiveTexture(index);
     }
 
+    /**
+     * Renders primitives.
+     */
     @Override
     public void renderPrimitives(com.nttdocomo.opt.ui.j3d.PrimitiveArray primitives, int attr) {
         prepare3DDepthFrame();
@@ -1032,6 +1353,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         threeD.renderOptPrimitives(delegate, surface.image(), 0, 0, surface.width(), surface.height(), primitives, attr);
     }
 
+    /**
+     * Renders primitives.
+     */
     @Override
     public void renderPrimitives(com.nttdocomo.opt.ui.j3d.PrimitiveArray primitives, int start, int count, int attr) {
         prepare3DDepthFrame();
@@ -1049,6 +1373,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         threeD.renderOptPrimitivesRange(delegate, surface.image(), 0, 0, surface.width(), surface.height(), primitives, start, count, attr);
     }
 
+    /**
+     * Executes command List.
+     */
     @Override
     public void executeCommandList(int[] commands) {
         if (commands == null) {

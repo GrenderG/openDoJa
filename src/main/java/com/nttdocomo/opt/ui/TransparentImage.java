@@ -93,16 +93,25 @@ public class TransparentImage extends Image {
         return delegate.getGraphics();
     }
 
+    /**
+     * Disposes this object and releases its resources.
+     */
     @Override
     public void dispose() {
         delegate.dispose();
     }
 
+    /**
+     * Gets width.
+     */
     @Override
     public int getWidth() {
         return delegate.getWidth();
     }
 
+    /**
+     * Gets height.
+     */
     @Override
     public int getHeight() {
         return delegate.getHeight();

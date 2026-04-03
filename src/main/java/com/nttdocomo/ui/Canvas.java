@@ -97,6 +97,9 @@ public abstract class Canvas extends Frame {
         return;
     }
 
+    /**
+     * Performs process Soft Key Event.
+     */
     @Override
     public void processSoftKeyEvent(int type, int key) {
         int dojaKey = switch (key) {

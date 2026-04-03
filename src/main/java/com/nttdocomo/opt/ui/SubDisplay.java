@@ -11,6 +11,12 @@ public class SubDisplay {
     private static volatile Image image;
 
     /**
+     * Applications cannot create this object directly.
+     */
+    protected SubDisplay() {
+    }
+
+    /**
      * Returns the width of the sub display in pixels.
      *
      * @return the sub-display width

@@ -4,6 +4,9 @@ import opendoja.g3d.MascotFigure;
 import opendoja.g3d.SoftwareTexture;
 import opendoja.host.OpenDoJaLog;
 
+/**
+ * Defines the figure object that holds model shape data.
+ */
 public class Figure extends DrawableObject3D {
     private static final boolean TRACE_FAILURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_FAILURES);
     private static final boolean TRACE_3D_CALLS = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.DEBUG3D_CALLS);
@@ -14,6 +17,11 @@ public class Figure extends DrawableObject3D {
         this.handle = handle;
     }
 
+    /**
+     * Sets the texture mapped onto the model data.
+     *
+     * @param texture the texture object
+     */
     public void setTexture(Texture texture) {
         try {
             handle.setTexture(texture == null ? null : texture.handle());
@@ -22,6 +30,12 @@ public class Figure extends DrawableObject3D {
         }
     }
 
+    /**
+     * Sets the textures mapped onto the model data.
+     *
+     * @param textures the texture array
+     * @throws NullPointerException if {@code textures} or any element is {@code null}
+     */
     public void setTextures(Texture[] textures) {
         if (textures == null) {
             throw new NullPointerException("textures");
@@ -40,6 +54,12 @@ public class Figure extends DrawableObject3D {
         }
     }
 
+    /**
+     * Associates an action table and action index with this figure.
+     *
+     * @param actionTable the action table
+     * @param action the action-data index
+     */
     public void setAction(ActionTable actionTable, int action) {
         try {
             handle.setAction(actionTable.handle(), action);
@@ -52,10 +72,20 @@ public class Figure extends DrawableObject3D {
         }
     }
 
+    /**
+     * Gets the action table currently associated with this figure.
+     *
+     * @return the current action table, or {@code null} if none is set
+     */
     public ActionTable getActionTable() {
         return handle.actionTable() == null ? null : new ActionTable(handle.actionTable());
     }
 
+    /**
+     * Sets the current time and applies the action state for that time.
+     *
+     * @param time the current time
+     */
     @Override
     public void setTime(int time) {
         super.setTime(time);
@@ -70,10 +100,20 @@ public class Figure extends DrawableObject3D {
         }
     }
 
+    /**
+     * Gets the number of appearance patterns in the model data.
+     *
+     * @return the number of patterns
+     */
     public int getNumPatterns() {
         return handle.numPatterns();
     }
 
+    /**
+     * Sets the current appearance pattern.
+     *
+     * @param pattern the pattern index
+     */
     public void setPattern(int pattern) {
         try {
             handle.setPattern(pattern);
@@ -82,16 +122,31 @@ public class Figure extends DrawableObject3D {
         }
     }
 
+    /**
+     * Enables or disables perspective correction.
+     *
+     * @param enabled {@code true} to enable perspective correction
+     */
     @Override
     public void setPerspectiveCorrectionEnabled(boolean enabled) {
         setPerspectiveCorrectionEnabledInternal(enabled);
     }
 
+    /**
+     * Sets the primitive blend mode.
+     *
+     * @param blendMode the blend mode
+     */
     @Override
     public void setBlendMode(int blendMode) {
         setBlendModeInternal(blendMode);
     }
 
+    /**
+     * Sets the transparency percentage.
+     *
+     * @param transparency the transparency value
+     */
     @Override
     public void setTransparency(float transparency) {
         setTransparencyInternal(transparency);

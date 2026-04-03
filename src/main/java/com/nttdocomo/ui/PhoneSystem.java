@@ -15,64 +15,241 @@ import java.util.Objects;
  * This class provides access to platform-native resources and theme settings.
  */
 public class PhoneSystem {
+    /**
+     * Attribute value indicating backlight off.
+     */
     public static final int ATTR_BACKLIGHT_OFF = 0;
+    /**
+     * Attribute value indicating backlight on.
+     */
     public static final int ATTR_BACKLIGHT_ON = 1;
+    /**
+     * Attribute value indicating folding close.
+     */
     public static final int ATTR_FOLDING_CLOSE = 0;
+    /**
+     * Attribute value indicating folding open.
+     */
     public static final int ATTR_FOLDING_OPEN = 1;
+    /**
+     * Attribute value indicating mail at center.
+     */
     public static final int ATTR_MAIL_AT_CENTER = 2;
+    /**
+     * Attribute value indicating mail none.
+     */
     public static final int ATTR_MAIL_NONE = 0;
+    /**
+     * Attribute value indicating mail received.
+     */
     public static final int ATTR_MAIL_RECEIVED = 1;
+    /**
+     * Attribute value indicating message at center.
+     */
     public static final int ATTR_MESSAGE_AT_CENTER = 2;
+    /**
+     * Attribute value indicating message none.
+     */
     public static final int ATTR_MESSAGE_NONE = 0;
+    /**
+     * Attribute value indicating message received.
+     */
     public static final int ATTR_MESSAGE_RECEIVED = 1;
+    /**
+     * Attribute value indicating vibrator off.
+     */
     public static final int ATTR_VIBRATOR_OFF = 0;
+    /**
+     * Attribute value indicating vibrator on.
+     */
     public static final int ATTR_VIBRATOR_ON = 1;
+    /**
+     * Attribute value indicating battery partial.
+     */
     public static final int ATTR_BATTERY_PARTIAL = 0;
+    /**
+     * Attribute value indicating battery full.
+     */
     public static final int ATTR_BATTERY_FULL = 1;
+    /**
+     * Attribute value indicating battery charging.
+     */
     public static final int ATTR_BATTERY_CHARGING = 2;
+    /**
+     * Attribute value indicating servicearea outside.
+     */
     public static final int ATTR_SERVICEAREA_OUTSIDE = 0;
+    /**
+     * Attribute value indicating servicearea inside.
+     */
     public static final int ATTR_SERVICEAREA_INSIDE = 1;
+    /**
+     * Attribute value indicating manner off.
+     */
     public static final int ATTR_MANNER_OFF = 0;
+    /**
+     * Attribute value indicating manner on.
+     */
     public static final int ATTR_MANNER_ON = 1;
+    /**
+     * Attribute value indicating screen invisible.
+     */
     public static final int ATTR_SCREEN_INVISIBLE = 0;
+    /**
+     * Attribute value indicating screen visible.
+     */
     public static final int ATTR_SCREEN_VISIBLE = 1;
+    /**
+     * Attribute value indicating surround off.
+     */
     public static final int ATTR_SURROUND_OFF = 0;
+    /**
+     * Attribute value indicating surround on.
+     */
     public static final int ATTR_SURROUND_ON = 1;
+    /**
+     * Attribute value indicating areainfo foma.
+     */
     public static final int ATTR_AREAINFO_FOMA = 0;
+    /**
+     * Attribute value indicating areainfo hsdpa.
+     */
     public static final int ATTR_AREAINFO_HSDPA = 1;
+    /**
+     * Attribute value indicating areainfo outside.
+     */
     public static final int ATTR_AREAINFO_OUTSIDE = 2;
+    /**
+     * Attribute value indicating areainfo roamingout.
+     */
     public static final int ATTR_AREAINFO_ROAMINGOUT = 3;
+    /**
+     * Attribute value indicating areainfo selfmode.
+     */
     public static final int ATTR_AREAINFO_SELFMODE = 4;
+    /**
+     * Attribute value indicating areainfo communicating.
+     */
     public static final int ATTR_AREAINFO_COMMUNICATING = 5;
+    /**
+     * Attribute value indicating areainfo unknown.
+     */
     public static final int ATTR_AREAINFO_UNKNOWN = 99;
+    /**
+     * Device attribute identifier for backlight.
+     */
     public static final int DEV_BACKLIGHT = 0;
+    /**
+     * Device attribute identifier for vibrator.
+     */
     public static final int DEV_VIBRATOR = 1;
+    /**
+     * Device attribute identifier for folding.
+     */
     public static final int DEV_FOLDING = 2;
+    /**
+     * Device attribute identifier for mailbox.
+     */
     public static final int DEV_MAILBOX = 3;
+    /**
+     * Device attribute identifier for messagebox.
+     */
     public static final int DEV_MESSAGEBOX = 4;
+    /**
+     * Device attribute identifier for battery.
+     */
     public static final int DEV_BATTERY = 5;
+    /**
+     * Device attribute identifier for servicearea.
+     */
     public static final int DEV_SERVICEAREA = 6;
+    /**
+     * Device attribute identifier for manner.
+     */
     public static final int DEV_MANNER = 7;
+    /**
+     * Device attribute identifier for keypad.
+     */
     public static final int DEV_KEYPAD = 8;
+    /**
+     * Device attribute identifier for screen visible.
+     */
     public static final int DEV_SCREEN_VISIBLE = 9;
+    /**
+     * Device attribute identifier for audio surround.
+     */
     public static final int DEV_AUDIO_SURROUND = 10;
+    /**
+     * Device attribute identifier for areainfo.
+     */
     public static final int DEV_AREAINFO = 11;
+    /**
+     * Minimum value for vendor attr.
+     */
     public static final int MIN_VENDOR_ATTR = 64;
+    /**
+     * Maximum value for vendor attr.
+     */
     public static final int MAX_VENDOR_ATTR = 127;
+    /**
+     * Maximum value for option attr.
+     */
     public static final int MAX_OPTION_ATTR = 255;
+    /**
+     * Minimum value for option attr.
+     */
     public static final int MIN_OPTION_ATTR = 128;
+    /**
+     * Standard sound identifier for info.
+     */
     public static final int SOUND_INFO = 0;
+    /**
+     * Standard sound identifier for warning.
+     */
     public static final int SOUND_WARNING = 1;
+    /**
+     * Standard sound identifier for error.
+     */
     public static final int SOUND_ERROR = 2;
+    /**
+     * Standard sound identifier for alarm.
+     */
     public static final int SOUND_ALARM = 3;
+    /**
+     * Standard sound identifier for confirm.
+     */
     public static final int SOUND_CONFIRM = 4;
+    /**
+     * Theme identifier for standby.
+     */
     public static final int THEME_STANDBY = 0;
+    /**
+     * Theme identifier for call out.
+     */
     public static final int THEME_CALL_OUT = 1;
+    /**
+     * Theme identifier for call in.
+     */
     public static final int THEME_CALL_IN = 2;
+    /**
+     * Theme identifier for message send.
+     */
     public static final int THEME_MESSAGE_SEND = 3;
+    /**
+     * Theme identifier for message receive.
+     */
     public static final int THEME_MESSAGE_RECEIVE = 4;
+    /**
+     * Theme identifier for av call in.
+     */
     public static final int THEME_AV_CALL_IN = 5;
+    /**
+     * Theme identifier for chat received.
+     */
     public static final int THEME_CHAT_RECEIVED = 6;
+    /**
+     * Theme identifier for av calling.
+     */
     public static final int THEME_AV_CALLING = 7;
 
     private static final Map<Integer, Integer> ATTRIBUTES = new HashMap<>();
@@ -91,6 +268,9 @@ public class PhoneSystem {
         ATTRIBUTES.put(DEV_AREAINFO, ATTR_AREAINFO_FOMA);
     }
 
+    /**
+     * Applications cannot create this object directly.
+     */
     protected PhoneSystem() {
     }
 

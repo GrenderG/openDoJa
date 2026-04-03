@@ -11,24 +11,39 @@ public class Cylinder extends AbstractBV {
     private float radius;
     private float height;
 
+    /**
+     * Creates a cylinder instance.
+     */
     public Cylinder(float radius, float height) {
         super(TYPE_CYLINDER);
         set(radius, height);
     }
 
+    /**
+     * Sets set.
+     */
     public void set(float radius, float height) {
         this.radius = java.lang.Math.max(0f, radius);
         this.height = java.lang.Math.max(0f, height);
     }
 
+    /**
+     * Gets radius.
+     */
     public float getRadius() {
         return radius;
     }
 
+    /**
+     * Gets height.
+     */
     public float getHeight() {
         return height;
     }
 
+    /**
+     * Gets effective Radius.
+     */
     @Override
     public float getEffectiveRadius(Vector3D direction) {
         if (direction == null) {
@@ -44,6 +59,9 @@ public class Cylinder extends AbstractBV {
         return ((height * getScale() * 0.5f) * axial + (radius * getScale()) * perp) / len;
     }
 
+    /**
+     * Creates mesh Body.
+     */
     protected Primitive createMeshBody() {
         Primitive primitive = new Primitive(Primitive.PRIMITIVE_POINTS, Primitive.COLOR_NONE, 1);
         primitive.getVertexArray()[0] = 0;
@@ -55,6 +73,9 @@ public class Cylinder extends AbstractBV {
         return primitive;
     }
 
+    /**
+     * Creates mesh.
+     */
     @Override
     public void createMesh(int slice, int stack, float scale) {
         super.createMesh(slice, stack, scale);

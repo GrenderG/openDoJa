@@ -16,9 +16,15 @@ public class ViewVolume {
     private final Transform transform = new Transform();
     private boolean configured;
 
+    /**
+     * Creates a view Volume instance.
+     */
     public ViewVolume() {
     }
 
+    /**
+     * Sets parallel View.
+     */
     public void setParallelView(int width, int height) {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("size");
@@ -31,6 +37,9 @@ public class ViewVolume {
         configured = true;
     }
 
+    /**
+     * Sets perspective View.
+     */
     public void setPerspectiveView(float near, float far, int width, int height) {
         if (!(0f < near && near < far && far < 32768f) || width <= 0 || height <= 0) {
             throw new IllegalArgumentException();
@@ -43,6 +52,9 @@ public class ViewVolume {
         configured = true;
     }
 
+    /**
+     * Sets perspective View.
+     */
     public void setPerspectiveView(float near, float far, float angle) {
         if (!(0f < near && near < far && far < 32768f) || !(0f < angle && angle < 180f)) {
             throw new IllegalArgumentException();
@@ -56,6 +68,9 @@ public class ViewVolume {
         configured = true;
     }
 
+    /**
+     * Returns whether viewable.
+     */
     public boolean isViewable(BoundingVolume bv) {
         if (bv == null) {
             throw new NullPointerException("bv");
@@ -68,6 +83,9 @@ public class ViewVolume {
         return isViewable(viewCenter, radius);
     }
 
+    /**
+     * Returns whether viewable.
+     */
     public boolean isViewable(BVFigure bvFig) {
         if (bvFig == null) {
             throw new NullPointerException("bvFig");
@@ -81,6 +99,9 @@ public class ViewVolume {
         return false;
     }
 
+    /**
+     * Sets transform.
+     */
     public void setTransform(Transform trans) {
         if (trans == null) {
             throw new NullPointerException("trans");

@@ -76,14 +76,23 @@ public abstract class Frame {
         this.softLabelVisible = visible;
     }
 
+    /**
+     * Gets soft Label.
+     */
     public String getSoftLabel(int key) {
         return key >= 0 && key < softLabels.length ? softLabels[key] : null;
     }
 
+    /**
+     * Returns whether soft Label Visible.
+     */
     public boolean isSoftLabelVisible() {
         return softLabelVisible;
     }
 
+    /**
+     * Performs process Soft Key Event.
+     */
     public void processSoftKeyEvent(int type, int key) {
         int ignoredType = type;
         int ignoredKey = key;

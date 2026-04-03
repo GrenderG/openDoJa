@@ -115,6 +115,9 @@ public final class GPSLocationProvider extends LocationProvider {
         return _LocationSupport.trackingSupported() ? _LocationSupport.minimalInterval() : -1;
     }
 
+    /**
+     * Sets tracking Listener.
+     */
     @Override
     public void setTrackingListener(TrackingListener listener, int interval, int threshold) {
         if (listener == null) {

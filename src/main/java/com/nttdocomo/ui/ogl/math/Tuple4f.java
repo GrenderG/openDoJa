@@ -4,9 +4,21 @@ package com.nttdocomo.ui.ogl.math;
  * Defines a 4-element float tuple.
  */
 public abstract class Tuple4f {
+    /**
+     * Constant for x.
+     */
     public float x;
+    /**
+     * Constant for y.
+     */
     public float y;
+    /**
+     * Constant for z.
+     */
     public float z;
+    /**
+     * Constant for w.
+     */
     public float w;
 
     /**

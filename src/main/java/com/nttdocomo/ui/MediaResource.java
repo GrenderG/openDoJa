@@ -2,6 +2,9 @@ package com.nttdocomo.ui;
 
 import com.nttdocomo.io.ConnectionException;
 
+/**
+ * Defines the media Resource type.
+ */
 public interface MediaResource {
     int UNUSE = 0;
     int USE = 1;

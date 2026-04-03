@@ -2,6 +2,9 @@ package com.nttdocomo.ui.graphics3d;
 
 import opendoja.g3d.MascotActionTableData;
 
+/**
+ * Defines the action Table type used by the graphics3d API.
+ */
 public class ActionTable extends Object3D {
     private final MascotActionTableData handle;
 
@@ -10,10 +13,16 @@ public class ActionTable extends Object3D {
         this.handle = handle;
     }
 
+    /**
+     * Gets num Actions.
+     */
     public int getNumActions() {
         return handle == null ? 0 : handle.numActions();
     }
 
+    /**
+     * Gets max Frame.
+     */
     public int getMaxFrame(int action) {
         return handle.maxFrame(action);
     }

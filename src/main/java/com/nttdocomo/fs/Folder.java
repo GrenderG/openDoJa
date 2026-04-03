@@ -40,6 +40,9 @@ public class Folder {
         this.backingPath = backingPath;
     }
 
+    /**
+     * Performs root.
+     */
     public static Folder root(StorageDevice storageDevice, AccessToken accessToken, Path backingPath) {
         return new Folder(storageDevice, accessToken, "/", backingPath);
     }

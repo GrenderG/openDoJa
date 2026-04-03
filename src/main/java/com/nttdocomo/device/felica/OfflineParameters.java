@@ -11,6 +11,12 @@ public abstract class OfflineParameters {
     private final List<Object> parameters = new ArrayList<>();
 
     /**
+     * Creates an empty offline-parameter list.
+     */
+    protected OfflineParameters() {
+    }
+
+    /**
      * Gets the number of currently registered parameters.
      *
      * @return the number of currently registered parameters

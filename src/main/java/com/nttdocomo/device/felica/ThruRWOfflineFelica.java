@@ -21,51 +21,81 @@ public final class ThruRWOfflineFelica extends OfflineFelica {
         this(CARD_EXTERNAL, 0, FelicaSupport.idmFor(CARD_EXTERNAL, 0));
     }
 
+    /**
+     * Checks pin.
+     */
     @Override
     public PINAttributeData[] checkPIN(CheckPINParameters parameters) throws FelicaException, IOException {
         return super.checkPIN(parameters);
     }
 
+    /**
+     * Executes pin.
+     */
     @Override
     public void executePIN(PINParameters parameters) throws FelicaException, IOException {
         super.executePIN(parameters);
     }
 
+    /**
+     * Reads read.
+     */
     @Override
     public FelicaData[] read(ReadParameters parameters) throws FelicaException, IOException {
         return super.read(parameters);
     }
 
+    /**
+     * Reads read.
+     */
     @Override
     public FelicaData[] read(InputPINParameters pinParameters, ReadParameters readParameters) {
         throw unsupported("com.nttdocomo.device.felica.ThruRWOfflineFelica.read(com.nttdocomo.device.felica.InputPINParameters, com.nttdocomo.device.felica.ReadParameters)");
     }
 
+    /**
+     * Writes write.
+     */
     @Override
     public void write(WriteParameters parameters) throws FelicaException, IOException {
         super.write(parameters);
     }
 
+    /**
+     * Writes write.
+     */
     @Override
     public void write(InputPINParameters pinParameters, WriteParameters writeParameters) {
         throw unsupported("com.nttdocomo.device.felica.ThruRWOfflineFelica.write(com.nttdocomo.device.felica.InputPINParameters, com.nttdocomo.device.felica.WriteParameters)");
     }
 
+    /**
+     * Gets key Version.
+     */
     @Override
     public byte[] getKeyVersion(int serviceCode) throws FelicaException, IOException {
         return super.getKeyVersion(serviceCode);
     }
 
+    /**
+     * Gets container Issue Info.
+     */
     @Override
     public byte[] getContainerIssueInfo() throws FelicaException, IOException {
         return super.getContainerIssueInfo();
     }
 
+    /**
+     * Sets parameter.
+     */
     @Override
     public void setParameter(long parameter) throws FelicaException, IOException {
         super.setParameter(parameter);
     }
 
+    /**
+     * Negotiates baud Rate.
+     */
     public int negotiateBaudRate(int baudRate) throws FelicaException, IOException {
         FelicaSupport.requireOpen();
         if (baudRate != BAUDRATE_212_KBPS && baudRate != BAUDRATE_424_KBPS) {
@@ -115,6 +145,9 @@ public final class ThruRWOfflineFelica extends OfflineFelica {
         );
     }
 
+    /**
+     * Sets timeout.
+     */
     @Override
     public void setTimeout(int timeout) {
         if (timeout < 201 || timeout > 60200) {

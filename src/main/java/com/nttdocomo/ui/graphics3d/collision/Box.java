@@ -8,11 +8,17 @@ import com.nttdocomo.ui.util3d.Vector3D;
 public class Box extends AbstractBV {
     private final Vector3D size = new Vector3D();
 
+    /**
+     * Creates a box instance.
+     */
     public Box(Vector3D size) {
         super(TYPE_BOX);
         set(size);
     }
 
+    /**
+     * Sets set.
+     */
     public void set(Vector3D size) {
         if (size == null) {
             throw new NullPointerException("size");
@@ -20,10 +26,16 @@ public class Box extends AbstractBV {
         this.size.set(java.lang.Math.max(0f, size.getX()), java.lang.Math.max(0f, size.getY()), java.lang.Math.max(0f, size.getZ()));
     }
 
+    /**
+     * Gets size.
+     */
     public Vector3D getSize() {
         return new Vector3D(size);
     }
 
+    /**
+     * Gets effective Radius.
+     */
     @Override
     public float getEffectiveRadius(Vector3D direction) {
         if (direction == null) {
@@ -38,6 +50,9 @@ public class Box extends AbstractBV {
                 + java.lang.Math.abs(direction.getZ()) * (size.getZ() * getScale() * 0.5f)) / len;
     }
 
+    /**
+     * Creates mesh.
+     */
     @Override
     public void createMesh(int slice, int stack, float scale) {
         super.createMesh(slice, stack, scale);

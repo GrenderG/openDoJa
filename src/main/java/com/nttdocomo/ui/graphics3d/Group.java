@@ -19,6 +19,9 @@ public class Group extends DrawableObject3D {
         super(TYPE_GROUP);
     }
 
+    /**
+     * Disposes this object and releases its resources.
+     */
     @Override
     public void dispose() {
         elements.clear();
@@ -89,6 +92,9 @@ public class Group extends DrawableObject3D {
         transform.set(this.transform);
     }
 
+    /**
+     * Sets time.
+     */
     @Override
     public void setTime(int time) {
         super.setTime(time);
@@ -97,6 +103,9 @@ public class Group extends DrawableObject3D {
         }
     }
 
+    /**
+     * Sets perspective Correction Enabled.
+     */
     @Override
     public void setPerspectiveCorrectionEnabled(boolean enabled) {
         setPerspectiveCorrectionEnabledInternal(enabled);
@@ -107,6 +116,9 @@ public class Group extends DrawableObject3D {
         }
     }
 
+    /**
+     * Sets blend Mode.
+     */
     @Override
     public void setBlendMode(int blendMode) {
         setBlendModeInternal(blendMode);
@@ -117,6 +129,9 @@ public class Group extends DrawableObject3D {
         }
     }
 
+    /**
+     * Sets transparency.
+     */
     @Override
     public void setTransparency(float transparency) {
         setTransparencyInternal(transparency);

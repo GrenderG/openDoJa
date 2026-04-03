@@ -10,6 +10,12 @@ import java.awt.image.BufferedImage;
  */
 public abstract class Image {
     /**
+     * Applications cannot create this class directly.
+     */
+    protected Image() {
+    }
+
+    /**
      * Creates a new image.
      * The pixels of the created image are filled with the same color as the default Canvas background color.
      *

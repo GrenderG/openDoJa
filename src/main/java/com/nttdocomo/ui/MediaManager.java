@@ -21,10 +21,19 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Defines the factory and batch-use operations for DoJa media resources.
+ */
 public final class MediaManager {
     private MediaManager() {
     }
 
+    /**
+     * Gets a media-data object for the specified location.
+     *
+     * @param name the media location
+     * @return the media-data object
+     */
     public static MediaData getData(String name) {
         try (InputStream in = openNamedInputStream(name)) {
             return new BasicMediaData(readAllBytes(in));
@@ -33,6 +42,13 @@ public final class MediaManager {
         }
     }
 
+    /**
+     * Gets a media-data object from an input stream that supplies the media
+     * file image.
+     *
+     * @param inputStream the media-data stream
+     * @return the media-data object
+     */
     public static MediaData getData(InputStream inputStream) {
         try {
             return new BasicMediaData(readAllBytes(inputStream));
@@ -41,10 +57,23 @@ public final class MediaManager {
         }
     }
 
+    /**
+     * Gets a media-data object from a byte array that contains the media file
+     * image.
+     *
+     * @param data the media-data bytes
+     * @return the media-data object
+     */
     public static MediaData getData(byte[] data) {
         return new BasicMediaData(data);
     }
 
+    /**
+     * Gets a media-image object for the specified location.
+     *
+     * @param name the media location
+     * @return the media-image object
+     */
     public static MediaImage getImage(String name) {
         try (InputStream in = openNamedInputStream(name)) {
             return getImage(in);
@@ -53,6 +82,13 @@ public final class MediaManager {
         }
     }
 
+    /**
+     * Gets a media-image object from an input stream that supplies the image
+     * file image.
+     *
+     * @param inputStream the image stream
+     * @return the media-image object
+     */
     public static MediaImage getImage(InputStream inputStream) {
         try {
             java.awt.image.BufferedImage bufferedImage = ImageIO.read(inputStream);
@@ -65,14 +101,35 @@ public final class MediaManager {
         }
     }
 
+    /**
+     * Gets a media-image object from a byte array that contains the image file
+     * image.
+     *
+     * @param data the image bytes
+     * @return the media-image object
+     */
     public static MediaImage getImage(byte[] data) {
         return getImage(new ByteArrayInputStream(data));
     }
 
+    /**
+     * Gets a pseudo-streaming media-image object for the specified location and
+     * MIME type.
+     *
+     * @param location the media location
+     * @param contentType the MIME type of the content
+     * @return the media-image object used for pseudo streaming
+     */
     public static MediaImage getStreamingImage(String location, String contentType) {
         return getImage(location);
     }
 
+    /**
+     * Gets a media-sound object for the specified location.
+     *
+     * @param name the media location
+     * @return the media-sound object
+     */
     public static MediaSound getSound(String name) {
         try (InputStream in = openNamedInputStream(name)) {
             return new BasicMediaSound(trimSoundBytes(readAllBytes(in)), name);
@@ -81,6 +138,13 @@ public final class MediaManager {
         }
     }
 
+    /**
+     * Gets a media-sound object from an input stream that supplies the sound
+     * file image.
+     *
+     * @param inputStream the sound stream
+     * @return the media-sound object
+     */
     public static MediaSound getSound(InputStream inputStream) {
         try {
             return new BasicMediaSound(trimSoundBytes(readAllBytes(inputStream)), null);
@@ -89,22 +153,54 @@ public final class MediaManager {
         }
     }
 
+    /**
+     * Gets a media-sound object from a byte array that contains the sound file
+     * image.
+     *
+     * @param data the sound bytes
+     * @return the media-sound object
+     */
     public static MediaSound getSound(byte[] data) {
         return new BasicMediaSound(trimSoundBytes(data), null);
     }
 
+    /**
+     * Gets an avatar-data object for the specified location.
+     *
+     * @param name the avatar-data location
+     * @return the avatar-data object
+     */
     public static AvatarData getAvatarData(String name) {
         return new BasicAvatarData(getData(name));
     }
 
+    /**
+     * Gets an avatar-data object from an input stream.
+     *
+     * @param inputStream the avatar-data stream
+     * @return the avatar-data object
+     */
     public static AvatarData getAvatarData(InputStream inputStream) {
         return new BasicAvatarData(getData(inputStream));
     }
 
+    /**
+     * Gets an avatar-data object from a byte array.
+     *
+     * @param data the avatar-data bytes
+     * @return the avatar-data object
+     */
     public static AvatarData getAvatarData(byte[] data) {
         return new BasicAvatarData(getData(data));
     }
 
+    /**
+     * Calls {@code use()} on each image in the supplied array.
+     *
+     * @param mediaImages the image array to make usable
+     * @param exclusive {@code true} if the resources are intended for one-time use
+     * @throws IterationAbortedException if iteration stops because one element fails
+     */
     public static void use(MediaImage[] mediaImages, boolean exclusive) throws IterationAbortedException {
         if (mediaImages == null) {
             return;
@@ -120,6 +216,13 @@ public final class MediaManager {
         }
     }
 
+    /**
+     * Calls {@code use()} on each sound in the supplied array.
+     *
+     * @param mediaSounds the sound array to make usable
+     * @param exclusive {@code true} if the resources are intended for one-time use
+     * @throws IterationAbortedException if iteration stops because one element fails
+     */
     public static void use(MediaSound[] mediaSounds, boolean exclusive) throws IterationAbortedException {
         if (mediaSounds == null) {
             return;
@@ -135,10 +238,24 @@ public final class MediaManager {
         }
     }
 
+    /**
+     * Creates an empty media-image buffer with the specified size.
+     *
+     * @param width the image width in pixels
+     * @param height the image height in pixels
+     * @return the created empty media image
+     */
     public static MediaImage createMediaImage(int width, int height) {
         return new BasicMediaImage((DesktopImage) Image.createImage(width, height));
     }
 
+    /**
+     * Creates an empty media-sound buffer sized to hold the specified number
+     * of bytes.
+     *
+     * @param size the sound-data size in bytes
+     * @return the created empty media sound
+     */
     public static MediaSound createMediaSound(int size) {
         return new BasicMediaSound(new byte[Math.max(0, size)], null);
     }

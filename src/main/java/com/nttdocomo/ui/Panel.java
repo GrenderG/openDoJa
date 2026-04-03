@@ -142,6 +142,9 @@ public class Panel extends Frame {
         this.softKeyListener = softKeyListener;
     }
 
+    /**
+     * Performs process Soft Key Event.
+     */
     @Override
     public void processSoftKeyEvent(int type, int key) {
         if (softKeyListener == null) {

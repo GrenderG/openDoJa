@@ -1,5 +1,8 @@
 package com.nttdocomo.ui;
 
+/**
+ * Defines the media Presenter type.
+ */
 public interface MediaPresenter {
     void setData(MediaData data);
 

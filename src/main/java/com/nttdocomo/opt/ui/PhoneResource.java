@@ -9,8 +9,17 @@ import java.util.concurrent.ConcurrentHashMap;
  * Manages optional phone resource data.
  */
 public class PhoneResource {
+    /**
+     * Constant for informationdisplay data title.
+     */
     public static final int INFORMATIONDISPLAY_DATA_TITLE = 0;
     private static final Map<Integer, InformationDisplay> DISPLAYS = new ConcurrentHashMap<>();
+
+    /**
+     * Applications cannot create this object directly.
+     */
+    protected PhoneResource() {
+    }
 
     /**
      * Registers information-display data.

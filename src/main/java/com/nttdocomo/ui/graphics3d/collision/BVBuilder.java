@@ -6,9 +6,15 @@ import com.nttdocomo.ui.graphics3d.Figure;
  * Creates bounding-volume helpers for figures.
  */
 public class BVBuilder {
+    /**
+     * Creates a b V Builder instance.
+     */
     public BVBuilder() {
     }
 
+    /**
+     * Creates b V Figure.
+     */
     public static BVFigure createBVFigure(Figure figure) {
         if (figure == null) {
             throw new NullPointerException("figure");
@@ -16,12 +22,18 @@ public class BVBuilder {
         return new BVFigure();
     }
 
+    /**
+     * Creates b V Figure.
+     */
     public static BVFigure createBVFigure(Figure figure, int type, float expand) {
         BVFigure bvFigure = createBVFigure(figure);
         bvFigure.setBV(createShape(type, expand));
         return bvFigure;
     }
 
+    /**
+     * Creates bone B V.
+     */
     public static BoundingVolume createBoneBV(Figure figure, int boneId, int type, int rotate, float expand, int flags) {
         if (figure == null) {
             throw new NullPointerException("figure");
@@ -31,6 +43,9 @@ public class BVBuilder {
         return volume;
     }
 
+    /**
+     * Creates bv.
+     */
     public static BoundingVolume createBV(Figure figure, int type, int rotate, float expand) {
         if (figure == null) {
             throw new NullPointerException("figure");

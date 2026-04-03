@@ -10,6 +10,10 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
+/**
+ * Defines an image whose pixel indices and palette are stored separately so
+ * callers can swap palettes after creation.
+ */
 public class PalettedImage extends Image {
     private int width;
     private int height;
@@ -19,6 +23,20 @@ public class PalettedImage extends Image {
     private int appliedTransparentIndex = -1;
     private boolean transparentEnabled;
 
+    /**
+     * Applications cannot create this class directly.
+     */
+    protected PalettedImage() {
+    }
+
+    /**
+     * Creates a paletted image from encoded image data held in a byte array.
+     *
+     * @param data the encoded image bytes
+     * @return the created paletted image
+     * @throws NullPointerException if {@code data} is {@code null}
+     * @throws UIException if the data format is not supported
+     */
     public static PalettedImage createPalettedImage(byte[] data) {
         if (data == null) {
             throw new NullPointerException("data");
@@ -30,6 +48,14 @@ public class PalettedImage extends Image {
         }
     }
 
+    /**
+     * Creates a paletted image from encoded image data read from a stream.
+     *
+     * @param inputStream the stream that supplies the encoded image
+     * @return the created paletted image
+     * @throws NullPointerException if {@code inputStream} is {@code null}
+     * @throws IOException if the image format is not supported or the stream cannot be read
+     */
     public static PalettedImage createPalettedImage(InputStream inputStream) throws IOException {
         if (inputStream == null) {
             throw new NullPointerException("inputStream");
@@ -44,6 +70,14 @@ public class PalettedImage extends Image {
         return fromArgbImage(image);
     }
 
+    /**
+     * Creates an empty paletted image with the specified size.
+     *
+     * @param width the image width in pixels
+     * @param height the image height in pixels
+     * @return the created empty paletted image
+     * @throws IllegalArgumentException if either dimension is zero or negative
+     */
     public static PalettedImage createPalettedImage(int width, int height) {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("Invalid dimensions");
@@ -57,6 +91,13 @@ public class PalettedImage extends Image {
         return image;
     }
 
+    /**
+     * Replaces this image's contents and palette from encoded image data read
+     * from a stream.
+     *
+     * @param inputStream the replacement image stream
+     * @throws UIException if this image has already been disposed or the data format is not supported
+     */
     public void changeData(InputStream inputStream) {
         ensureActive();
         try {
@@ -67,11 +108,26 @@ public class PalettedImage extends Image {
         }
     }
 
+    /**
+     * Replaces this image's contents and palette from encoded image data held
+     * in a byte array.
+     *
+     * @param data the replacement image bytes
+     * @throws UIException if this image has already been disposed or the data format is not supported
+     */
     public void changeData(byte[] data) {
         ensureActive();
         replaceWith(createPalettedImage(data));
     }
 
+    /**
+     * Sets the palette object used when this image is drawn.
+     *
+     * @param palette the palette to associate with this image
+     * @throws NullPointerException if {@code palette} is {@code null}
+     * @throws UIException if this image has already been disposed
+     * @throws IllegalArgumentException if the palette entry count does not match this image
+     */
     public void setPalette(Palette palette) {
         ensureActive();
         if (palette == null) {
@@ -83,6 +139,12 @@ public class PalettedImage extends Image {
         this.palette = palette;
     }
 
+    /**
+     * Gets the palette currently associated with this image.
+     *
+     * @return the current palette
+     * @throws UIException if this image has already been disposed
+     */
     public Palette getPalette() {
         ensureActive();
         if (palette == null) {
@@ -91,11 +153,23 @@ public class PalettedImage extends Image {
         return palette;
     }
 
+    /**
+     * Paletted images do not support direct graphics access.
+     *
+     * @return this method never returns normally
+     * @throws UnsupportedOperationException always
+     */
     @Override
     public final Graphics getGraphics() {
         throw new UnsupportedOperationException("PalettedImage graphics are not supported");
     }
 
+    /**
+     * Enables or disables transparent-index processing for this image.
+     *
+     * @param enabled {@code true} to enable transparent-index drawing
+     * @throws UIException if this image has already been disposed
+     */
     @Override
     public final void setTransparentEnabled(boolean enabled) {
         ensureActive();
@@ -103,6 +177,13 @@ public class PalettedImage extends Image {
         this.appliedTransparentIndex = enabled ? getTransparentIndex() : -1;
     }
 
+    /**
+     * Sets the transparent palette index used by this image.
+     *
+     * @param index the transparent palette index
+     * @throws UIException if this image has already been disposed
+     * @throws ArrayIndexOutOfBoundsException if {@code index} is outside the palette index range
+     */
     public void setTransparentIndex(int index) {
         ensureActive();
         if (index < 0 || index >= 256) {
@@ -114,21 +195,45 @@ public class PalettedImage extends Image {
         }
     }
 
+    /**
+     * Gets the currently configured transparent palette index.
+     *
+     * @return the transparent palette index, or {@code 0} if none has been set explicitly
+     * @throws UIException if this image has already been disposed
+     */
     public int getTransparentIndex() {
         ensureActive();
         return transparentIndex < 0 ? 0 : transparentIndex;
     }
 
+    /**
+     * Paletted images use transparent indices rather than a transparent RGB
+     * color value.
+     *
+     * @return this method never returns normally
+     * @throws UnsupportedOperationException always
+     */
     @Override
     public final int getTransparentColor() {
         throw new UnsupportedOperationException("PalettedImage uses transparent indices");
     }
 
+    /**
+     * Paletted images use transparent indices rather than a transparent RGB
+     * color value.
+     *
+     * @param color ignored
+     * @throws UnsupportedOperationException always
+     */
     @Override
     public final void setTransparentColor(int color) {
         throw new UnsupportedOperationException("PalettedImage uses transparent indices");
     }
 
+    /**
+     * Disposes this paletted image and releases its stored pixel and palette
+     * data.
+     */
     @Override
     public void dispose() {
         pixels = null;
@@ -136,12 +241,24 @@ public class PalettedImage extends Image {
         appliedTransparentIndex = -1;
     }
 
+    /**
+     * Gets the current image width.
+     *
+     * @return the image width in pixels
+     * @throws UIException if this image has already been disposed
+     */
     @Override
     public int getWidth() {
         ensureActive();
         return width;
     }
 
+    /**
+     * Gets the current image height.
+     *
+     * @return the image height in pixels
+     * @throws UIException if this image has already been disposed
+     */
     @Override
     public int getHeight() {
         ensureActive();
