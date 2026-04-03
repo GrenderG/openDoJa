@@ -16,6 +16,10 @@ public final class SoftwareTexture {
     private final boolean sphereMap;
     private final int[] indexedPixels;
     private final IndexColorModel indexedColorModel;
+    private boolean toonShaderEnabled;
+    private int toonThreshold = 128;
+    private int toonMid = 255;
+    private int toonShadow = 96;
 
     public SoftwareTexture(byte[] bytes, boolean forModel) throws IOException {
         DecodedTexture decoded = decode(bytes, forModel);
@@ -68,6 +72,33 @@ public final class SoftwareTexture {
             return indexedColorModel.getRGB(index);
         }
         return image.getRGB(x, y);
+    }
+
+    public void setNormalShader() {
+        this.toonShaderEnabled = false;
+    }
+
+    public void setToonShader(int threshold, int mid, int shadow) {
+        this.toonShaderEnabled = true;
+        this.toonThreshold = threshold;
+        this.toonMid = mid;
+        this.toonShadow = shadow;
+    }
+
+    public boolean toonShaderEnabled() {
+        return toonShaderEnabled;
+    }
+
+    public int toonThreshold() {
+        return toonThreshold;
+    }
+
+    public int toonMid() {
+        return toonMid;
+    }
+
+    public int toonShadow() {
+        return toonShadow;
     }
 
     private static DecodedTexture decode(byte[] bytes, boolean forModel) throws IOException {

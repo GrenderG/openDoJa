@@ -63,4 +63,24 @@ public class Fog extends Object3D {
     public void setColor(int color) {
         this.color = color;
     }
+
+    int mode() {
+        return mode;
+    }
+
+    float linearNear() {
+        return linearNear;
+    }
+
+    float linearFar() {
+        return linearFar;
+    }
+
+    float density() {
+        return density;
+    }
+
+    int color() {
+        return color;
+    }
 }

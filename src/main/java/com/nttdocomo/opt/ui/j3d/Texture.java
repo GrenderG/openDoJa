@@ -1,7 +1,6 @@
 package com.nttdocomo.opt.ui.j3d;
 
 import opendoja.g3d.SoftwareTexture;
-import opendoja.host.DoJaApiUnimplemented;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -69,10 +68,8 @@ public class Texture {
      *         environment mapping
      */
     public void setNormalShader() {
-        DoJaApiUnimplemented.noOp(
-                "com.nttdocomo.opt.ui.j3d.Texture.setNormalShader()",
-                "Opt 3D shader selection is not yet implemented on the desktop host"
-        );
+        requireModelTexture("setNormalShader");
+        handle.setNormalShader();
     }
 
     /**
@@ -91,13 +88,29 @@ public class Texture {
      *         {@code [0, 255]}
      */
     public void setToonShader(int highlight, int mid, int shadow) {
-        DoJaApiUnimplemented.noOp(
-                "com.nttdocomo.opt.ui.j3d.Texture.setToonShader(int, int, int)",
-                "Opt 3D toon shader selection is not yet implemented on the desktop host"
-        );
+        requireModelTexture("setToonShader");
+        validateToonParameter(highlight, "highlight");
+        validateToonParameter(mid, "mid");
+        validateToonParameter(shadow, "shadow");
+        handle.setToonShader(highlight, mid, shadow);
     }
 
     SoftwareTexture handle() {
         return handle;
+    }
+
+    private void requireModelTexture(String operation) {
+        if (handle.sphereMap()) {
+            throw new com.nttdocomo.ui.UIException(
+                    com.nttdocomo.ui.UIException.ILLEGAL_STATE,
+                    operation + " is only valid for model-mapping textures"
+            );
+        }
+    }
+
+    private static void validateToonParameter(int value, String name) {
+        if (value < 0 || value > 255) {
+            throw new IllegalArgumentException(name + " must be in [0,255]: " + value);
+        }
     }
 }

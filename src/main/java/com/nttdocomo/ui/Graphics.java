@@ -6,7 +6,6 @@ import opendoja.host.DesktopSurface;
 import opendoja.g3d.MascotFigure;
 import opendoja.g3d.Software3DContext;
 import opendoja.g3d.SoftwareTexture;
-import opendoja.host.DoJaApiUnimplemented;
 import opendoja.host.DoJaRuntime;
 import opendoja.host.OpenDoJaLog;
 
@@ -145,6 +144,14 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     private int color = getColorOfName(BLACK);
     private Font font = Font.getDefaultFont();
     private int flipMode = FLIP_NONE;
+    private boolean pictoColorEnabled;
+    private com.nttdocomo.ui.graphics3d.Fog uiFog;
+    private boolean optSphereMapEnabled;
+    private SoftwareTexture optSphereTexture;
+    private boolean optToonShaderEnabled;
+    private int optToonThreshold = 128;
+    private int optToonMid = 255;
+    private int optToonShadow = 96;
     private com.nttdocomo.opt.ui.j3d.AffineTrans[] optViewTransforms = new com.nttdocomo.opt.ui.j3d.AffineTrans[0];
     private static volatile java.lang.reflect.Constructor<?> platformGraphicsConstructor;
 
@@ -168,6 +175,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         this.delegate.setColor(new Color(color, true));
         this.delegate.setFont(font.awtFont());
         clearClip();
+        syncOptRendererState();
     }
 
     static Graphics createPlatformGraphics(DesktopSurface surface) {
@@ -226,6 +234,16 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
         copy.delegate.setColor(new Color(color, true));
         copy.delegate.setFont(font.awtFont());
+        copy.pictoColorEnabled = pictoColorEnabled;
+        copy.uiFog = uiFog;
+        copy.optSphereMapEnabled = optSphereMapEnabled;
+        copy.optSphereTexture = optSphereTexture;
+        copy.optToonShaderEnabled = optToonShaderEnabled;
+        copy.optToonThreshold = optToonThreshold;
+        copy.optToonMid = optToonMid;
+        copy.optToonShadow = optToonShadow;
+        copy.syncUiFogState();
+        copy.syncOptRendererState();
         return copy;
     }
 
@@ -553,10 +571,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      * Sets picto Color Enabled.
      */
     public void setPictoColorEnabled(boolean enabled) {
-        DoJaApiUnimplemented.noOp(
-                "com.nttdocomo.ui.Graphics.setPictoColorEnabled(boolean)",
-                "Picto-color toggling has no separate desktop host implementation"
-        );
+        this.pictoColorEnabled = enabled;
     }
 
     /**
@@ -985,10 +1000,8 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      */
     @Override
     public void setFog(com.nttdocomo.ui.graphics3d.Fog fog) {
-        DoJaApiUnimplemented.noOp(
-                "com.nttdocomo.ui.Graphics.setFog(com.nttdocomo.ui.graphics3d.Fog)",
-                "UI fog state is not yet wired into the desktop 3D renderer"
-        );
+        this.uiFog = fog;
+        syncUiFogState();
     }
 
     /**
@@ -1000,6 +1013,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
             return;
         }
         try {
+            syncUiFogState();
             float[] objectMatrix = transform == null ? null : invokeHidden(transform, "raw", float[].class);
             if (object instanceof com.nttdocomo.ui.graphics3d.Figure figure) {
                 MascotFigure handle = invokeHidden(figure, "handle", MascotFigure.class);
@@ -1187,10 +1201,8 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      */
     @Override
     public void enableSphereMap(boolean enabled) {
-        DoJaApiUnimplemented.noOp(
-                "com.nttdocomo.ui.Graphics.enableSphereMap(boolean)",
-                "Sphere mapping is not yet implemented for the opt 3D renderer"
-        );
+        this.optSphereMapEnabled = enabled;
+        threeD.enableOptSphereMap(enabled);
     }
 
     /**
@@ -1198,10 +1210,15 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      */
     @Override
     public void setSphereTexture(com.nttdocomo.opt.ui.j3d.Texture texture) {
-        DoJaApiUnimplemented.noOp(
-                "com.nttdocomo.ui.Graphics.setSphereTexture(com.nttdocomo.opt.ui.j3d.Texture)",
-                "Sphere-map textures are not yet implemented for the opt 3D renderer"
-        );
+        if (texture == null) {
+            throw new NullPointerException("texture");
+        }
+        SoftwareTexture handle = invokeHidden(texture, "handle", SoftwareTexture.class);
+        if (!handle.sphereMap()) {
+            throw new IllegalArgumentException("texture must be an environment-mapping texture");
+        }
+        this.optSphereTexture = handle;
+        threeD.setOptSphereTexture(handle);
     }
 
     /**
@@ -1274,10 +1291,8 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      */
     @Override
     public void enableToonShader(boolean enabled) {
-        DoJaApiUnimplemented.noOp(
-                "com.nttdocomo.ui.Graphics.enableToonShader(boolean)",
-                "Toon shading is not yet implemented for the opt 3D renderer"
-        );
+        this.optToonShaderEnabled = enabled;
+        threeD.enableOptToonShader(enabled);
     }
 
     /**
@@ -1285,10 +1300,13 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      */
     @Override
     public void setToonParam(int highlight, int mid, int shadow) {
-        DoJaApiUnimplemented.noOp(
-                "com.nttdocomo.ui.Graphics.setToonParam(int, int, int)",
-                "Toon shader parameters are not yet implemented for the opt 3D renderer"
-        );
+        validateToonParameter(highlight, "highlight");
+        validateToonParameter(mid, "mid");
+        validateToonParameter(shadow, "shadow");
+        this.optToonThreshold = highlight;
+        this.optToonMid = mid;
+        this.optToonShadow = shadow;
+        threeD.setOptToonShader(highlight, mid, shadow);
     }
 
     /**
@@ -1462,6 +1480,8 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     private void applyOptCommandAttributes(int attributes) {
         threeD.enableOptLight((attributes & com.nttdocomo.opt.ui.j3d.Graphics3D.ENV_ATTR_LIGHT) != 0);
         threeD.enableOptSemiTransparent((attributes & com.nttdocomo.opt.ui.j3d.Graphics3D.ENV_ATTR_SEMI_TRANSPARENT) != 0);
+        enableSphereMap((attributes & com.nttdocomo.opt.ui.j3d.Graphics3D.ENV_ATTR_SPHERE_MAP) != 0);
+        enableToonShader((attributes & com.nttdocomo.opt.ui.j3d.Graphics3D.ENV_ATTR_TOON_SHADER) != 0);
     }
 
     private int renderOptCommandPrimitive(int[] commands, int index, int command) {
@@ -1598,5 +1618,32 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
             }
         }
         throw new IllegalStateException("Failed to locate hidden method " + type.getName() + "#" + methodName);
+    }
+
+    private void syncUiFogState() {
+        if (uiFog == null) {
+            threeD.setUiFog(null, 0f, 0f, 0f, 0);
+            return;
+        }
+        threeD.setUiFog(
+                invokeHidden(uiFog, "mode", Integer.class),
+                invokeHidden(uiFog, "linearNear", Float.class),
+                invokeHidden(uiFog, "linearFar", Float.class),
+                invokeHidden(uiFog, "density", Float.class),
+                invokeHidden(uiFog, "color", Integer.class)
+        );
+    }
+
+    private void syncOptRendererState() {
+        threeD.enableOptSphereMap(optSphereMapEnabled);
+        threeD.setOptSphereTexture(optSphereTexture);
+        threeD.enableOptToonShader(optToonShaderEnabled);
+        threeD.setOptToonShader(optToonThreshold, optToonMid, optToonShadow);
+    }
+
+    private static void validateToonParameter(int value, String name) {
+        if (value < 0 || value > 255) {
+            throw new IllegalArgumentException(name + " must be in [0,255]: " + value);
+        }
     }
 }
