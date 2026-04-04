@@ -3,7 +3,7 @@ package opendoja.audio.mld;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-    final class MLDResourceAudioEngine {
+final class MLDResourceAudioEngine {
     private static final double DEG_TO_RAD = Math.PI / 180.0;
     private static final int DEFAULT_LEVEL = 127;
     private static final int DEFAULT_PAN = 64;
