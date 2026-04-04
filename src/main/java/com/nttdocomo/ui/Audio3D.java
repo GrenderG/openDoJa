@@ -16,10 +16,10 @@ public class Audio3D {
     private static final Object RESOURCE_LOCK = new Object();
     private static int allocatedResources;
 
-    /** Mode constant indicating that the 3D environment is controlled by sound data (=0). */
-    public static final int MODE_CONTROL_BY_DATA = 0;
-    /** Mode constant indicating that the 3D environment is controlled by the application (=1). */
-    public static final int MODE_CONTROL_BY_APP = 1;
+    /** Mode constant indicating that the 3D environment is controlled by sound data (=1). */
+    public static final int MODE_CONTROL_BY_DATA = 1;
+    /** Mode constant indicating that the 3D environment is controlled by the application (=2). */
+    public static final int MODE_CONTROL_BY_APP = 2;
     /** Event type indicating that sound-motion movement completed (=1). */
     public static final int SOUND_MOTION_COMPLETE = 1;
 

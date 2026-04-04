@@ -28,15 +28,15 @@ public class Texture {
      * mode.
      *
      * @param data the byte sequence representing the data
-     * @param forModel specify {@code true} when the texture is used for
-     *                 environment mapping
+     * @param forEnv specify {@code true} when the texture is used for
+     *               environment mapping
      * @throws NullPointerException if {@code data} is {@code null}
      * @throws com.nttdocomo.ui.UIException if the data is invalid
      *         ({@link com.nttdocomo.ui.UIException#UNSUPPORTED_FORMAT})
      */
-    public Texture(byte[] data, boolean forModel) {
+    public Texture(byte[] data, boolean forEnv) {
         try {
-            this.handle = new SoftwareTexture(data, forModel);
+            this.handle = new SoftwareTexture(data, !forEnv);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -48,15 +48,15 @@ public class Texture {
      * mode.
      *
      * @param inputStream the input stream that supplies the data
-     * @param forModel specify {@code true} when the texture is used for
-     *                 environment mapping
+     * @param forEnv specify {@code true} when the texture is used for
+     *               environment mapping
      * @throws NullPointerException if {@code inputStream} is {@code null}
      * @throws IOException if an I/O error occurs while reading the data
      * @throws com.nttdocomo.ui.UIException if the data is invalid
      *         ({@link com.nttdocomo.ui.UIException#UNSUPPORTED_FORMAT})
      */
-    public Texture(InputStream inputStream, boolean forModel) throws IOException {
-        this.handle = new SoftwareTexture(inputStream, forModel);
+    public Texture(InputStream inputStream, boolean forEnv) throws IOException {
+        this.handle = new SoftwareTexture(inputStream, !forEnv);
     }
 
     /**
