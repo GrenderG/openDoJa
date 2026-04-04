@@ -91,6 +91,8 @@ class MLDEvent
 	int jumpId;
 	
 	int jumpPoint;
+
+	int extraParam2x = -1;
 	
 	/**
 	 * Normalized key ID, relative to A4
@@ -111,6 +113,16 @@ class MLDEvent
 	 * Location in MLD asset
 	 */
 	int offset;
+
+	int resourceIndex = -1;
+
+	int resourcePitchByte = -1;
+
+	boolean resourceAudioTarget;
+
+	boolean resourceConfigClear;
+
+	int resourceConfigValue = -1;
 	
 	float panpot;
 	
@@ -138,6 +150,8 @@ class MLDEvent
 	 * Event category
 	 */
 	int type;
+
+	int value2x = -1;
 	
 	/**
 	 * Base volume

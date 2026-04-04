@@ -41,8 +41,21 @@ package opendoja.audio.mld;
 class MLDADPCM
 	implements BasicSampleData
 {
-	/**
-	 * Significance not yet known
-	 */
 	byte[] data;
+
+	int selectorHeaderLength;
+
+	int selectorId = -1;
+
+	int selectorFlags;
+
+	int sampleRateHz;
+
+	int codedBits;
+
+	int channelCount;
+
+	boolean variantBit;
+
+	byte[] payload = new byte[0];
 }

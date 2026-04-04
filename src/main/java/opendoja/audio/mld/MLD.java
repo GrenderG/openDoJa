@@ -39,6 +39,8 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
  * Decoder for i-melody MLD sequences.
@@ -102,6 +104,8 @@ public class MLD
 	static final int EVENT_STOP = 0xBE;
 	
 	static final int EVENT_TIMEBASE_TEMPO = 0xC0;
+
+	static final int EVENT_TYPE_RESOURCE = 3;
 	
 	static final int EVENT_TYPE_EXT_B = 1;
 	
@@ -121,6 +125,18 @@ public class MLD
 	public static final int EVENT_WAVE_CHANNEL_VOLUME = 0xE8;
 	
 	public static final int EVENT_X_DRUM_ENABLE = 0xBA;
+
+	static final int EVENT_RESOURCE_START = 0x00;
+
+	static final int EVENT_RESOURCE_STOP = 0x01;
+
+	static final int EVENT_RESOURCE_LEVEL = 0x80;
+
+	static final int EVENT_RESOURCE_PAN = 0x81;
+
+	static final int EVENT_RESOURCE_CONFIG = 0x90;
+
+	static final int EVENT_RESOURCE_AUX = 0xF0;
 	
 	/**
 	 * FourCCs
@@ -219,6 +235,10 @@ public class MLD
 	 * Header subchunks
 	 */
 	byte[] ainf;
+
+	int ainfCount;
+
+	boolean ainfRejectExternalLink;
 	
 	byte[] auth;
 	
@@ -239,6 +259,8 @@ public class MLD
 	double duration;
 	
 	byte[] exst;
+
+	int exstCount;
 	
 	boolean hasFemaleVocals;
 	
@@ -440,6 +462,7 @@ public class MLD
 			throw new RuntimeException("Missing \"adat\" chunk.");
 		MLDADPCM ret = new MLDADPCM();
 		ret.data = reader.bytes(reader.u32());
+		this.parseAdpcmDescriptor(ret);
 		return ret;
 	}
 	
@@ -455,6 +478,13 @@ public class MLD
 		event.offset = reader.offset;
 		event.delta = reader.u8();
 		event.status = reader.u8();
+
+		if (event.status == 0x7F)
+		{
+			event.id = reader.u8();
+			return this.finishEvent(this.eventResource(track, event, reader),
+				reader);
+		}
 		
 		// Note event
 		if ((event.status & 0x3F) != 63)
@@ -463,17 +493,22 @@ public class MLD
 		
 		// Meta event fields
 		event.id = reader.u8();
-		
+		return this.finishEvent(this.eventMeta(track, event, reader), reader);
+	}
+
+	private MLDEvent eventMeta(int track, MLDEvent event,
+		MLDBinaryReader reader)
+	{
 		// ext-info event
 		if (event.id >= 0xF0)
-			return this.finishEvent(this.eventExtInfo(event, reader), reader);
+			return this.eventExtInfo(event, reader);
 		
 		// Unknown event
 		if (event.id < 0x80)
 		{
 			event.type = MLD.EVENT_TYPE_UNKNOWN;
 			event.data = reader.bytes(2);
-			return this.finishEvent(event, reader);
+			return event;
 		}
 		
 		// Common ext-B processing
@@ -492,31 +527,31 @@ public class MLD
 			
 			// Events that need further processing
 			case MLD.EVENT_BANK_CHANGE:
-				return this.finishEvent(this.eventBankChange(event), reader);
+				return this.eventBankChange(event);
 			case MLD.EVENT_CUEPOINT:
-				return this.finishEvent(this.eventCuepoint(event), reader);
+				return this.eventCuepoint(event);
 			case MLD.EVENT_JUMP:
-				return this.finishEvent(this.eventJump(event), reader);
+				return this.eventJump(event);
 			case MLD.EVENT_MASTER_TUNE:
-				return this.finishEvent(this.eventMasterTune(event), reader);
+				return this.eventMasterTune(event);
 			case MLD.EVENT_MASTER_VOLUME:
-				return this.finishEvent(this.eventMasterVolume(event), reader);
+				return this.eventMasterVolume(event);
 			case MLD.EVENT_PANPOT:
-				return this.finishEvent(this.eventPanPot(event), reader);
+				return this.eventPanPot(event);
 			case MLD.EVENT_PITCHBEND:
-				return this.finishEvent(this.eventPitchBend(event), reader);
+				return this.eventPitchBend(event);
 			case MLD.EVENT_PITCHBEND_RANGE:
-				return this.finishEvent(this.eventPitchBendRange(event), reader);
+				return this.eventPitchBendRange(event);
 			case MLD.EVENT_PROGRAM_CHANGE:
-				return this.finishEvent(this.eventProgramChange(event), reader);
+				return this.eventProgramChange(event);
 			case MLD.EVENT_VOLUME:
-				return this.finishEvent(this.eventVolume(event), reader);
+				return this.eventVolume(event);
 			case MLD.EVENT_WAVE_CHANNEL_PANPOT:
-				return this.finishEvent(this.eventPanPot(event), reader);
+				return this.eventPanPot(event);
 			case MLD.EVENT_WAVE_CHANNEL_VOLUME:
-				return this.finishEvent(this.eventVolume(event), reader);
+				return this.eventVolume(event);
 			case MLD.EVENT_X_DRUM_ENABLE:
-				return this.finishEvent(this.eventDrumEnable(event), reader);
+				return this.eventDrumEnable(event);
 			
 			// Events that do not need further processing
 			case MLD.EVENT_CHANNEL_ASSIGN:      // Not implemented
@@ -531,7 +566,54 @@ public class MLD
 			// Unrecognized events
 			default:
 		}
-		return this.finishEvent(event, reader);
+		return event;
+	}
+
+	MLDEvent eventResource(int track, MLDEvent event, MLDBinaryReader reader)
+	{
+		event.type = MLD.EVENT_TYPE_RESOURCE;
+		if (event.id == MLD.EVENT_RESOURCE_AUX)
+		{
+			event.data = reader.bytes(reader.u16());
+			return event;
+		}
+
+		event.data = reader.bytes(this.resourceBodyLength(event.id));
+		if (event.data.length == 0)
+			return event;
+
+		int packed = event.data[0] & 0xFF;
+		int low6 = packed & 0x3F;
+		event.param = packed;
+		event.channelIndex = packed >> 6;
+		event.channel = track << 2 | event.channelIndex;
+
+		switch (event.id)
+		{
+			case MLD.EVENT_RESOURCE_START:
+			case MLD.EVENT_RESOURCE_STOP:
+				event.resourceIndex = low6;
+				if (event.id == MLD.EVENT_RESOURCE_START)
+				{
+					event.resourcePitchByte = event.data.length > 1 ?
+						(event.data[1] & 0x3F) : 0x37;
+				}
+				break;
+			case MLD.EVENT_RESOURCE_LEVEL:
+			case MLD.EVENT_RESOURCE_PAN:
+				event.value2x = low6 << 1;
+				break;
+			case MLD.EVENT_RESOURCE_CONFIG:
+				event.resourceAudioTarget = (packed & 0x20) != 0;
+				event.resourceConfigClear = (packed & 0x1F) == 31;
+				event.resourceConfigValue = event.resourceConfigClear ? 0 :
+					((packed & 0x1F) + 2);
+				break;
+			default:
+				event.resourceIndex = low6;
+				break;
+		}
+		return event;
 	}
 
 	private MLDEvent finishEvent(MLDEvent event, MLDBinaryReader reader)
@@ -798,7 +880,12 @@ public class MLD
 	{
 		this.ainf = reader.bytes(reader.length);
 		if (this.ainf.length > 0)
-			this.adpcms = new MLDADPCM[this.ainf[0] & 0xFF];
+		{
+			int bits = this.ainf[0] & 0xFF;
+			this.ainfCount = bits & 0x3F;
+			this.ainfRejectExternalLink = (bits & 0x40) != 0;
+			this.adpcms = new MLDADPCM[this.ainfCount];
+		}
 	}
 	
 	/**
@@ -840,6 +927,8 @@ public class MLD
 	void headerEXST(MLDBinaryReader reader)
 	{
 		this.exst = reader.bytes(reader.length);
+		if (this.exst.length >= 2)
+			this.exstCount = this.readBe16(this.exst, 0);
 	}
 	
 	/**
@@ -1065,6 +1154,7 @@ public class MLD
 		
 		// Default fields
 		this.adpcms = new MLDADPCM[0];
+		this.exstCount = 1;
 		this.note = MLD.NOTE_3;
 		
 		// Working variables
@@ -1088,6 +1178,66 @@ public class MLD
 	{
 		return (bytes == null ? null :
 			new String(bytes, DoJaEncoding.DEFAULT_CHARSET));
+	}
+
+	private void parseAdpcmDescriptor(MLDADPCM adpcm)
+	{
+		if (adpcm.data.length < 4)
+			return;
+
+		int headerLength = this.readBe16(adpcm.data, 0);
+		int headerEnd = 2 + headerLength;
+		if (headerLength < 2 || headerEnd > adpcm.data.length)
+			return;
+
+		adpcm.selectorHeaderLength = headerLength;
+		adpcm.selectorId = adpcm.data[2] & 0xFF;
+		adpcm.selectorFlags = adpcm.data[3] & 0xFF;
+
+		int offset = 4;
+		while (offset + 6 <= headerEnd)
+		{
+			String id = new String(adpcm.data, offset, 4,
+				StandardCharsets.US_ASCII);
+			int length = this.readBe16(adpcm.data, offset + 4);
+			int bodyStart = offset + 6;
+			int bodyEnd = bodyStart + length;
+			if (bodyEnd > headerEnd)
+				return;
+			if ("adpm".equals(id) && length >= 3)
+			{
+				adpcm.sampleRateHz = (adpcm.data[bodyStart] & 0xFF) * 1000;
+				adpcm.codedBits = adpcm.data[bodyStart + 1] & 0xFF;
+				int mode = adpcm.data[bodyStart + 2] & 0xFF;
+				adpcm.channelCount = mode & 0x07;
+				adpcm.variantBit = (mode & 0x08) != 0;
+			}
+			offset = bodyEnd;
+		}
+
+		adpcm.payload = Arrays.copyOfRange(adpcm.data, headerEnd,
+			adpcm.data.length);
+	}
+
+	private int readBe16(byte[] data, int offset)
+	{
+		return ((data[offset] & 0xFF) << 8) | (data[offset + 1] & 0xFF);
+	}
+
+	private int resourceBodyLength(int command)
+	{
+		switch (command)
+		{
+			case MLD.EVENT_RESOURCE_START:
+			case MLD.EVENT_RESOURCE_STOP:
+				return 1 + this.exstCount;
+			case MLD.EVENT_RESOURCE_LEVEL:
+			case MLD.EVENT_RESOURCE_PAN:
+			case MLD.EVENT_RESOURCE_CONFIG:
+				return 1;
+			default:
+				return command < 0x80 ? 1 + this.exstCount : 1;
+		}
 	}
 	
 	/**

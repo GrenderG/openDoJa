@@ -118,6 +118,8 @@ public class MLDPlayer
 	final MLDPlayerTrack[] tracks;
 
 	final TrackControlEngine trackControlEngine;
+
+	final MLDResourceAudioEngine resourceAudioEngine;
 	
 	/**
 	 * Playback events are enabled
@@ -206,6 +208,7 @@ public class MLDPlayer
 		this.tracks = new MLDPlayerTrack[mld.tracks.length];
 		this.trackControlEngine = TrackControlEngine.create(
 			this.sampler.sequenceControlMode(), this.tracks.length);
+		this.resourceAudioEngine = new MLDResourceAudioEngine(mld, sampleRate);
 		
 		// Channels
 		for (int x = 0; x < this.channels.length; x++)
@@ -382,6 +385,8 @@ public class MLDPlayer
 	public boolean isFinished()
 	{
 		if (!this.sampler.isFinished())
+			return false;
+		if (this.resourceAudioEngine.hasLiveAudio(this.position))
 			return false;
 		for (MLDPlayerTrack track : this.tracks)
 		{
@@ -595,9 +600,13 @@ public class MLDPlayer
 				// Render the samples
 				int f = Math.min(frames, (int)Math.floor(this.pendingFrames));
 				if (!this.seeking)
+				{
 					this.sampler.render(samples, offset, f, left, right,
 						erase,
 						clamp);
+					this.resourceAudioEngine.render(samples, offset, f, left, right,
+						clamp, this.position);
+				}
 				
 				// State management
 				frames -= f;
@@ -679,8 +688,15 @@ public class MLDPlayer
 			int untilTrack = this.untilTrack();
 			if (untilTrack == -1)
 			{
-				this.finished = true;
-				return ret;
+				int liveTailFrames = this.liveTailFrames();
+				if (liveTailFrames <= 0)
+				{
+					this.finished = true;
+					return ret;
+				}
+				this.pendingTicks = 0;
+				this.pendingFrames += liveTailFrames;
+				continue;
 			}
 			int untilNote = this.untilNote();
 			this.pendingTicks = untilNote == -1 ? untilTrack : Math.min(
@@ -913,6 +929,12 @@ public class MLDPlayer
 		this.sampler.sysEx(e.data);
 		this.setTrackOffset(track, track.offset + 1);
 	}
+
+	void evtResource(MLDPlayerTrack track, MLDEvent event)
+	{
+		this.resourceAudioEngine.handleEvent(this.position, event);
+		this.setTrackOffset(track, track.offset + 1);
+	}
 	
 	/**
 	 * master-tune
@@ -1085,6 +1107,9 @@ public class MLDPlayer
 				case MLD.EVENT_TYPE_NOTE:
 					this.evtNote(track, event);
 					break;
+				case MLD.EVENT_TYPE_RESOURCE:
+					this.evtResource(track, event);
+					break;
 				case MLD.EVENT_TYPE_EXT_B:
 					this.evtExtB(track, event);
 					break;
@@ -1133,6 +1158,7 @@ public class MLDPlayer
 		
 		// Initialize sampler
 		this.sampler.reset();
+		this.resourceAudioEngine.reset();
 		
 		// Channels
 		for (MLDChannel chan : this.channels)
@@ -1338,5 +1364,12 @@ public class MLDPlayer
 				ret = track.ticks;
 		}
 		return ret;
+	}
+
+	private int liveTailFrames()
+	{
+		int resourceFrames = this.resourceAudioEngine.framesUntilSilence(
+			this.position);
+		return resourceFrames > 0 ? Math.min(1024, resourceFrames) : 0;
 	}
 }
