@@ -40,6 +40,7 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 
 /**
@@ -1013,6 +1014,9 @@ public class MLD
         long tickNow = 0;
         int[] trkPos = new int[this.tracks.length];
         int[] trkUntil = new int[this.tracks.length];
+        // Resource-only MLDs can end the track on the same tick as the start
+        // command, so duration must also account for live top-level adat clips.
+        ArrayList<ResourceClipSpan> resourceClips = new ArrayList<>();
 
         // Initialize instance fields
         this.duration = 0.0;
@@ -1097,6 +1101,13 @@ public class MLD
                     continue;
                 }
 
+                // top-level resource audio
+                if (event.type == MLD.EVENT_TYPE_RESOURCE)
+                {
+                    this.inspectResource(resourceClips, event);
+                    continue;
+                }
+
                 // Next must be ext-B
                 if (event.type != MLD.EVENT_TYPE_EXT_B)
                     continue;
@@ -1129,12 +1140,14 @@ public class MLD
 
                 // cuepoint end
                 this.tickEnd = tickNow;
+                this.finishResourceInspection(resourceClips);
                 return;
             }
 
         }
 
         // The entire sequence was scanned
+        this.finishResourceInspection(resourceClips);
         this.tickLoop = -1;
     }
 
@@ -1327,10 +1340,68 @@ public class MLD
         return ret;
     }
 
+    private void inspectResource(ArrayList<ResourceClipSpan> resourceClips,
+        MLDEvent event)
+    {
+        if (event.id == MLD.EVENT_RESOURCE_START)
+        {
+            double seconds = this.resourceDurationSeconds(event.resourceIndex);
+            if (seconds > 0.0)
+                resourceClips.add(new ResourceClipSpan(event.channel,
+                    event.resourceIndex, this.duration + seconds));
+            return;
+        }
+        if (event.id != MLD.EVENT_RESOURCE_STOP)
+            return;
+        for (int i = resourceClips.size() - 1; i >= 0; i--)
+        {
+            ResourceClipSpan clip = resourceClips.get(i);
+            if (clip.channel != event.channel ||
+                clip.resourceIndex != event.resourceIndex)
+                continue;
+            clip.endSeconds = Math.min(clip.endSeconds, this.duration);
+        }
+    }
+
+    private void finishResourceInspection(
+        ArrayList<ResourceClipSpan> resourceClips)
+    {
+        // The overall MLD duration is the later of sequenced time and any
+        // top-level resource clip that is still expected to sound.
+        for (int i = 0; i < resourceClips.size(); i++)
+            this.duration = Math.max(this.duration,
+                resourceClips.get(i).endSeconds);
+    }
+
+    private double resourceDurationSeconds(int resourceIndex)
+    {
+        if (resourceIndex < 0 || resourceIndex >= this.adpcms.length)
+            return 0.0;
+        MLDADPCM resource = this.adpcms[resourceIndex];
+        return resource == null ? 0.0 : resource.durationSeconds();
+    }
+
     /** Convert a volume parameter to a linear amplitude. */
     float volumeToAmplitude(float param)
     {
         return param == 0.0f ? 0.0f : (float)Math.pow(2,
             (1 - param) * -96 / 20);
+    }
+
+    private static final class ResourceClipSpan
+    {
+        final int channel;
+
+        final int resourceIndex;
+
+        double endSeconds;
+
+        private ResourceClipSpan(int channel, int resourceIndex,
+            double endSeconds)
+        {
+            this.channel = channel;
+            this.resourceIndex = resourceIndex;
+            this.endSeconds = endSeconds;
+        }
     }
 }

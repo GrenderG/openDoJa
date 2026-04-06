@@ -78,6 +78,15 @@ public final class MLDADPCM
         return this.payload;
     }
 
+    double durationSeconds()
+    {
+        if (this.sampleRateHz <= 0 || this.codedBits <= 0)
+            return 0.0;
+        int channels = Math.max(1, this.channelCount);
+        double codedFrames = (this.payload.length * 8.0d) / this.codedBits;
+        return codedFrames / (channels * this.sampleRateHz);
+    }
+
     public int sampleRateHz()
     {
         return this.sampleRateHz;

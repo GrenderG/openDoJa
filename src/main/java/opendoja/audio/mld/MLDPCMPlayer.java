@@ -121,6 +121,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
 
         private Thread worker;
         private SourceDataLine line;
+        private long writtenFrames;
 
         PlaybackHandle open(Listener listener) {
             PlaybackHandle handle = new PlaybackHandle(this, listener);
@@ -168,6 +169,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 }
 
                 List<Runnable> notifications = new ArrayList<>();
+                long writtenBefore = writtenFrames;
                 int mixedFrames = 0;
                 for (PlaybackHandle handle : snapshot) {
                     try {
@@ -189,6 +191,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
                         ensureLine();
                         int length = encodePcm(mixedFrames);
                         line.write(pcmBuffer, 0, length);
+                        writtenFrames += mixedFrames;
                     } catch (Exception exception) {
                         synchronized (engineLock) {
                             closeLineLocked();
@@ -199,12 +202,33 @@ public final class MLDPCMPlayer implements AutoCloseable {
                     }
                 }
 
+                long playedFrames;
+                synchronized (engineLock) {
+                    playedFrames = (line == null ? writtenFrames :
+                            line.getLongFramePosition());
+                }
+                // Complete MLD playback only after the shared line has
+                // consumed the final queued frames for that session.
+                for (PlaybackHandle handle : snapshot) {
+                    handle.bindCompletionTarget(writtenBefore, writtenFrames);
+                    handle.dispatchReadyCompletion(playedFrames, notifications);
+                }
+
                 notifications.forEach(Runnable::run);
+                long drainWaitMillis = mixedFrames == 0 ?
+                    drainPollMillis(writtenFrames, playedFrames) : 0L;
 
                 synchronized (engineLock) {
                     pruneClosedHandlesLocked();
                     if (handles.isEmpty()) {
                         closeLineLocked();
+                    } else if (drainWaitMillis > 0L) {
+                        try {
+                            engineLock.wait(drainWaitMillis);
+                        } catch (InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
                     }
                 }
             }
@@ -250,14 +274,28 @@ public final class MLDPCMPlayer implements AutoCloseable {
             return output;
         }
 
+        private static long drainPollMillis(long writtenFrames,
+            long playedFrames) {
+            long queuedFrames = Math.max(0L, writtenFrames - playedFrames);
+            if (queuedFrames == 0L) {
+                return 0L;
+            }
+            double queuedMillis = (queuedFrames * 1000.0d) /
+                OUTPUT_FORMAT.getFrameRate();
+            return Math.max(1L, Math.min(20L,
+                (long)Math.ceil(queuedMillis / 2.0d)));
+        }
+
         private void closeLineLocked() {
             if (line == null) {
+                writtenFrames = 0L;
                 return;
             }
             line.stop();
             line.flush();
             line.close();
             line = null;
+            writtenFrames = 0L;
         }
     }
 
@@ -275,12 +313,21 @@ public final class MLDPCMPlayer implements AutoCloseable {
         private boolean paused;
         private boolean closed;
         private int volumeLevel = 100;
+        private boolean completionPending;
+        private boolean completionNeedsCurrentWrite;
+        private long completionTargetFrame = -1L;
         private volatile int currentTimeMillis;
         private volatile int totalTimeMillis;
 
         private PlaybackHandle(SharedEngine engine, Listener listener) {
             this.engine = engine;
             this.listener = listener;
+        }
+
+        private void clearCompletionState() {
+            completionPending = false;
+            completionNeedsCurrentWrite = false;
+            completionTargetFrame = -1L;
         }
 
         void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis) {
@@ -290,6 +337,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 pendingStartPositionMillis = Math.max(0, startPositionMillis);
                 pendingStop = false;
                 paused = false;
+                clearCompletionState();
                 currentTimeMillis = 0;
                 totalTimeMillis = totalTimeFor(sound.mld());
             }
@@ -345,6 +393,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 pendingLoopCount = 0;
                 pendingStop = true;
                 paused = false;
+                clearCompletionState();
                 currentTimeMillis = 0;
                 totalTimeMillis = 0;
             }
@@ -358,6 +407,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 pendingStop = true;
                 paused = false;
                 activeSession = null;
+                clearCompletionState();
                 currentTimeMillis = 0;
                 totalTimeMillis = 0;
             }
@@ -366,7 +416,8 @@ public final class MLDPCMPlayer implements AutoCloseable {
 
         boolean hasWork() {
             synchronized (stateLock) {
-                return !closed && (pendingSound != null || (!pendingStop && activeSession != null && !paused));
+                return !closed && (pendingSound != null || completionPending ||
+                        (!pendingStop && activeSession != null && !paused));
             }
         }
 
@@ -386,6 +437,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 if (pendingStop) {
                     activeSession = null;
                     pendingStop = false;
+                    clearCompletionState();
                 }
                 if (pendingSound != null) {
                     activeSession = sessions.computeIfAbsent(pendingSound, PlaybackSession::new);
@@ -437,14 +489,45 @@ public final class MLDPCMPlayer implements AutoCloseable {
                         if (activeSession == session) {
                             activeSession = null;
                             currentTimeMillis = 0;
+                            armCompletion(renderedFrames > 0);
                         }
-                    }
-                    if (listener != null) {
-                        notifications.add(listener::onComplete);
                     }
                     return renderedFrames;
                 }
                 return renderedFrames;
+            }
+        }
+
+        private void armCompletion(boolean needsCurrentWrite) {
+            completionPending = true;
+            completionNeedsCurrentWrite = needsCurrentWrite;
+            completionTargetFrame = -1L;
+        }
+
+        private void bindCompletionTarget(long writtenBefore, long writtenAfter) {
+            synchronized (stateLock) {
+                if (!completionPending || completionTargetFrame >= 0) {
+                    return;
+                }
+                completionTargetFrame =
+                        completionNeedsCurrentWrite ? writtenAfter : writtenBefore;
+            }
+        }
+
+        private void dispatchReadyCompletion(long playedFrames,
+            List<Runnable> notifications) {
+            Listener notify = null;
+            synchronized (stateLock) {
+                if (!completionPending || completionTargetFrame < 0 ||
+                        playedFrames < completionTargetFrame) {
+                    return;
+                }
+                clearCompletionState();
+                totalTimeMillis = 0;
+                notify = listener;
+            }
+            if (notify != null) {
+                notifications.add(notify::onComplete);
             }
         }
 
@@ -454,6 +537,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 pendingSound = null;
                 pendingLoopCount = 0;
                 pendingStop = false;
+                clearCompletionState();
                 currentTimeMillis = 0;
                 totalTimeMillis = 0;
             }

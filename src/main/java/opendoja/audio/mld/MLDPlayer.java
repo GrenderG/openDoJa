@@ -385,16 +385,9 @@ public class MLDPlayer
      */
     public boolean isFinished()
     {
-        if (!this.sampler.isFinished())
+        if (this.hasLiveOutput())
             return false;
-        if (this.playbackEngine.hasLiveAudio(this.position))
-            return false;
-        for (MLDPlayerTrack track : this.tracks)
-        {
-            if (!track.finished)
-                return false;
-        }
-        return true;
+        return this.allTracksFinished();
     }
 
     /**
@@ -583,8 +576,14 @@ public class MLDPlayer
         }
 
         // Sequencer is not playing
-        if (this.finished)
+        if (this.finished && this.pendingFrames <= 0.0f)
+        {
+            if (!this.hasLiveOutput())
+                return -1;
+            // The event stream may be done while synth notes or top-level
+            // resource audio are still sounding.
             this.pendingFrames = frames;
+        }
 
         // Process all output frames
         while (frames > 0)
@@ -618,7 +617,8 @@ public class MLDPlayer
 
                 // All output frames have been processed
                 if (frames == 0)
-                    return this.finished ? -1 : ret;
+                    return ret > 0 ? ret :
+                        (this.finished && !this.hasLiveOutput() ? -1 : ret);
             }
 
             // Process event ticks
@@ -689,12 +689,17 @@ public class MLDPlayer
             int untilTrack = this.untilTrack();
             if (untilTrack == -1)
             {
+                this.finished = true;
                 int liveTailFrames = this.liveTailFrames();
                 if (liveTailFrames <= 0)
                 {
-                    this.finished = true;
-                    return ret;
+                    this.queueEndEventIfReady();
+                    if (ret > 0)
+                        return ret;
+                    return (this.events.size() != 0 ? ret : -1);
                 }
+                // Keep draining audible tail output after the sequence itself
+                // has no more events to process.
                 this.pendingTicks = 0;
                 this.pendingFrames += liveTailFrames;
                 continue;
@@ -1261,13 +1266,7 @@ public class MLDPlayer
         // Raise an event
         if (!track.finished || !this.evtPlayback)
             return;
-        boolean finished = true;
-        for (MLDPlayerTrack other : this.tracks)
-            finished = finished && other.finished;
-        if (finished)
-            this.events.add(
-                new MLDPlayerEvent(this.getTime(), MLDPlayer.EVENT_END,
-                    0));
+        this.queueEndEventIfReady();
     }
 
     private void syncTrackControlCursor(MLDPlayerTrack track)
@@ -1317,6 +1316,36 @@ public class MLDPlayer
                 ret = track.ticks;
         }
         return ret;
+    }
+
+    private boolean hasLiveOutput()
+    {
+        if (!this.sampler.isFinished())
+            return true;
+        return this.playbackEngine.hasLiveAudio(this.position);
+    }
+
+    private boolean allTracksFinished()
+    {
+        for (MLDPlayerTrack track : this.tracks)
+        {
+            if (!track.finished)
+                return false;
+        }
+        return true;
+    }
+
+    private void queueEndEventIfReady()
+    {
+        if (!this.evtPlayback || !this.allTracksFinished() || this.hasLiveOutput())
+            return;
+        for (int i = 0; i < this.events.size(); i++)
+        {
+            if (this.events.get(i).type == MLDPlayer.EVENT_END)
+                return;
+        }
+        this.events.add(new MLDPlayerEvent(this.getTime(),
+            MLDPlayer.EVENT_END, 0));
     }
 
     private int liveTailFrames()
