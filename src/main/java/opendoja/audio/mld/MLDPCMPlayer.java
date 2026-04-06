@@ -34,6 +34,8 @@ public final class MLDPCMPlayer implements AutoCloseable {
     public interface Listener {
         void onLoop();
 
+        void onSync(int timeMillis);
+
         void onComplete();
 
         void onFailure(Exception exception);
@@ -67,6 +69,14 @@ public final class MLDPCMPlayer implements AutoCloseable {
 
     public void setVolumeLevel(int volumeLevel) {
         handle.setVolumeLevel(volumeLevel);
+    }
+
+    public void setSyncEvent(int channel, int key) {
+        handle.setSyncEvent(channel, key);
+    }
+
+    public void clearSyncEvent() {
+        handle.clearSyncEvent();
     }
 
     public void stop() {
@@ -122,6 +132,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
         private Thread worker;
         private SourceDataLine line;
         private long writtenFrames;
+        private boolean silentClock;
 
         PlaybackHandle open(Listener listener) {
             PlaybackHandle handle = new PlaybackHandle(this, listener);
@@ -188,9 +199,24 @@ public final class MLDPCMPlayer implements AutoCloseable {
 
                 if (mixedFrames > 0) {
                     try {
-                        ensureLine();
-                        int length = encodePcm(mixedFrames);
-                        line.write(pcmBuffer, 0, length);
+                        if (silentClock) {
+                            paceSilently(mixedFrames);
+                        } else {
+                            ensureLine();
+                            int length = encodePcm(mixedFrames);
+                            line.write(pcmBuffer, 0, length);
+                        }
+                        writtenFrames += mixedFrames;
+                    } catch (IllegalArgumentException |
+                             javax.sound.sampled.LineUnavailableException exception) {
+                        synchronized (engineLock) {
+                            closeLineLocked();
+                            // Some hosts cannot open the requested line format.
+                            // Keep advancing the shared clock so timed MLD events
+                            // still fire instead of aborting playback outright.
+                            silentClock = true;
+                        }
+                        paceSilently(mixedFrames);
                         writtenFrames += mixedFrames;
                     } catch (Exception exception) {
                         synchronized (engineLock) {
@@ -274,6 +300,15 @@ public final class MLDPCMPlayer implements AutoCloseable {
             return output;
         }
 
+        private void paceSilently(int frames) {
+            long millis = Math.max(1L, Math.round((frames * 1000.0d) / OUTPUT_FORMAT.getFrameRate()));
+            try {
+                Thread.sleep(millis);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
         private static long drainPollMillis(long writtenFrames,
             long playedFrames) {
             long queuedFrames = Math.max(0L, writtenFrames - playedFrames);
@@ -313,6 +348,8 @@ public final class MLDPCMPlayer implements AutoCloseable {
         private boolean paused;
         private boolean closed;
         private int volumeLevel = 100;
+        private int syncEventChannel = -1;
+        private int syncEventKey = -1;
         private boolean completionPending;
         private boolean completionNeedsCurrentWrite;
         private long completionTargetFrame = -1L;
@@ -387,6 +424,26 @@ public final class MLDPCMPlayer implements AutoCloseable {
             }
         }
 
+        void setSyncEvent(int channel, int key) {
+            synchronized (stateLock) {
+                syncEventChannel = channel;
+                syncEventKey = key;
+                if (activeSession != null) {
+                    activeSession.configureSync(channel, key);
+                }
+            }
+        }
+
+        void clearSyncEvent() {
+            synchronized (stateLock) {
+                syncEventChannel = -1;
+                syncEventKey = -1;
+                if (activeSession != null) {
+                    activeSession.configureSync(-1, -1);
+                }
+            }
+        }
+
         void stop() {
             synchronized (stateLock) {
                 pendingSound = null;
@@ -441,7 +498,8 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 }
                 if (pendingSound != null) {
                     activeSession = sessions.computeIfAbsent(pendingSound, PlaybackSession::new);
-                    activeSession.reset(pendingLoopCount, pendingStartPositionMillis);
+                    activeSession.reset(pendingLoopCount, pendingStartPositionMillis,
+                            syncEventChannel, syncEventKey);
                     pendingSound = null;
                     pendingStartPositionMillis = 0;
                 }
@@ -478,6 +536,9 @@ public final class MLDPCMPlayer implements AutoCloseable {
                         } else {
                             finished[0] = true;
                         }
+                    } else if (event.type == MLDPlayer.EVENT_KEY && listener != null) {
+                        int timeMillis = (int) Math.round(event.time * 1000.0d);
+                        notifications.add(() -> listener.onSync(timeMillis));
                     }
                 });
 
@@ -557,7 +618,17 @@ public final class MLDPCMPlayer implements AutoCloseable {
             this.cuepointLooping = Double.isInfinite(sound.mld().getDuration(false));
         }
 
-        private void reset(int loopCount, int startPositionMillis) {
+        private void configureSync(int channel, int key) {
+            player.clearEventNotes();
+            if (channel >= 0 && key >= 0) {
+                // MLDPlayer filters by the absolute note domain used by DoJa
+                // sync registration rather than the raw A4-relative key.
+                player.addEventNote(channel, key);
+            }
+        }
+
+        private void reset(int loopCount, int startPositionMillis,
+                           int syncEventChannel, int syncEventKey) {
             player.setPlaybackEventsEnabled(true);
             // The native Yamaha phrase engine loops in-place and lets note
             // releases run through the boundary; killing every voice here is
@@ -569,6 +640,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 remainingRepeats = Math.max(0, loopCount);
             }
             player.setLoopEnabled(cuepointLooping && loopCount != 0);
+            configureSync(syncEventChannel, syncEventKey);
             player.reset();
             if (startPositionMillis > 0) {
                 player.setTime(startPositionMillis / 1000.0);

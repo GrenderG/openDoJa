@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
  */
 public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private static final boolean TRACE_AUDIO_FAILURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_AUDIO_FAILURES);
+    private static final Object PORT_LOCK = new Object();
+    private static final Map<Integer, AudioPresenter> RESERVED_PORTS = new HashMap<>();
     /**
      * Event type indicating that playback started.
      */
@@ -124,6 +126,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private final Map<Integer, Integer> attributes = new HashMap<>();
     private final List<ScheduledFuture<?>> syncEventTasks = new ArrayList<>();
     private final Audio3D audio3D = new Audio3D(this);
+    private final int explicitPort;
     private MediaResource resource;
     private MediaListener mediaListener;
     private SampledPCMPlayer sampledPlayer;
@@ -132,12 +135,18 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private int pausedPosition;
     private int syncEventChannel = -1;
     private int syncEventKey = -1;
+    private int lastMldSyncTimeMillis = Integer.MIN_VALUE;
     private volatile boolean playing;
 
     /**
      * Applications cannot create this class directly.
      */
     protected AudioPresenter() {
+        this(-1);
+    }
+
+    protected AudioPresenter(int explicitPort) {
+        this.explicitPort = explicitPort;
         registerWithRuntime();
         // DoJa titles often construct presenters during loading and expect the first MLD effect
         // play to be low-latency. Create the long-lived MLD backend up front so menu input does
@@ -170,7 +179,10 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
      * @return the audio presenter
      */
     public static AudioPresenter getAudioPresenter(int port) {
-        return new AudioPresenter();
+        if (port < 0 || port >= configuredExplicitPortCount()) {
+            throw new IllegalArgumentException("port");
+        }
+        return new AudioPresenter(port);
     }
 
     /**
@@ -240,8 +252,11 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         try {
             MediaManager.PreparedSound prepared = sound.prepared();
             int loopCount = configuredLoopCount();
+            lastMldSyncTimeMillis = Integer.MIN_VALUE;
+            reserveExplicitPort();
             if (time >= singlePlaybackDurationMillis(prepared)) {
                 playing = false;
+                releaseExplicitPort();
                 notifyListener(AUDIO_PLAYING, 0);
                 notifyListener(AUDIO_COMPLETE, 0);
                 return;
@@ -249,6 +264,15 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             if (prepared.kind() == MediaManager.PreparedSound.Kind.MIDI) {
                 sequencer = MidiSystem.getSequencer();
                 sequencer.open();
+                sequencer.addMetaEventListener(meta -> {
+                    // 0x2F is the standard MIDI End-of-Track meta event.
+                    if (meta.getType() == 0x2F) {
+                        playing = false;
+                        cancelSyncEvents();
+                        releaseExplicitPort();
+                        notifyListener(AUDIO_COMPLETE, 0);
+                    }
+                });
                 sequencer.setSequence(new ByteArrayInputStream(prepared.bytes()));
                 if (loopCount < 0) {
                     sequencer.setLoopCount(Sequencer.LOOP_CONTINUOUSLY);
@@ -264,6 +288,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                     mldPlayer = new MLDPCMPlayer(new MldListener());
                 }
                 mldPlayer.setVolumeLevel(currentVolumeLevel());
+                updateMldSyncConfiguration();
                 mldPlayer.start(prepared, loopCount, time);
             } else {
                 if (sampledPlayer == null) {
@@ -275,8 +300,13 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             playing = true;
             notifyListener(AUDIO_PLAYING, 0);
             scheduleSyncEvents(prepared, time);
+        } catch (UIException e) {
+            playing = false;
+            stopPlayback();
+            throw e;
         } catch (Exception e) {
             playing = false;
+            releaseExplicitPort();
             if (TRACE_AUDIO_FAILURES) {
                 OpenDoJaLog.error(AudioPresenter.class, "Audio playback failed", e);
             }
@@ -382,6 +412,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
         syncEventChannel = channel;
         syncEventKey = key;
+        updateMldSyncConfiguration();
     }
 
     /**
@@ -398,6 +429,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
 
     private void stopPlayback() {
         playing = false;
+        lastMldSyncTimeMillis = Integer.MIN_VALUE;
         cancelSyncEvents();
         if (sampledPlayer != null) {
             sampledPlayer.stop();
@@ -410,6 +442,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         if (mldPlayer != null) {
             mldPlayer.stop();
         }
+        releaseExplicitPort();
     }
 
     /**
@@ -453,6 +486,8 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             if (mldPlayer != null) {
                 mldPlayer.setVolumeLevel(level);
             }
+        } else if (key == SYNC_MODE && mldPlayer != null) {
+            updateMldSyncConfiguration();
         }
     }
 
@@ -484,6 +519,20 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         return Math.max(0, Math.min(100, attributes.getOrDefault(SET_VOLUME, 100)));
     }
 
+    private void updateMldSyncConfiguration() {
+        if (mldPlayer == null) {
+            return;
+        }
+        // Keep the long-lived MLD backend aligned with the current DoJa sync
+        // registration so play/restart do not need a separate rescan pass.
+        if (attributes.getOrDefault(SYNC_MODE, ATTR_SYNC_OFF) == ATTR_SYNC_ON &&
+                syncEventChannel >= 0 && syncEventKey >= 0) {
+            mldPlayer.setSyncEvent(syncEventChannel, syncEventKey);
+        } else {
+            mldPlayer.clearSyncEvent();
+        }
+    }
+
     private int configuredLoopCount() {
         return attributes.getOrDefault(LOOP_COUNT, 0);
     }
@@ -500,6 +549,39 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
 
     private boolean requiresStrictStopState() {
         return DoJaProfile.current().isAtLeast(2, 0);
+    }
+
+    private void reserveExplicitPort() {
+        if (explicitPort < 0) {
+            return;
+        }
+        synchronized (PORT_LOCK) {
+            AudioPresenter current = RESERVED_PORTS.get(explicitPort);
+            if (current != null && current != this) {
+                throw new UIException(UIException.BUSY_RESOURCE);
+            }
+            RESERVED_PORTS.put(explicitPort, this);
+        }
+    }
+
+    private void releaseExplicitPort() {
+        if (explicitPort < 0) {
+            return;
+        }
+        synchronized (PORT_LOCK) {
+            if (RESERVED_PORTS.get(explicitPort) == this) {
+                RESERVED_PORTS.remove(explicitPort);
+            }
+        }
+    }
+
+    private static int configuredExplicitPortCount() {
+        // The official developer documentation says DoJa-4.0 commonly guarantees
+        // at least four simultaneous AudioPresenter instances when a port is
+        // explicitly specified. openDoJa uses 4 as the compatibility default
+        // and leaves the exact slot count configurable per host.
+        return Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(
+                opendoja.host.OpenDoJaLaunchArgs.AUDIO_PRESENTER_PORTS, 4));
     }
 
     final boolean isPlaying() {
@@ -594,20 +676,36 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private final class MldListener implements MLDPCMPlayer.Listener {
         @Override
         public void onLoop() {
+            lastMldSyncTimeMillis = Integer.MIN_VALUE;
             notifyListener(AUDIO_LOOPED, 0);
+        }
+
+        @Override
+        public void onSync(int timeMillis) {
+            // DoJa collapses sync callbacks that land inside the same 100 ms window.
+            if (lastMldSyncTimeMillis != Integer.MIN_VALUE &&
+                    timeMillis - lastMldSyncTimeMillis < SYNC_EVENT_PRECISION_MS) {
+                return;
+            }
+            lastMldSyncTimeMillis = timeMillis;
+            notifyListener(AUDIO_SYNC, 0);
         }
 
         @Override
         public void onComplete() {
             playing = false;
+            lastMldSyncTimeMillis = Integer.MIN_VALUE;
             cancelSyncEvents();
+            releaseExplicitPort();
             notifyListener(AUDIO_COMPLETE, 0);
         }
 
         @Override
         public void onFailure(Exception exception) {
             playing = false;
+            lastMldSyncTimeMillis = Integer.MIN_VALUE;
             cancelSyncEvents();
+            releaseExplicitPort();
             if (TRACE_AUDIO_FAILURES) {
                 OpenDoJaLog.error(AudioPresenter.class, "MLD playback failed", exception);
             }
@@ -625,6 +723,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         public void onComplete() {
             playing = false;
             cancelSyncEvents();
+            releaseExplicitPort();
             notifyListener(AUDIO_COMPLETE, 0);
         }
 
@@ -632,6 +731,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         public void onFailure(Exception exception) {
             playing = false;
             cancelSyncEvents();
+            releaseExplicitPort();
             if (TRACE_AUDIO_FAILURES) {
                 OpenDoJaLog.error(AudioPresenter.class, "Sampled playback failed", exception);
             }

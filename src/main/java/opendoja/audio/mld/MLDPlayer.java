@@ -97,6 +97,11 @@ public class MLDPlayer
     final HashSet<Integer> evtKeys;
 
     /**
+     * Key events enabled by channel/absolute-note pairs.
+     */
+    final HashSet<Long> evtNotes;
+
+    /**
      * Sequence resource
      */
     final MLD mld;
@@ -198,6 +203,7 @@ public class MLDPlayer
         this.channels = new MLDChannel[16];
         this.events = new ArrayList<>();
         this.evtKeys = new HashSet<>();
+        this.evtNotes = new HashSet<>();
         this.evtPlayback = false;
         this.loopEnabled = true;
         this.loopStopAll = true;
@@ -288,6 +294,20 @@ public class MLDPlayer
             throw new NullPointerException("Key array is required.");
         for (int key : keys)
             this.evtKeys.add(key);
+    }
+
+    /**
+     * Registers a channel/absolute-note pair to raise events for during
+     * rendering.
+     *
+     * @param channel The playback channel to match.
+     * @param note The absolute note number to match.
+     * @see MLDPlayerEvent
+     * @see #getEvents()
+     */
+    public void addEventNote(int channel, int note)
+    {
+        this.evtNotes.add(packEventNote(channel, note));
     }
 
     /**
@@ -416,6 +436,14 @@ public class MLDPlayer
             throw new NullPointerException("Key array is required.");
         for (int key : keys)
             this.evtKeys.remove(key);
+    }
+
+    /**
+     * Removes all registered channel/absolute-note pairs.
+     */
+    public void clearEventNotes()
+    {
+        this.evtNotes.clear();
     }
 
     /**
@@ -911,10 +939,12 @@ public class MLDPlayer
         this.setTrackOffset(track, track.offset + 1);
 
         // Raise an event
-        if (this.evtKeys.contains(event.key))
+        int absoluteNote = 69 + event.key;
+        if (this.evtKeys.contains(event.key) ||
+            this.evtNotes.contains(packEventNote(event.channel, absoluteNote)))
             this.events.add(
                 new MLDPlayerEvent(this.getTime(), MLDPlayer.EVENT_KEY,
-                    event.key));
+                    event.key, event.channel, absoluteNote, event.keyNumber));
 
         if (channel < 0)
             return;
@@ -1353,5 +1383,10 @@ public class MLDPlayer
         int resourceFrames = this.playbackEngine.framesUntilSilence(
             this.position);
         return resourceFrames > 0 ? Math.min(1024, resourceFrames) : 0;
+    }
+
+    private static long packEventNote(int channel, int note)
+    {
+        return ((long)channel << 32) | (note & 0xffffffffL);
     }
 }

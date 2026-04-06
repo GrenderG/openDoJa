@@ -33,8 +33,10 @@ public final class MldTrackDump {
             String extra = "";
             if (eventType == 0) {
                 extra = String.format(
-                    " key=%d velocity=%.6f gate=%d",
+                    " key=%d keyNum=%d octaveShift=%d velocity=%.6f gate=%d",
                     field(type, "key").getInt(event),
+                    field(type, "keyNumber").getInt(event),
+                    field(type, "octaveShift").getInt(event),
                     field(type, "velocity").getDouble(event),
                     field(type, "gateTime").getInt(event));
             }
