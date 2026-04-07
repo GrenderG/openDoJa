@@ -529,6 +529,10 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     public void lock() {
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null) {
+            // Direct `Canvas.getGraphics()` loops bypass `requestRender(...)`,
+            // so service queued runtime callbacks at explicit frame-lock
+            // boundaries as well.
+            runtime.drainApplicationCallbacks();
             runtime.surfaceLock().lock();
         }
     }
@@ -605,6 +609,11 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
         if (runtime != null) {
             runtime.surfaceLock().unlock();
+        }
+        if (runtime != null && outermostUnlock) {
+            // An outermost unlock marks the end of one application-owned draw
+            // slice, so it is another safe point to release queued callbacks.
+            runtime.drainApplicationCallbacks();
         }
         if (outermostUnlock && presentedFrame == null) {
             surface.endDepthFrame();

@@ -35,6 +35,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -66,6 +67,11 @@ public final class DoJaRuntime {
         thread.setDaemon(true);
         return thread;
     });
+    // Runtime-posted callbacks let host-side services feed work back onto the
+    // same execution model that DoJa titles already use for paint/event code.
+    private final ConcurrentLinkedQueue<Runnable> applicationCallbacks = new ConcurrentLinkedQueue<>();
+    private final ThreadLocal<Boolean> drainingApplicationCallbacks =
+            ThreadLocal.withInitial(() -> false);
     private final AtomicBoolean renderQueued = new AtomicBoolean();
     private final Set<AutoCloseable> shutdownResources = ConcurrentHashMap.newKeySet();
     private final HostPanel hostPanel;
@@ -147,6 +153,45 @@ public final class DoJaRuntime {
 
     public ReentrantLock surfaceLock() {
         return surfaceLock;
+    }
+
+    public void postApplicationCallback(Runnable callback) {
+        if (callback == null || shutdown.get()) {
+            return;
+        }
+        applicationCallbacks.add(callback);
+        Frame frame = currentFrame;
+        if (frame instanceof Canvas canvas) {
+            // Direct-canvas titles commonly drive their own synchronized paint
+            // loop. Request a render so the callback is drained on that app
+            // path instead of on an unrelated host thread.
+            requestRender(canvas);
+            return;
+        }
+        // Non-canvas frames still need a host-side wakeup to service the queue.
+        SwingUtilities.invokeLater(this::drainApplicationCallbacks);
+    }
+
+    public void drainApplicationCallbacks() {
+        if (shutdown.get() || drainingApplicationCallbacks.get()) {
+            return;
+        }
+        drainingApplicationCallbacks.set(true);
+        try {
+            Runnable callback;
+            while ((callback = applicationCallbacks.poll()) != null) {
+                try {
+                    callback.run();
+                } catch (Throwable throwable) {
+                    // Match the rest of the host runtime: callbacks are best
+                    // effort and should not tear down the scheduler thread.
+                    OpenDoJaLog.error(DoJaRuntime.class,
+                            "Unhandled application callback failure", throwable);
+                }
+            }
+        } finally {
+            drainingApplicationCallbacks.set(false);
+        }
     }
 
     public IApplication application() {
@@ -276,6 +321,10 @@ public final class DoJaRuntime {
         Runnable paintTask = () -> {
             try {
                 synchronized (canvas) {
+                    // Drain queued callbacks immediately before application
+                    // paint code so titles observe them at a normal frame
+                    // boundary, not from host input/audio threads.
+                    drainApplicationCallbacks();
                     ensureCanvasSurface(canvas);
                     Graphics g = runtimeGraphics(canvas);
                     try {

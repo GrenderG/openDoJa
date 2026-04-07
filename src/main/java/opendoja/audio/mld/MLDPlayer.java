@@ -1367,7 +1367,10 @@ public class MLDPlayer
 
     private void queueEndEventIfReady()
     {
-        if (!this.evtPlayback || !this.allTracksFinished() || this.hasLiveOutput())
+        // DoJa exposes sequence completion at the point where the event stream
+        // ends. Any remaining synth/resource tail is still audible, but it
+        // must not delay EVENT_END/AUDIO_COMPLETE delivery.
+        if (!this.evtPlayback || !this.allTracksFinished())
             return;
         for (int i = 0; i < this.events.size(); i++)
         {
