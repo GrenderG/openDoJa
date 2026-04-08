@@ -8,7 +8,7 @@ import java.util.List;
  */
 public final class DoJaEncoding {
     // Probe these in order and use the first charset the host JVM exposes.
-    private static final List<String> DEFAULT_ENCODING_CANDIDATES = List.of("Shift_JIS", "MS932", "windows-31j", "UTF-8");
+    private static final List<String> DEFAULT_ENCODING_CANDIDATES = List.of("windows-31j", "Shift_JIS", "MS932", "UTF-8");
     public static final Charset DEFAULT_CHARSET = resolveDefaultCharset();
 
     private DoJaEncoding() {
