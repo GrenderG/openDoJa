@@ -10,11 +10,11 @@ public final class SampledPCMPlayer implements AutoCloseable {
     private static final int CHUNK_BYTES = opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.SAMPLED_CHUNK_BYTES);
 
     public interface Listener {
-        void onLoop();
+        void onLoop(long playbackToken);
 
-        void onComplete();
+        void onComplete(long playbackToken);
 
-        void onFailure(Exception exception);
+        void onFailure(Exception exception, long playbackToken);
     }
 
     private final Object stateLock = new Object();
@@ -30,19 +30,22 @@ public final class SampledPCMPlayer implements AutoCloseable {
     private boolean paused;
     private boolean closed;
     private boolean pendingReset;
+    private long playbackToken = Long.MIN_VALUE;
     private byte[] scaledBuffer = new byte[CHUNK_BYTES];
 
     public SampledPCMPlayer(Listener listener) {
         this.listener = listener;
     }
 
-    public void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis) throws Exception {
+    public void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis,
+                      long playbackToken) throws Exception {
         synchronized (stateLock) {
             ensureWorker();
             ensureLine(sound.sampledFormat());
             this.sound = sound;
             this.loopCount = loopCount;
             this.bytePosition = clampStartBytePosition(sound, startPositionMillis);
+            this.playbackToken = playbackToken;
             this.active = true;
             this.paused = false;
             this.pendingReset = true;
@@ -165,6 +168,7 @@ public final class SampledPCMPlayer implements AutoCloseable {
                 MediaManager.PreparedSound currentSound;
                 int localLoopCount;
                 SourceDataLine currentLine;
+                long currentPlaybackToken;
                 boolean needsReset = false;
                 synchronized (stateLock) {
                     while ((!active || paused || sound == null) && !closed) {
@@ -176,6 +180,7 @@ public final class SampledPCMPlayer implements AutoCloseable {
                     currentSound = sound;
                     localLoopCount = loopCount;
                     currentLine = line;
+                    currentPlaybackToken = playbackToken;
                     if (pendingReset && currentLine != null) {
                         pendingReset = false;
                         needsReset = true;
@@ -206,7 +211,7 @@ public final class SampledPCMPlayer implements AutoCloseable {
                                     line.drain();
                                 }
                                 if (listener != null) {
-                                    listener.onComplete();
+                                    listener.onComplete(currentPlaybackToken);
                                 }
                                 break;
                             }
@@ -216,7 +221,7 @@ public final class SampledPCMPlayer implements AutoCloseable {
                             }
                             bytePosition = 0;
                             if (listener != null) {
-                                listener.onLoop();
+                                listener.onLoop(currentPlaybackToken);
                             }
                         }
                         offset = bytePosition;
@@ -230,7 +235,7 @@ public final class SampledPCMPlayer implements AutoCloseable {
             }
         } catch (Exception exception) {
             if (listener != null) {
-                listener.onFailure(exception);
+                listener.onFailure(exception, playbackToken);
             }
         }
     }

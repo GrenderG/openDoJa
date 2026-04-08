@@ -7,10 +7,11 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Verifies that a queued completion from an obsolete playback lifecycle is
- * dropped after the player is stopped.
+ * Verifies that queued terminal callbacks keep the originating playback token
+ * so the presenter layer can make stale/current ownership decisions itself.
  */
 public final class MldSupersededCompletionProbe {
     private MldSupersededCompletionProbe() {
@@ -18,22 +19,24 @@ public final class MldSupersededCompletionProbe {
 
     public static void main(String[] args) throws Exception {
         AtomicInteger completes = new AtomicInteger();
+        AtomicLong completionToken = new AtomicLong(Long.MIN_VALUE);
         MLDPCMPlayer player = new MLDPCMPlayer(new MLDPCMPlayer.Listener() {
             @Override
-            public void onLoop() {
+            public void onLoop(long playbackToken) {
             }
 
             @Override
-            public void onSync(int timeMillis) {
+            public void onSync(int timeMillis, long playbackToken) {
             }
 
             @Override
-            public void onComplete() {
+            public void onComplete(long playbackToken) {
+                completionToken.set(playbackToken);
                 completes.incrementAndGet();
             }
 
             @Override
-            public void onFailure(Exception exception) {
+            public void onFailure(Exception exception, long playbackToken) {
                 throw new AssertionError("unexpected failure callback", exception);
             }
         });
@@ -42,7 +45,7 @@ public final class MldSupersededCompletionProbe {
         setBoolean(handle, "completionPending", true);
         setBoolean(handle, "completionNeedsCurrentWrite", false);
         setLong(handle, "completionTargetFrame", 0L);
-        setLong(handle, "completionGeneration", getLong(handle, "generation"));
+        setLong(handle, "completionPlaybackToken", 42L);
 
         List<Runnable> notifications = new ArrayList<>();
         Method dispatchReadyCompletion = handle.getClass().getDeclaredMethod(
@@ -57,8 +60,11 @@ public final class MldSupersededCompletionProbe {
         notifications.forEach(Runnable::run);
         player.close();
 
-        if (completes.get() != 0) {
-            throw new AssertionError("stale completion escaped after stop()");
+        if (completes.get() != 1) {
+            throw new AssertionError("expected one completion callback but saw " + completes.get());
+        }
+        if (completionToken.get() != 42L) {
+            throw new AssertionError("completion token mismatch: " + completionToken.get());
         }
         System.out.println("MldSupersededCompletionProbe OK");
     }
@@ -79,11 +85,5 @@ public final class MldSupersededCompletionProbe {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.setLong(target, value);
-    }
-
-    private static long getLong(Object target, String fieldName) throws Exception {
-        Field field = target.getClass().getDeclaredField(fieldName);
-        field.setAccessible(true);
-        return field.getLong(target);
     }
 }

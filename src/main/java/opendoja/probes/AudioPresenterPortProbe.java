@@ -3,8 +3,6 @@ package opendoja.probes;
 import com.nttdocomo.ui.AudioPresenter;
 import com.nttdocomo.ui.MediaManager;
 import com.nttdocomo.ui.MediaSound;
-import com.nttdocomo.ui.UIException;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -36,10 +34,10 @@ public final class AudioPresenterPortProbe {
 
         port0a.play();
         port3.play();
-        expectBusyResource(port0b::play, "busy explicit port");
+        port0b.play();
+        DemoLog.info(AudioPresenterPortProbe.class, "same explicit port coexistence=ok");
 
         port0a.stop();
-        port0b.play();
         port0b.stop();
         port3.stop();
 
@@ -51,18 +49,6 @@ public final class AudioPresenterPortProbe {
             runnable.run();
             throw new AssertionError(label + " did not throw IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
-            DemoLog.info(AudioPresenterPortProbe.class, label + "=ok");
-        }
-    }
-
-    private static void expectBusyResource(ThrowingRunnable runnable, String label) throws Exception {
-        try {
-            runnable.run();
-            throw new AssertionError(label + " did not throw UIException");
-        } catch (UIException expected) {
-            if (expected.getStatus() != UIException.BUSY_RESOURCE) {
-                throw new AssertionError(label + " wrong status=" + expected.getStatus(), expected);
-            }
             DemoLog.info(AudioPresenterPortProbe.class, label + "=ok");
         }
     }

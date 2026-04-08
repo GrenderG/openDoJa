@@ -25,8 +25,6 @@ import java.util.concurrent.TimeUnit;
  */
 public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private static final boolean TRACE_AUDIO_FAILURES = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_AUDIO_FAILURES);
-    private static final Object PORT_LOCK = new Object();
-    private static final Map<Integer, AudioPresenter> RESERVED_PORTS = new HashMap<>();
     // Keep a fallback callback executor for presenter use outside a live
     // DoJa runtime. Runtime-backed delivery is handled separately below.
     private static final ExecutorService MEDIA_CALLBACKS = Executors.newSingleThreadExecutor(r -> {
@@ -146,6 +144,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private int syncEventKey = -1;
     private int lastMldSyncTimeMillis = Integer.MIN_VALUE;
     private volatile boolean playing;
+    private long activePlaybackToken = Long.MIN_VALUE;
     // Async callbacks from superseded play/stop cycles must not leak into the
     // current presenter state.
     private long callbackGeneration;
@@ -254,7 +253,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         if (time < 0) {
             throw new IllegalArgumentException("time");
         }
-        nextCallbackGeneration();
+        long playbackToken = nextCallbackGeneration();
         registerWithRuntime();
         stopPlayback();
         if (!(resource instanceof MediaManager.BasicMediaSound sound)) {
@@ -266,10 +265,10 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             MediaManager.PreparedSound prepared = sound.prepared();
             int loopCount = configuredLoopCount();
             lastMldSyncTimeMillis = Integer.MIN_VALUE;
-            reserveExplicitPort();
+            setActivePlaybackToken(playbackToken);
             if (time >= singlePlaybackDurationMillis(prepared)) {
                 playing = false;
-                releaseExplicitPort();
+                clearActivePlaybackToken(playbackToken);
                 notifyListener(AUDIO_PLAYING, 0);
                 notifyListener(AUDIO_COMPLETE, 0);
                 return;
@@ -280,10 +279,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                 sequencer.addMetaEventListener(meta -> {
                     // 0x2F is the standard MIDI End-of-Track meta event.
                     if (meta.getType() == 0x2F) {
-                        playing = false;
-                        cancelSyncEvents();
-                        releaseExplicitPort();
-                        notifyListenerAsync(AUDIO_COMPLETE, 0);
+                        handlePlaybackComplete(playbackToken);
                     }
                 });
                 sequencer.setSequence(new ByteArrayInputStream(prepared.bytes()));
@@ -302,13 +298,13 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                 }
                 mldPlayer.setVolumeLevel(currentVolumeLevel());
                 updateMldSyncConfiguration();
-                mldPlayer.start(prepared, loopCount, time);
+                mldPlayer.start(prepared, loopCount, time, playbackToken);
             } else {
                 if (sampledPlayer == null) {
                     sampledPlayer = new SampledPCMPlayer(new SampledListener());
                 }
                 sampledPlayer.setVolumeLevel(currentVolumeLevel());
-                sampledPlayer.start(prepared, loopCount, time);
+                sampledPlayer.start(prepared, loopCount, time, playbackToken);
             }
             playing = true;
             notifyListener(AUDIO_PLAYING, 0);
@@ -319,7 +315,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             throw e;
         } catch (Exception e) {
             playing = false;
-            releaseExplicitPort();
+            clearActivePlaybackToken(playbackToken);
             if (TRACE_AUDIO_FAILURES) {
                 OpenDoJaLog.error(AudioPresenter.class, "Audio playback failed", e);
             }
@@ -447,6 +443,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         playing = false;
         lastMldSyncTimeMillis = Integer.MIN_VALUE;
         cancelSyncEvents();
+        clearActivePlaybackToken();
         if (sampledPlayer != null) {
             sampledPlayer.stop();
         }
@@ -458,7 +455,6 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         if (mldPlayer != null) {
             mldPlayer.stop();
         }
-        releaseExplicitPort();
     }
 
     /**
@@ -549,6 +545,34 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
     }
 
+    private void setActivePlaybackToken(long playbackToken) {
+        synchronized (this) {
+            activePlaybackToken = playbackToken;
+        }
+    }
+
+    private long clearActivePlaybackToken() {
+        synchronized (this) {
+            long playbackToken = activePlaybackToken;
+            activePlaybackToken = Long.MIN_VALUE;
+            return playbackToken;
+        }
+    }
+
+    private void clearActivePlaybackToken(long playbackToken) {
+        synchronized (this) {
+            if (activePlaybackToken == playbackToken) {
+                activePlaybackToken = Long.MIN_VALUE;
+            }
+        }
+    }
+
+    private boolean isActivePlaybackToken(long playbackToken) {
+        synchronized (this) {
+            return activePlaybackToken == playbackToken;
+        }
+    }
+
     private long currentCallbackGeneration() {
         synchronized (this) {
             return callbackGeneration;
@@ -604,28 +628,29 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         return DoJaProfile.current().isAtLeast(2, 0);
     }
 
-    private void reserveExplicitPort() {
-        if (explicitPort < 0) {
+    private void handlePlaybackComplete(long playbackToken) {
+        if (!isActivePlaybackToken(playbackToken)) {
             return;
         }
-        synchronized (PORT_LOCK) {
-            AudioPresenter current = RESERVED_PORTS.get(explicitPort);
-            if (current != null && current != this) {
-                throw new UIException(UIException.BUSY_RESOURCE);
-            }
-            RESERVED_PORTS.put(explicitPort, this);
-        }
+        clearActivePlaybackToken(playbackToken);
+        playing = false;
+        lastMldSyncTimeMillis = Integer.MIN_VALUE;
+        cancelSyncEvents();
+        notifyListenerAsync(AUDIO_COMPLETE, 0);
     }
 
-    private void releaseExplicitPort() {
-        if (explicitPort < 0) {
+    private void handlePlaybackFailure(long playbackToken, Exception exception, String label) {
+        if (!isActivePlaybackToken(playbackToken)) {
             return;
         }
-        synchronized (PORT_LOCK) {
-            if (RESERVED_PORTS.get(explicitPort) == this) {
-                RESERVED_PORTS.remove(explicitPort);
-            }
+        clearActivePlaybackToken(playbackToken);
+        playing = false;
+        lastMldSyncTimeMillis = Integer.MIN_VALUE;
+        cancelSyncEvents();
+        if (TRACE_AUDIO_FAILURES) {
+            OpenDoJaLog.error(AudioPresenter.class, label, exception);
         }
+        notifyListenerAsync(AUDIO_STOPPED, 0);
     }
 
     private static int configuredExplicitPortCount() {
@@ -728,13 +753,19 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
 
     private final class MldListener implements MLDPCMPlayer.Listener {
         @Override
-        public void onLoop() {
+        public void onLoop(long playbackToken) {
+            if (!isActivePlaybackToken(playbackToken)) {
+                return;
+            }
             lastMldSyncTimeMillis = Integer.MIN_VALUE;
             notifyListenerAsync(AUDIO_LOOPED, 0);
         }
 
         @Override
-        public void onSync(int timeMillis) {
+        public void onSync(int timeMillis, long playbackToken) {
+            if (!isActivePlaybackToken(playbackToken)) {
+                return;
+            }
             // DoJa collapses sync callbacks that land inside the same 100 ms window.
             if (lastMldSyncTimeMillis != Integer.MIN_VALUE &&
                     timeMillis - lastMldSyncTimeMillis < SYNC_EVENT_PRECISION_MS) {
@@ -745,50 +776,33 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
 
         @Override
-        public void onComplete() {
-            playing = false;
-            lastMldSyncTimeMillis = Integer.MIN_VALUE;
-            cancelSyncEvents();
-            releaseExplicitPort();
-            notifyListenerAsync(AUDIO_COMPLETE, 0);
+        public void onComplete(long playbackToken) {
+            handlePlaybackComplete(playbackToken);
         }
 
         @Override
-        public void onFailure(Exception exception) {
-            playing = false;
-            lastMldSyncTimeMillis = Integer.MIN_VALUE;
-            cancelSyncEvents();
-            releaseExplicitPort();
-            if (TRACE_AUDIO_FAILURES) {
-                OpenDoJaLog.error(AudioPresenter.class, "MLD playback failed", exception);
-            }
-            notifyListenerAsync(AUDIO_STOPPED, 0);
+        public void onFailure(Exception exception, long playbackToken) {
+            handlePlaybackFailure(playbackToken, exception, "MLD playback failed");
         }
     }
 
     private final class SampledListener implements SampledPCMPlayer.Listener {
         @Override
-        public void onLoop() {
+        public void onLoop(long playbackToken) {
+            if (!isActivePlaybackToken(playbackToken)) {
+                return;
+            }
             notifyListenerAsync(AUDIO_LOOPED, 0);
         }
 
         @Override
-        public void onComplete() {
-            playing = false;
-            cancelSyncEvents();
-            releaseExplicitPort();
-            notifyListenerAsync(AUDIO_COMPLETE, 0);
+        public void onComplete(long playbackToken) {
+            handlePlaybackComplete(playbackToken);
         }
 
         @Override
-        public void onFailure(Exception exception) {
-            playing = false;
-            cancelSyncEvents();
-            releaseExplicitPort();
-            if (TRACE_AUDIO_FAILURES) {
-                OpenDoJaLog.error(AudioPresenter.class, "Sampled playback failed", exception);
-            }
-            notifyListenerAsync(AUDIO_STOPPED, 0);
+        public void onFailure(Exception exception, long playbackToken) {
+            handlePlaybackFailure(playbackToken, exception, "Sampled playback failed");
         }
     }
 }
