@@ -3,6 +3,8 @@ package com.nttdocomo.opt.ui;
 import com.nttdocomo.ui.Graphics;
 import com.nttdocomo.ui.Image;
 
+import java.awt.image.BufferedImage;
+
 /**
  * Defines an image with adjustable transparency.
  */
@@ -115,5 +117,10 @@ public class TransparentImage extends Image {
     @Override
     public int getHeight() {
         return delegate.getHeight();
+    }
+
+    @Override
+    protected BufferedImage renderForDisplayImpl() {
+        return renderImage(delegate);
     }
 }

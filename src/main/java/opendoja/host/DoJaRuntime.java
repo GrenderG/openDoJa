@@ -640,26 +640,40 @@ public final class DoJaRuntime {
     }
 
     private void createWindowIfPossible() {
-        if (GraphicsEnvironment.isHeadless()) {
+        if (!shouldCreateHostWindow(GraphicsEnvironment.isHeadless(), shutdown.get())) {
             return;
         }
         SwingUtilities.invokeLater(() -> {
-            frameWindow = new JFrame(config.title());
-            frameWindow.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-            frameWindow.getContentPane().setBackground(Color.BLACK);
-            frameWindow.setBackground(Color.BLACK);
-            frameWindow.addWindowListener(new java.awt.event.WindowAdapter() {
+            // VerifyError fallback relaunch can abort startup before this queued EDT task runs.
+            // If shutdown already started, do not create the stale first window at all.
+            if (!shouldCreateHostWindow(false, shutdown.get())) {
+                return;
+            }
+            JFrame window = new JFrame(config.title());
+            window.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+            window.getContentPane().setBackground(Color.BLACK);
+            window.setBackground(Color.BLACK);
+            window.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosed(java.awt.event.WindowEvent e) {
                     shutdown();
                 }
             });
-            frameWindow.add(hostPanel);
-            frameWindow.pack();
-            frameWindow.setLocationByPlatform(true);
-            frameWindow.setVisible(true);
+            window.add(hostPanel);
+            window.pack();
+            window.setLocationByPlatform(true);
+            frameWindow = window;
+            if (!shouldCreateHostWindow(false, shutdown.get())) {
+                window.dispose();
+                return;
+            }
+            window.setVisible(true);
             hostPanel.requestFocusInWindow();
         });
+    }
+
+    static boolean shouldCreateHostWindow(boolean headless, boolean shutdownRequested) {
+        return !headless && !shutdownRequested;
     }
 
     private static int keyMask(int keyCode) {

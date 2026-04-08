@@ -266,7 +266,7 @@ public class PalettedImage extends Image {
     }
 
     @Override
-    BufferedImage renderForDisplay() {
+    protected BufferedImage renderForDisplayImpl() {
         if (pixels == null || palette == null) {
             return null;
         }

@@ -171,10 +171,24 @@ public abstract class Image {
     }
 
     BufferedImage renderForDisplay() {
+        return renderForDisplayImpl();
+    }
+
+    /**
+     * Renders this image into a platform image for drawing or encoding.
+     */
+    protected BufferedImage renderForDisplayImpl() {
         if (this instanceof DesktopImage desktopImage) {
             return desktopImage.renderImage();
         }
         return null;
+    }
+
+    /**
+     * Renders another image through the same internal display path.
+     */
+    protected final BufferedImage renderImage(Image image) {
+        return image == null ? null : image.renderForDisplay();
     }
 }
 
