@@ -18,6 +18,8 @@ final class LauncherPreferencesStore {
     private static final String FONT_TYPE_KEY = "fontType";
     private static final String DISABLE_BYTECODE_VERIFICATION_KEY = "disableBytecodeVerification";
     private static final String DISABLE_OS_DPI_SCALING_KEY = "disableOsDpiScaling";
+    private static final String UPDATE_NOTIFICATIONS_PROMPTED_KEY = "updateNotificationsPrompted";
+    private static final String UPDATE_NOTIFICATIONS_ENABLED_KEY = "updateNotificationsEnabled";
     private static final String LAST_DIRECTORY_KEY = "lastDirectory";
     private static final String RECENT_JAM_KEY_PREFIX = "recentJam.";
 
@@ -49,6 +51,19 @@ final class LauncherPreferencesStore {
         preferences.put(FONT_TYPE_KEY, settings.fontType());
         preferences.putBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, settings.disableBytecodeVerification());
         preferences.putBoolean(DISABLE_OS_DPI_SCALING_KEY, settings.disableOsDpiScaling());
+    }
+
+    boolean shouldPromptForUpdateNotifications() {
+        return !preferences.getBoolean(UPDATE_NOTIFICATIONS_PROMPTED_KEY, false);
+    }
+
+    boolean updateNotificationsEnabled() {
+        return preferences.getBoolean(UPDATE_NOTIFICATIONS_ENABLED_KEY, false);
+    }
+
+    void saveUpdateNotificationsPreference(boolean enabled) {
+        preferences.putBoolean(UPDATE_NOTIFICATIONS_PROMPTED_KEY, true);
+        preferences.putBoolean(UPDATE_NOTIFICATIONS_ENABLED_KEY, enabled);
     }
 
     Path lastDirectory() {

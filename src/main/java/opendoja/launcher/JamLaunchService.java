@@ -117,6 +117,18 @@ final class JamLaunchService {
         preferencesStore.saveSettings(settings);
     }
 
+    boolean shouldPromptForUpdateNotifications() {
+        return preferencesStore.shouldPromptForUpdateNotifications();
+    }
+
+    boolean updateNotificationsEnabled() {
+        return preferencesStore.updateNotificationsEnabled();
+    }
+
+    void saveUpdateNotificationsPreference(boolean enabled) {
+        preferencesStore.saveUpdateNotificationsPreference(enabled);
+    }
+
     static Path ensureSdCardFolder() throws IOException {
         Path sdCardFolder = DoJaStorageHost.deviceRoot().toAbsolutePath().normalize();
         Files.createDirectories(sdCardFolder);

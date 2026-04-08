@@ -12,6 +12,9 @@ import java.nio.file.Path;
 public final class OpenDoJaLauncher {
     static final String APP_NAME = "openDoJa Launcher";
     static final String VERSION = "0.1.2";
+    static final String REPOSITORY_URL = "https://github.com/GrenderG/openDoJa";
+    static final String LATEST_RELEASE_URL = REPOSITORY_URL + "/releases/latest";
+    static final String GITHUB_LATEST_RELEASE_API_URL = "https://api.github.com/repos/GrenderG/openDoJa/releases/latest";
     private static final String RUN_JAM_FLAG = "--run-jam";
     private static final String RUN_JAM_INTERNAL_FLAG = "--run-jam-internal";
     private static final String SPAWN_JAM_FLAG = "--spawn-jam";
@@ -31,9 +34,13 @@ public final class OpenDoJaLauncher {
     private static void run(String[] args) throws Exception {
         if (args.length == 0) {
             configureLookAndFeel();
-            SwingUtilities.invokeLater(() -> new OpenDoJaLauncherFrame(
-                    new JamLaunchService(),
-                    new LauncherSettingsController()).setVisible(true));
+            SwingUtilities.invokeLater(() -> {
+                OpenDoJaLauncherFrame frame = new OpenDoJaLauncherFrame(
+                        new JamLaunchService(),
+                        new LauncherSettingsController());
+                frame.setVisible(true);
+                frame.handleInitialStartup();
+            });
             return;
         }
         if (args.length == 1 && looksLikeJamPath(args[0])) {

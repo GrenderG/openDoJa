@@ -2,6 +2,7 @@ package opendoja.launcher;
 
 import opendoja.audio.mld.MLDSynth;
 import opendoja.host.LaunchConfig;
+import opendoja.host.OpenDoJaLog;
 
 import javax.swing.AbstractAction;
 import javax.swing.Action;
@@ -45,17 +46,33 @@ import java.util.Locale;
 final class OpenDoJaLauncherFrame extends JFrame {
     private final JamLaunchService jamLaunchService;
     private final LauncherSettingsController settingsController;
+    private final LauncherUpdateService updateService;
     private final Action loadJamAction;
+    private final Action checkUpdatesAction;
     private final JMenu recentMenu;
+    private volatile boolean updateCheckInProgress;
 
     OpenDoJaLauncherFrame(JamLaunchService jamLaunchService, LauncherSettingsController settingsController) {
+        this(jamLaunchService, settingsController, new LauncherUpdateService());
+    }
+
+    OpenDoJaLauncherFrame(JamLaunchService jamLaunchService,
+                          LauncherSettingsController settingsController,
+                          LauncherUpdateService updateService) {
         super(OpenDoJaLauncher.APP_NAME);
         this.jamLaunchService = jamLaunchService;
         this.settingsController = settingsController;
+        this.updateService = updateService;
         this.loadJamAction = new AbstractAction("Load JAM") {
             @Override
             public void actionPerformed(ActionEvent event) {
                 chooseAndLaunchJam();
+            }
+        };
+        this.checkUpdatesAction = new AbstractAction("Check Updates") {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                beginUpdateCheck(true);
             }
         };
         this.recentMenu = new JMenu("Load Recents...");
@@ -112,6 +129,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 settingsController.showKeybinds(OpenDoJaLauncherFrame.this);
             }
         }));
+        helpMenu.add(new JMenuItem(checkUpdatesAction));
         helpMenu.addSeparator();
         helpMenu.add(new JMenuItem(new AbstractAction("About") {
             @Override
@@ -145,6 +163,23 @@ final class OpenDoJaLauncherFrame extends JFrame {
         root.add(centerPanel, BorderLayout.CENTER);
         installJamDropHandler(root, loadButton);
         return root;
+    }
+
+    void handleInitialStartup() {
+        boolean notificationsEnabled = jamLaunchService.updateNotificationsEnabled();
+        if (jamLaunchService.shouldPromptForUpdateNotifications()) {
+            int choice = JOptionPane.showConfirmDialog(
+                    this,
+                    "Enable notifications when a new stable release is available?",
+                    OpenDoJaLauncher.APP_NAME,
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+            notificationsEnabled = choice == JOptionPane.YES_OPTION;
+            jamLaunchService.saveUpdateNotificationsPreference(notificationsEnabled);
+        }
+        if (notificationsEnabled) {
+            beginUpdateCheck(false);
+        }
     }
 
     private void chooseAndLaunchJam() {
@@ -459,17 +494,73 @@ final class OpenDoJaLauncherFrame extends JFrame {
         };
     }
 
-    private void showAboutDialog() {
-        JEditorPane content = new JEditorPane("text/html",
-                "<html><body style='font-family:sans-serif;font-size:12px'>"
-                        + "<b>" + OpenDoJaLauncher.APP_NAME + "</b><br>"
-                        + "Version " + OpenDoJaLauncher.VERSION + "<br>"
-                        + "Desktop launcher for DoJa games.<br><br>"
-                        + "Source code: <a href='https://github.com/GrenderG/openDoJa'>"
-                        + "https://github.com/GrenderG/openDoJa</a>"
-                        + "</body></html>");
+    private void beginUpdateCheck(boolean userInitiated) {
+        if (updateCheckInProgress) {
+            return;
+        }
+        updateCheckInProgress = true;
+        checkUpdatesAction.setEnabled(false);
+        if (userInitiated) {
+            setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        }
+        Thread.ofVirtual().start(() -> {
+            try {
+                LauncherUpdateService.UpdateCheckResult result = updateService.checkForUpdates();
+                SwingUtilities.invokeLater(() -> handleUpdateCheckResult(userInitiated, result));
+            } catch (Exception exception) {
+                SwingUtilities.invokeLater(() -> handleUpdateCheckFailure(userInitiated, exception));
+            } finally {
+                SwingUtilities.invokeLater(() -> {
+                    updateCheckInProgress = false;
+                    checkUpdatesAction.setEnabled(true);
+                    if (userInitiated) {
+                        setCursor(Cursor.getDefaultCursor());
+                    }
+                });
+            }
+        });
+    }
+
+    private void handleUpdateCheckResult(boolean userInitiated, LauncherUpdateService.UpdateCheckResult result) {
+        if (result.updateAvailable()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    createHtmlPane("<html><body style='font-family:sans-serif;font-size:12px'>"
+                            + "New stable release available: <b>" + escapeHtml(result.latestVersion()) + "</b><br><br>"
+                            + "Download it at:<br>"
+                            + "<a href='" + result.latestReleaseUrl() + "'>" + result.latestReleaseUrl() + "</a>"
+                            + "</body></html>"),
+                    "New Release Available",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (userInitiated) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "You are already on the latest stable version.",
+                    OpenDoJaLauncher.APP_NAME,
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    private void handleUpdateCheckFailure(boolean userInitiated, Exception exception) {
+        if (!userInitiated) {
+            OpenDoJaLog.debug(OpenDoJaLauncherFrame.class,
+                    () -> "Automatic update check skipped: " + exception.getMessage());
+            return;
+        }
+        JOptionPane.showMessageDialog(
+                this,
+                "Could not check for updates.\n\n" + exception.getMessage(),
+                OpenDoJaLauncher.APP_NAME,
+                JOptionPane.ERROR_MESSAGE);
+    }
+
+    private JEditorPane createHtmlPane(String html) {
+        JEditorPane content = new JEditorPane("text/html", html);
         content.setEditable(false);
         content.setOpaque(false);
+        content.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
         content.addHyperlinkListener(event -> {
             if (event.getEventType() != javax.swing.event.HyperlinkEvent.EventType.ACTIVATED) {
                 return;
@@ -482,6 +573,29 @@ final class OpenDoJaLauncherFrame extends JFrame {
             } catch (IOException | URISyntaxException ignored) {
             }
         });
+        return content;
+    }
+
+    private static String escapeHtml(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
+    }
+
+    private void showAboutDialog() {
+        JEditorPane content = createHtmlPane(
+                "<html><body style='font-family:sans-serif;font-size:12px'>"
+                        + "<b>" + OpenDoJaLauncher.APP_NAME + "</b><br>"
+                        + "Version " + OpenDoJaLauncher.VERSION + "<br>"
+                        + "Desktop launcher for DoJa games.<br><br>"
+                        + "Source code: <a href='" + OpenDoJaLauncher.REPOSITORY_URL + "'>"
+                        + OpenDoJaLauncher.REPOSITORY_URL + "</a>"
+                        + "</body></html>");
         JScrollPane scrollPane = new JScrollPane(content);
         scrollPane.setBorder(null);
         scrollPane.setPreferredSize(new Dimension(420, 150));
