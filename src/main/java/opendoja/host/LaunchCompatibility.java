@@ -19,11 +19,17 @@ final class LaunchCompatibility {
         boolean needsEncodingCompat = targetEncoding != null && !defaultCharsetMatches(targetEncoding);
         boolean disableExplicitGc = shouldDisableExplicitGc();
         boolean limitHotSpotTier = shouldLimitHotSpotTier();
-        if (!needsEncodingCompat && !disableExplicitGc && !limitHotSpotTier) {
+        boolean disableOnStackReplacement = shouldDisableOnStackReplacement();
+        if (!needsEncodingCompat && !disableExplicitGc && !limitHotSpotTier
+                && !disableOnStackReplacement) {
             return;
         }
 
-        Process process = new ProcessBuilder(buildCompatibilityCommand(targetEncoding, disableExplicitGc, limitHotSpotTier,
+        Process process = new ProcessBuilder(buildCompatibilityCommand(
+                        targetEncoding,
+                        disableExplicitGc,
+                        limitHotSpotTier,
+                        disableOnStackReplacement,
                         JamLauncher.class.getName(),
                         new String[]{jamPath.toString()}))
                 .inheritIO()
@@ -49,14 +55,17 @@ final class LaunchCompatibility {
         return true;
     }
 
-    private static List<String> buildCompatibilityCommand(String targetEncoding, boolean disableExplicitGc, boolean limitHotSpotTier,
-            String mainClass, String[] args) {
+    private static List<String> buildCompatibilityCommand(String targetEncoding,
+            boolean disableExplicitGc, boolean limitHotSpotTier,
+            boolean disableOnStackReplacement, String mainClass, String[] args) {
         List<String> command = new ArrayList<>();
         command.add(Path.of(OpenDoJaLaunchArgs.get("java.home"), "bin", "java").toString());
         for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
             if (arg.startsWith("-D" + OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED + "=")
                     || arg.startsWith("-Dfile.encoding=")
                     || arg.startsWith("-XX:TieredStopAtLevel=")
+                    || arg.equals("-XX:+UseOnStackReplacement")
+                    || arg.equals("-XX:-UseOnStackReplacement")
                     || arg.equals("-XX:+DisableExplicitGC")
                     || arg.equals("-XX:-DisableExplicitGC")) {
                 continue;
@@ -74,6 +83,12 @@ final class LaunchCompatibility {
             // The official emulator runs on JBlend rather than HotSpot C2. Stopping at tier 1
             // keeps legacy empty polling loops observable without per-title deoptimization.
             command.add("-XX:TieredStopAtLevel=1");
+        }
+        if (disableOnStackReplacement) {
+            // HotSpot OSR can still compile empty scene polling loops into a stale-value spin even
+            // when tiering is capped. Disabling OSR keeps those loops on the normal entry path so
+            // cross-thread scene handoffs used by legacy titles like DDR remain observable.
+            command.add("-XX:-UseOnStackReplacement");
         }
         // Many DoJa-era games decode resource tables through String(byte[], off, len), which
         // follows the VM default charset. Modern Java defaults to UTF-8, but the handset-era
@@ -172,6 +187,17 @@ final class LaunchCompatibility {
                     || arg.startsWith("-XX:TieredStopAtLevel=")
                     || arg.equals("-XX:+TieredCompilation")
                     || arg.equals("-XX:-TieredCompilation")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean shouldDisableOnStackReplacement() {
+        for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+            if (arg.equals("-Xint")
+                    || arg.equals("-XX:+UseOnStackReplacement")
+                    || arg.equals("-XX:-UseOnStackReplacement")) {
                 return false;
             }
         }

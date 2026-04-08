@@ -659,19 +659,7 @@ public class MLDPlayer
                 for (MLDChannel chan : this.channels)
                     for (MLDNote note : chan.notesOut)
                         note.gateTime -= this.pendingTicks;
-                // Retire zero-gate notes before dispatching same-tick events so
-                // backends that suppress active-key retriggers can start a fresh
-                // voice when a note repeats exactly at its gate boundary.
-                for (MLDChannel chan : this.channels)
-                    for (int x = 0; x < chan.notesOut.size(); x++)
-                    {
-                        MLDNote note = chan.notesOut.get(x);
-                        if (note.gateTime != 0)
-                            continue;
-                        this.sampler.keyOff(note.channel, note.key);
-                        chan.notesOut.remove(x--);
-                        chan.notesOn[MLDPlayer.A4 + note.key] = null;
-                    }
+                retireZeroGateNotes();
 
                 // Tracks
                 boolean restartRequested = false;
@@ -701,6 +689,11 @@ public class MLDPlayer
             // another parser pass without advancing sequence time.
             else if (this.pendingTicks == 0)
             {
+                // Zero-duration notes expire at the current tick too. If they
+                // are only retired after a positive tick advance, `untilNote()`
+                // stays pinned at zero and the scheduler can spin forever
+                // without advancing time.
+                retireZeroGateNotes();
                 for (MLDPlayerTrack track : this.tracks)
                 {
                     this.process(track);
@@ -1330,6 +1323,23 @@ public class MLDPlayer
                     ret = note.gateTime;
             }
         return ret;
+    }
+
+    private void retireZeroGateNotes()
+    {
+        // Retire due note-offs before same-tick event processing so
+        // backends that suppress active-key retriggers can start a fresh
+        // voice when a note repeats exactly at its gate boundary.
+        for (MLDChannel chan : this.channels)
+            for (int i = 0; i < chan.notesOut.size(); i++)
+            {
+                MLDNote note = chan.notesOut.get(i);
+                if (note.gateTime != 0)
+                    continue;
+                this.sampler.keyOff(note.channel, note.key);
+                chan.notesOut.remove(i--);
+                chan.notesOn[MLDPlayer.A4 + note.key] = null;
+            }
     }
 
     /**
