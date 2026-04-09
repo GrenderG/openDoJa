@@ -1,6 +1,11 @@
 package com.nttdocomo.ui.ogl;
 
 import com.nttdocomo.ui.ogl.math.Matrix4f;
+import opendoja.host.ogl.HostDirectBuffers.HostByteBuffer;
+import opendoja.host.ogl.HostDirectBuffers.HostDirectBufferBase;
+import opendoja.host.ogl.HostDirectBuffers.HostFloatBuffer;
+import opendoja.host.ogl.HostDirectBuffers.HostIntBuffer;
+import opendoja.host.ogl.HostDirectBuffers.HostShortBuffer;
 
 import java.nio.ByteOrder;
 
@@ -29,7 +34,7 @@ public final class DirectBufferFactory {
      * @return the allocated buffer
      */
     public ByteBuffer allocateByteBuffer(int size) {
-        return new ArrayByteBuffer(new byte[checkedSize(size)]);
+        return new HostByteBuffer(new byte[checkedSize(size)]);
     }
 
     /**
@@ -42,7 +47,7 @@ public final class DirectBufferFactory {
         if (initialData == null) {
             throw new NullPointerException("initialData");
         }
-        return new ArrayByteBuffer(initialData.clone());
+        return new HostByteBuffer(initialData.clone());
     }
 
     /**
@@ -52,8 +57,7 @@ public final class DirectBufferFactory {
      * @return the allocated buffer
      */
     public ByteBuffer allocateByteBuffer(ByteBuffer buff) {
-        ArrayByteBuffer source = requireByteBuffer(buff);
-        return new ArrayByteBuffer(source.values.clone());
+        return new HostByteBuffer(requireByteArray(buff).clone());
     }
 
     /**
@@ -63,7 +67,7 @@ public final class DirectBufferFactory {
      * @return the allocated buffer
      */
     public ShortBuffer allocateShortBuffer(int size) {
-        return new ArrayShortBuffer(new short[checkedSize(size)]);
+        return new HostShortBuffer(new short[checkedSize(size)]);
     }
 
     /**
@@ -81,7 +85,7 @@ public final class DirectBufferFactory {
             int offset = i * 2;
             values[i] = (short) (((initialData[offset] & 0xFF) << 8) | (initialData[offset + 1] & 0xFF));
         }
-        return new ArrayShortBuffer(values);
+        return new HostShortBuffer(values);
     }
 
     /**
@@ -91,8 +95,7 @@ public final class DirectBufferFactory {
      * @return the allocated buffer
      */
     public ShortBuffer allocateShortBuffer(ShortBuffer buff) {
-        ArrayShortBuffer source = requireShortBuffer(buff);
-        return new ArrayShortBuffer(source.values.clone());
+        return new HostShortBuffer(requireShortArray(buff).clone());
     }
 
     /**
@@ -102,7 +105,7 @@ public final class DirectBufferFactory {
      * @return the allocated buffer
      */
     public IntBuffer allocateIntBuffer(int size) {
-        return new ArrayIntBuffer(new int[checkedSize(size)]);
+        return new HostIntBuffer(new int[checkedSize(size)]);
     }
 
     /**
@@ -123,7 +126,7 @@ public final class DirectBufferFactory {
                     | ((initialData[offset + 2] & 0xFF) << 8)
                     | (initialData[offset + 3] & 0xFF);
         }
-        return new ArrayIntBuffer(values);
+        return new HostIntBuffer(values);
     }
 
     /**
@@ -133,8 +136,7 @@ public final class DirectBufferFactory {
      * @return the allocated buffer
      */
     public IntBuffer allocateIntBuffer(IntBuffer buff) {
-        ArrayIntBuffer source = requireIntBuffer(buff);
-        return new ArrayIntBuffer(source.values.clone());
+        return new HostIntBuffer(requireIntArray(buff).clone());
     }
 
     /**
@@ -144,7 +146,7 @@ public final class DirectBufferFactory {
      * @return the allocated buffer
      */
     public FloatBuffer allocateFloatBuffer(int size) {
-        return new ArrayFloatBuffer(new float[checkedSize(size)]);
+        return new HostFloatBuffer(new float[checkedSize(size)]);
     }
 
     /**
@@ -166,7 +168,7 @@ public final class DirectBufferFactory {
                     | (initialData[offset + 3] & 0xFF);
             values[i] = Float.intBitsToFloat(bits);
         }
-        return new ArrayFloatBuffer(values);
+        return new HostFloatBuffer(values);
     }
 
     /**
@@ -176,8 +178,7 @@ public final class DirectBufferFactory {
      * @return the allocated buffer
      */
     public FloatBuffer allocateFloatBuffer(FloatBuffer buff) {
-        ArrayFloatBuffer source = requireFloatBuffer(buff);
-        return new ArrayFloatBuffer(source.values.clone());
+        return new HostFloatBuffer(requireFloatArray(buff).clone());
     }
 
     /**
@@ -196,7 +197,7 @@ public final class DirectBufferFactory {
             values[offset] = (byte) (initialData[i] >>> 8);
             values[offset + 1] = (byte) initialData[i];
         }
-        return new ArrayByteBuffer(values);
+        return new HostByteBuffer(values);
     }
 
     /**
@@ -209,7 +210,7 @@ public final class DirectBufferFactory {
         if (initialData == null) {
             throw new NullPointerException("initialData");
         }
-        return new ArrayFloatBuffer(initialData.clone());
+        return new HostFloatBuffer(initialData.clone());
     }
 
     /**
@@ -222,7 +223,7 @@ public final class DirectBufferFactory {
         if (initialData == null) {
             throw new NullPointerException("initialData");
         }
-        return new ArrayIntBuffer(initialData.clone());
+        return new HostIntBuffer(initialData.clone());
     }
 
     /**
@@ -235,7 +236,7 @@ public final class DirectBufferFactory {
         if (initialData == null) {
             throw new NullPointerException("initialData");
         }
-        return new ArrayShortBuffer(initialData.clone());
+        return new HostShortBuffer(initialData.clone());
     }
 
     private static int checkedSize(int size) {
@@ -245,47 +246,119 @@ public final class DirectBufferFactory {
         return size;
     }
 
-    private static ArrayByteBuffer requireByteBuffer(ByteBuffer buff) {
+    private static byte[] requireByteArray(ByteBuffer buff) {
         if (buff == null) {
             throw new NullPointerException("buff");
         }
-        if (!(buff instanceof ArrayByteBuffer array)) {
-            throw new IllegalArgumentException("buff");
+        if (buff instanceof HostByteBuffer array) {
+            return array.values();
         }
-        return array;
+        if (buff instanceof ArrayByteBuffer array) {
+            return array.values;
+        }
+        throw new IllegalArgumentException("buff");
     }
 
-    private static ArrayShortBuffer requireShortBuffer(ShortBuffer buff) {
+    private static short[] requireShortArray(ShortBuffer buff) {
         if (buff == null) {
             throw new NullPointerException("buff");
         }
-        if (!(buff instanceof ArrayShortBuffer array)) {
-            throw new IllegalArgumentException("buff");
+        if (buff instanceof HostShortBuffer array) {
+            return array.values();
         }
-        return array;
+        if (buff instanceof ArrayShortBuffer array) {
+            return array.values;
+        }
+        throw new IllegalArgumentException("buff");
     }
 
-    private static ArrayIntBuffer requireIntBuffer(IntBuffer buff) {
+    private static int[] requireIntArray(IntBuffer buff) {
         if (buff == null) {
             throw new NullPointerException("buff");
         }
-        if (!(buff instanceof ArrayIntBuffer array)) {
-            throw new IllegalArgumentException("buff");
+        if (buff instanceof HostIntBuffer array) {
+            return array.values();
         }
-        return array;
+        if (buff instanceof ArrayIntBuffer array) {
+            return array.values;
+        }
+        throw new IllegalArgumentException("buff");
     }
 
-    private static ArrayFloatBuffer requireFloatBuffer(FloatBuffer buff) {
+    private static float[] requireFloatArray(FloatBuffer buff) {
         if (buff == null) {
             throw new NullPointerException("buff");
         }
-        if (!(buff instanceof ArrayFloatBuffer array)) {
-            throw new IllegalArgumentException("buff");
+        if (buff instanceof HostFloatBuffer array) {
+            return array.values();
         }
-        return array;
+        if (buff instanceof ArrayFloatBuffer array) {
+            return array.values;
+        }
+        throw new IllegalArgumentException("buff");
     }
 
-    private abstract static class AbstractBuffer {
+    /**
+     * Returns the active segment offset for a host direct buffer.
+     *
+     * @param buff the buffer
+     * @return the segment offset
+     */
+    public static int getSegmentOffset(DirectBuffer buff) {
+        if (buff == null) {
+            throw new NullPointerException("buff");
+        }
+        if (buff instanceof AbstractBuffer buffer) {
+            return buffer.segmentOffset();
+        }
+        if (buff instanceof HostDirectBufferBase hostBuffer) {
+            return hostBuffer.segmentOffset();
+        }
+        throw new IllegalArgumentException("buff");
+    }
+
+    /**
+     * Returns the active segment length for a host direct buffer.
+     *
+     * @param buff the buffer
+     * @return the segment length
+     */
+    public static int getSegmentLength(DirectBuffer buff) {
+        if (buff == null) {
+            throw new NullPointerException("buff");
+        }
+        if (buff instanceof AbstractBuffer buffer) {
+            return buffer.segmentLength();
+        }
+        if (buff instanceof HostDirectBufferBase hostBuffer) {
+            return hostBuffer.segmentLength();
+        }
+        throw new IllegalArgumentException("buff");
+    }
+
+    /**
+     * Returns one short value from a host short buffer.
+     *
+     * @param buff the buffer
+     * @param index the element index
+     * @return the short value
+     */
+    public static short getShort(ShortBuffer buff, int index) {
+        return requireShortArray(buff)[index];
+    }
+
+    /**
+     * Returns one float value from a host float buffer.
+     *
+     * @param buff the buffer
+     * @param index the element index
+     * @return the float value
+     */
+    public static float getFloat(FloatBuffer buff, int index) {
+        return requireFloatArray(buff)[index];
+    }
+
+    public abstract static class AbstractBuffer {
         int segmentOffset;
         int segmentLength;
 
@@ -313,10 +386,10 @@ public final class DirectBufferFactory {
         }
     }
 
-    private static final class ArrayByteBuffer extends AbstractBuffer implements ByteBuffer {
+    public static final class ArrayByteBuffer extends AbstractBuffer implements ByteBuffer {
         private final byte[] values;
 
-        ArrayByteBuffer(byte[] values) {
+        public ArrayByteBuffer(byte[] values) {
             this.values = values;
             clearSegmentInternal();
         }
@@ -371,10 +444,10 @@ public final class DirectBufferFactory {
         }
     }
 
-    private static final class ArrayShortBuffer extends AbstractBuffer implements ShortBuffer {
+    public static final class ArrayShortBuffer extends AbstractBuffer implements ShortBuffer {
         private final short[] values;
 
-        ArrayShortBuffer(short[] values) {
+        public ArrayShortBuffer(short[] values) {
             this.values = values;
             clearSegmentInternal();
         }
@@ -429,10 +502,10 @@ public final class DirectBufferFactory {
         }
     }
 
-    private static final class ArrayIntBuffer extends AbstractBuffer implements IntBuffer {
+    public static final class ArrayIntBuffer extends AbstractBuffer implements IntBuffer {
         private final int[] values;
 
-        ArrayIntBuffer(int[] values) {
+        public ArrayIntBuffer(int[] values) {
             this.values = values;
             clearSegmentInternal();
         }
@@ -487,10 +560,10 @@ public final class DirectBufferFactory {
         }
     }
 
-    private static final class ArrayFloatBuffer extends AbstractBuffer implements FloatBuffer {
+    public static final class ArrayFloatBuffer extends AbstractBuffer implements FloatBuffer {
         private final float[] values;
 
-        ArrayFloatBuffer(float[] values) {
+        public ArrayFloatBuffer(float[] values) {
             this.values = values;
             clearSegmentInternal();
         }
@@ -549,22 +622,21 @@ public final class DirectBufferFactory {
             if (src1 == null && src2 == null) {
                 throw new NullPointerException();
             }
-            ArrayFloatBuffer left = src1 == null ? null : requireFloatBuffer(src1);
-            ArrayFloatBuffer right = src2 == null ? null : requireFloatBuffer(src2);
             int expectedLength = segmentLength();
-            if ((left != null && left.segmentLength() != expectedLength) || (right != null && right.segmentLength() != expectedLength)) {
+            if ((src1 != null && getSegmentLength(src1) != expectedLength)
+                    || (src2 != null && getSegmentLength(src2) != expectedLength)) {
                 throw new IllegalArgumentException("segment");
             }
             int dst = segmentOffset();
-            int leftIndex = left == null ? 0 : left.segmentOffset();
-            int rightIndex = right == null ? 0 : right.segmentOffset();
+            int leftIndex = src1 == null ? 0 : getSegmentOffset(src1);
+            int rightIndex = src2 == null ? 0 : getSegmentOffset(src2);
             for (int i = 0; i < expectedLength; i++) {
                 float value = 0f;
-                if (left != null) {
-                    value += left.values[leftIndex + i];
+                if (src1 != null) {
+                    value += getFloat(src1, leftIndex + i);
                 }
-                if (right != null) {
-                    value += multiplier * right.values[rightIndex + i];
+                if (src2 != null) {
+                    value += multiplier * getFloat(src2, rightIndex + i);
                 }
                 values[dst + i] = value;
             }
@@ -573,7 +645,6 @@ public final class DirectBufferFactory {
 
         @Override
         public FloatBuffer transform(FloatBuffer src, Matrix4f matrix, int itemSize, int itemCount) {
-            ArrayFloatBuffer source = requireFloatBuffer(src);
             if (matrix == null) {
                 throw new NullPointerException("matrix");
             }
@@ -590,28 +661,28 @@ public final class DirectBufferFactory {
                 throw new ArrayIndexOutOfBoundsException("matrix.m");
             }
             int required = itemSize * itemCount;
-            if (required > segmentLength() || required > source.segmentLength()) {
+            if (required > segmentLength() || required > getSegmentLength(src)) {
                 throw new ArrayIndexOutOfBoundsException();
             }
             int dst = segmentOffset();
-            int srcIndex = source.segmentOffset();
+            int srcIndex = getSegmentOffset(src);
             float[] m = matrix.m;
             for (int item = 0; item < itemCount; item++) {
-                float x = source.values[srcIndex++];
-                float y = source.values[srcIndex++];
+                float x = getFloat(src, srcIndex++);
+                float y = getFloat(src, srcIndex++);
                 if (itemSize == 2) {
                     values[dst++] = m[0] * x + m[4] * y + m[12];
                     values[dst++] = m[1] * x + m[5] * y + m[13];
                     continue;
                 }
-                float z = source.values[srcIndex++];
+                float z = getFloat(src, srcIndex++);
                 if (itemSize == 3) {
                     values[dst++] = m[0] * x + m[4] * y + m[8] * z + m[12];
                     values[dst++] = m[1] * x + m[5] * y + m[9] * z + m[13];
                     values[dst++] = m[2] * x + m[6] * y + m[10] * z + m[14];
                     continue;
                 }
-                float w = source.values[srcIndex++];
+                float w = getFloat(src, srcIndex++);
                 values[dst++] = m[0] * x + m[4] * y + m[8] * z + m[12] * w;
                 values[dst++] = m[1] * x + m[5] * y + m[9] * z + m[13] * w;
                 values[dst++] = m[2] * x + m[6] * y + m[10] * z + m[14] * w;
