@@ -1,4 +1,7 @@
-package opendoja.host;
+package opendoja.probes;
+
+import opendoja.host.DesktopHttpConnection;
+import opendoja.host.OpenDoJaLaunchArgs;
 
 import javax.microedition.io.Connector;
 import java.net.URL;

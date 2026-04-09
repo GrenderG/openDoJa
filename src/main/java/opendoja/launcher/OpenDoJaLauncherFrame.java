@@ -1,6 +1,7 @@
 package opendoja.launcher;
 
 import opendoja.audio.mld.MLDSynth;
+import opendoja.host.DoJaRuntime;
 import opendoja.host.LaunchConfig;
 import opendoja.host.OpenDoJaLog;
 
@@ -355,7 +356,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         LauncherSettings settings = jamLaunchService.loadSettings();
         JMenu hostScaleMenu = new JMenu("Host Scale");
         ButtonGroup group = new ButtonGroup();
-        for (int scale = 1; scale <= 4; scale++) {
+        for (int scale = DoJaRuntime.MIN_HOST_SCALE; scale <= DoJaRuntime.MAX_HOST_SCALE; scale++) {
             final int selectedScale = scale;
             JRadioButtonMenuItem item = new JRadioButtonMenuItem(new AbstractAction((scale * 100) + "%") {
                 @Override

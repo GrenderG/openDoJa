@@ -59,7 +59,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 public final class DoJaRuntime {
-    private static final int MAX_HOST_SCALE = 4;
+    public static final int MIN_HOST_SCALE = 1;
+    public static final int MAX_HOST_SCALE = 4;
+
     private static final ThreadLocal<LaunchConfig> PREPARED_LAUNCH = new ThreadLocal<>();
     private static final boolean TRACE_EVENTS = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_EVENTS);
     private static final long MINIMUM_SELECT_PRESS_NANOS =
@@ -699,6 +701,7 @@ public final class DoJaRuntime {
             window.pack();
             // GNOME/OpenJDK can ignore setLocationByPlatform(true) for non-resizable frames,
             // which leaves the host window near the primary-display origin instead of on the active screen.
+            //window.setLocationByPlatform(true);
             centerOnCurrentScreen(window);
 
             frameWindow = window;
@@ -749,7 +752,7 @@ public final class DoJaRuntime {
     }
 
     static int normalizeHostScale(int scale) {
-        return java.lang.Math.max(1, java.lang.Math.min(MAX_HOST_SCALE, scale));
+        return Math.clamp(scale, MIN_HOST_SCALE, MAX_HOST_SCALE);
     }
 
     private static boolean resolveExternalFrameEnabled(LaunchConfig config) {
@@ -993,7 +996,7 @@ public final class DoJaRuntime {
         private JPopupMenu buildHostScalePopup() {
             JPopupMenu menu = new JPopupMenu();
             ButtonGroup group = new ButtonGroup();
-            for (int scale = 1; scale <= MAX_HOST_SCALE; scale++) {
+            for (int scale = MIN_HOST_SCALE; scale <= MAX_HOST_SCALE; scale++) {
                 int selectedScale = scale;
                 JRadioButtonMenuItem item = new JRadioButtonMenuItem(new AbstractAction((scale * 100) + "%") {
                     @Override

@@ -5,7 +5,7 @@
 
   <groupId>dev.opendoja</groupId>
   <artifactId>opendoja</artifactId>
-  <version>0.1.3</version>
+  <version>0.1.4</version>
   <name>openDoJa</name>
   <description>Desktop-targeted DoJa 5.1 recreation</description>
 
