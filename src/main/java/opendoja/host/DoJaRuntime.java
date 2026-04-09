@@ -18,9 +18,16 @@ import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.GraphicsConfiguration;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
+import java.awt.Insets;
+import java.awt.MouseInfo;
+import java.awt.PointerInfo;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Toolkit;
+import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
@@ -690,20 +697,44 @@ public final class DoJaRuntime {
             window.add(hostPanel);
             window.setResizable(false);
             window.pack();
-            window.setLocationByPlatform(true);
+            // GNOME/OpenJDK can ignore setLocationByPlatform(true) for non-resizable frames,
+            // which leaves the host window near the primary-display origin instead of on the active screen.
+            centerOnCurrentScreen(window);
+
             frameWindow = window;
             if (!shouldCreateHostWindow(false, shutdown.get())) {
                 window.dispose();
                 return;
             }
             window.setVisible(true);
-            repackWindow();
             hostPanel.requestFocusInWindow();
         });
     }
 
     static boolean shouldCreateHostWindow(boolean headless, boolean shutdownRequested) {
         return !headless && !shutdownRequested;
+    }
+
+    private static void centerOnCurrentScreen(Window window) {
+        PointerInfo pointerInfo = MouseInfo.getPointerInfo();
+        GraphicsConfiguration graphicsConfiguration = pointerInfo != null
+                ? pointerInfo.getDevice().getDefaultConfiguration()
+                : window.getGraphicsConfiguration();
+        if (graphicsConfiguration == null) {
+            return;
+        }
+
+        Rectangle bounds = graphicsConfiguration.getBounds();
+        Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(graphicsConfiguration);
+        int usableX = bounds.x + insets.left;
+        int usableY = bounds.y + insets.top;
+        int usableWidth = bounds.width - insets.left - insets.right;
+        int usableHeight = bounds.height - insets.top - insets.bottom;
+
+        Dimension size = window.getSize();
+        int x = usableX + (usableWidth - size.width) / 2;
+        int y = usableY + (usableHeight - size.height) / 2;
+        window.setLocation(x, y);
     }
 
     private static int keyMask(int keyCode) {
