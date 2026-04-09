@@ -4,7 +4,10 @@ import opendoja.audio.mld.MLDSynth;
 import opendoja.host.OpenDoJaIdentity;
 
 import java.awt.Component;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Locale;
 import javax.swing.JOptionPane;
 
 final class LauncherSettingsController {
@@ -54,6 +57,24 @@ final class LauncherSettingsController {
         return normalized;
     }
 
+    String promptHttpOverrideDomain(Component parent, String currentValue) {
+        String entered = promptValue(parent, "HTTP Host Override", currentValue,
+                "Enter the exact hostname to rewrite to localhost. Leave blank to disable.");
+        if (entered == null) {
+            return null;
+        }
+        String normalized = normalizeHttpOverrideDomain(entered);
+        if (normalized == null) {
+            JOptionPane.showMessageDialog(
+                    parent,
+                    "Enter only a hostname such as example.com. Do not include a scheme, path, query, or port.",
+                    "HTTP Host Override",
+                    JOptionPane.ERROR_MESSAGE);
+            return null;
+        }
+        return normalized;
+    }
+
     private String promptValue(Component parent, String title, String currentValue, String prompt) {
         String entered = (String) JOptionPane.showInputDialog(
                 parent,
@@ -64,5 +85,29 @@ final class LauncherSettingsController {
                 null,
                 currentValue);
         return entered == null ? null : entered;
+    }
+
+    private static String normalizeHttpOverrideDomain(String candidate) {
+        String normalized = candidate == null ? "" : candidate.trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (normalized.contains("://")
+                || normalized.contains("/")
+                || normalized.contains("?")
+                || normalized.contains("#")
+                || normalized.contains(":")) {
+            return null;
+        }
+        try {
+            URI uri = new URI("http://" + normalized);
+            String host = uri.getHost();
+            if (host == null || !normalized.equalsIgnoreCase(host)) {
+                return null;
+            }
+            return host.toLowerCase(Locale.ROOT);
+        } catch (URISyntaxException exception) {
+            return null;
+        }
     }
 }

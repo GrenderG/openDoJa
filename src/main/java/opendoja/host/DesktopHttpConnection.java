@@ -9,6 +9,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
 
@@ -240,9 +242,32 @@ public final class DesktopHttpConnection implements HttpConnection {
 
     private static URL rewriteOutboundUrl(URL rawUrl) {
         try {
-            return OpenDoJaIdentity.replaceDefaultUserIdToken(rawUrl);
+            return OpenDoJaIdentity.replaceDefaultUserIdToken(rewriteConfiguredHost(rawUrl));
         } catch (IOException exception) {
             return rawUrl;
+        }
+    }
+
+    private static URL rewriteConfiguredHost(URL rawUrl) throws IOException {
+        if (rawUrl == null) {
+            return null;
+        }
+        String configuredHost = OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.HTTP_OVERRIDE_DOMAIN, "").trim();
+        String requestHost = rawUrl.getHost();
+        if (configuredHost.isEmpty() || requestHost == null || !requestHost.equalsIgnoreCase(configuredHost)) {
+            return rawUrl;
+        }
+        try {
+            return new URI(
+                    rawUrl.getProtocol(),
+                    rawUrl.getUserInfo(),
+                    "localhost",
+                    rawUrl.getPort(),
+                    rawUrl.getPath(),
+                    rawUrl.getQuery(),
+                    rawUrl.getRef()).toURL();
+        } catch (URISyntaxException exception) {
+            throw new IOException("Could not rewrite outbound URL: " + rawUrl, exception);
         }
     }
 

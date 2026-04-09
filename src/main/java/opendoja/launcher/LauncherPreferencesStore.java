@@ -16,6 +16,7 @@ final class LauncherPreferencesStore {
     private static final String TERMINAL_ID_KEY = "terminalId";
     private static final String USER_ID_KEY = "userId";
     private static final String FONT_TYPE_KEY = "fontType";
+    private static final String HTTP_OVERRIDE_DOMAIN_KEY = "httpOverrideDomain";
     private static final String DISABLE_BYTECODE_VERIFICATION_KEY = "disableBytecodeVerification";
     private static final String DISABLE_OS_DPI_SCALING_KEY = "disableOsDpiScaling";
     private static final String UPDATE_NOTIFICATIONS_PROMPTED_KEY = "updateNotificationsPrompted";
@@ -31,6 +32,8 @@ final class LauncherPreferencesStore {
         String storedTerminalId = preferences.get(TERMINAL_ID_KEY, OpenDoJaIdentity.defaultTerminalId());
         String storedUserId = preferences.get(USER_ID_KEY, OpenDoJaIdentity.defaultUserId());
         String storedFontType = preferences.get(FONT_TYPE_KEY, OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.FONT_TYPE));
+        String storedHttpOverrideDomain = preferences.get(HTTP_OVERRIDE_DOMAIN_KEY,
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.HTTP_OVERRIDE_DOMAIN, ""));
         boolean storedDisableBytecodeVerification = preferences.getBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, false);
         boolean storedDisableOsDpiScaling = preferences.getBoolean(DISABLE_OS_DPI_SCALING_KEY, false);
         return new LauncherSettings(
@@ -39,6 +42,7 @@ final class LauncherPreferencesStore {
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.TERMINAL_ID, storedTerminalId),
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.USER_ID, storedUserId),
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.FONT_TYPE, storedFontType),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.HTTP_OVERRIDE_DOMAIN, storedHttpOverrideDomain),
                 storedDisableBytecodeVerification,
                 storedDisableOsDpiScaling);
     }
@@ -49,6 +53,7 @@ final class LauncherPreferencesStore {
         preferences.put(TERMINAL_ID_KEY, settings.terminalId());
         preferences.put(USER_ID_KEY, settings.userId());
         preferences.put(FONT_TYPE_KEY, settings.fontType());
+        preferences.put(HTTP_OVERRIDE_DOMAIN_KEY, settings.httpOverrideDomain());
         preferences.putBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, settings.disableBytecodeVerification());
         preferences.putBoolean(DISABLE_OS_DPI_SCALING_KEY, settings.disableOsDpiScaling());
     }

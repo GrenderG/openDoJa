@@ -121,6 +121,12 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 updateUserId();
             }
         }));
+        settingsMenu.add(new JMenuItem(new AbstractAction("HTTP Host Override...") {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                updateHttpOverrideDomain();
+            }
+        }));
 
         JMenu helpMenu = new JMenu("Help");
         helpMenu.add(new JMenuItem(new AbstractAction("Keybinds") {
@@ -355,6 +361,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
                             current.terminalId(),
                             current.userId(),
                             current.fontType(),
+                            current.httpOverrideDomain(),
                             current.disableBytecodeVerification(),
                             current.disableOsDpiScaling()));
                 }
@@ -381,6 +388,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
                             current.terminalId(),
                             current.userId(),
                             fontType.id,
+                            current.httpOverrideDomain(),
                             current.disableBytecodeVerification(),
                             current.disableOsDpiScaling()));
                 }
@@ -407,6 +415,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
                             current.terminalId(),
                             current.userId(),
                             current.fontType(),
+                            current.httpOverrideDomain(),
                             current.disableBytecodeVerification(),
                             current.disableOsDpiScaling()));
                 }
@@ -432,6 +441,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
                     current.terminalId(),
                     current.userId(),
                     current.fontType(),
+                    current.httpOverrideDomain(),
                     disableBytecodeVerificationItem.isSelected(),
                     current.disableOsDpiScaling()));
         });
@@ -447,6 +457,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
                     current.terminalId(),
                     current.userId(),
                     current.fontType(),
+                    current.httpOverrideDomain(),
                     current.disableBytecodeVerification(),
                     disableOsDpiScalingItem.isSelected()));
         });
@@ -467,6 +478,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 updated,
                 current.userId(),
                 current.fontType(),
+                current.httpOverrideDomain(),
                 current.disableBytecodeVerification(),
                 current.disableOsDpiScaling()));
     }
@@ -483,6 +495,24 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 current.terminalId(),
                 updated,
                 current.fontType(),
+                current.httpOverrideDomain(),
+                current.disableBytecodeVerification(),
+                current.disableOsDpiScaling()));
+    }
+
+    private void updateHttpOverrideDomain() {
+        LauncherSettings current = jamLaunchService.loadSettings();
+        String updated = settingsController.promptHttpOverrideDomain(this, current.httpOverrideDomain());
+        if (updated == null) {
+            return;
+        }
+        jamLaunchService.saveSettings(new LauncherSettings(
+                current.hostScale(),
+                current.synthId(),
+                current.terminalId(),
+                current.userId(),
+                current.fontType(),
+                updated,
                 current.disableBytecodeVerification(),
                 current.disableOsDpiScaling()));
     }

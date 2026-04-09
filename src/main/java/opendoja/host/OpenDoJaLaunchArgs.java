@@ -124,6 +124,8 @@ public final class OpenDoJaLaunchArgs {
     public static final String GPS_TRACKING_SUPPORTED = "opendoja.gpsTrackingSupported";
     /** Integer scale factor for the host viewport. */
     public static final String HOST_SCALE = "opendoja.hostScale";
+    /** Hostname to rewrite to localhost for outbound HTTP requests. */
+    public static final String HTTP_OVERRIDE_DOMAIN = "opendoja.httpOverrideDomain";
     /** Simulated handset terminal ID returned to apps. */
     public static final String TERMINAL_ID = "opendoja.terminalId";
     /** Simulated user ID returned to apps. */
@@ -298,6 +300,7 @@ public final class OpenDoJaLaunchArgs {
             GPS_SUPPORTED,
             GPS_TRACKING_SUPPORTED,
             HOST_SCALE,
+            HTTP_OVERRIDE_DOMAIN,
             TERMINAL_ID,
             USER_ID,
             INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS,
@@ -509,6 +512,7 @@ public final class OpenDoJaLaunchArgs {
         defaults.put(GPS_SUPPORTED, () -> "true");
         defaults.put(GPS_TRACKING_SUPPORTED, () -> "true");
         defaults.put(HOST_SCALE, () -> "1");
+        defaults.put(HTTP_OVERRIDE_DOMAIN, () -> "");
         defaults.put(TERMINAL_ID, OpenDoJaIdentity::defaultTerminalId);
         defaults.put(USER_ID, OpenDoJaIdentity::defaultUserId);
         defaults.put(INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS, () -> "25");
