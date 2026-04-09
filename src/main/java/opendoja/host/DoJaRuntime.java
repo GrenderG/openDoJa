@@ -7,19 +7,27 @@ import com.nttdocomo.ui.Frame;
 import com.nttdocomo.ui.Graphics;
 import com.nttdocomo.ui.IApplication;
 
+import javax.swing.AbstractAction;
+import javax.swing.ButtonGroup;
 import javax.swing.JFrame;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
+import javax.swing.JRadioButtonMenuItem;
 import javax.swing.Timer;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
 import java.awt.RenderingHints;
+import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
@@ -44,6 +52,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 public final class DoJaRuntime {
+    private static final int MAX_HOST_SCALE = 4;
     private static final ThreadLocal<LaunchConfig> PREPARED_LAUNCH = new ThreadLocal<>();
     private static final boolean TRACE_EVENTS = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_EVENTS);
     private static final long MINIMUM_SELECT_PRESS_NANOS =
@@ -77,7 +86,7 @@ public final class DoJaRuntime {
     private final HostPanel hostPanel;
     private final ExternalFrameRenderer externalFrameRenderer;
     private final ScratchpadStorage scratchpadStorage;
-    private final int hostScale;
+    private volatile int hostScale;
     private volatile IApplication application;
     private JFrame frameWindow;
     private Frame currentFrame;
@@ -220,6 +229,25 @@ public final class DoJaRuntime {
 
     public int hostScale() {
         return hostScale;
+    }
+
+    public void setHostScale(int scale) {
+        int normalized = normalizeHostScale(scale);
+        if (hostScale == normalized) {
+            return;
+        }
+        hostScale = normalized;
+        if (SwingUtilities.isEventDispatchThread()) {
+            hostPanel.refreshPreferredSize();
+            repackWindow();
+            repaintWindow();
+        } else {
+            SwingUtilities.invokeLater(() -> {
+                hostPanel.refreshPreferredSize();
+                repackWindow();
+                repaintWindow();
+            });
+        }
     }
 
     public String sourceUrl() {
@@ -660,6 +688,7 @@ public final class DoJaRuntime {
                 }
             });
             window.add(hostPanel);
+            window.setResizable(false);
             window.pack();
             window.setLocationByPlatform(true);
             frameWindow = window;
@@ -668,6 +697,7 @@ public final class DoJaRuntime {
                 return;
             }
             window.setVisible(true);
+            repackWindow();
             hostPanel.requestFocusInWindow();
         });
     }
@@ -684,7 +714,11 @@ public final class DoJaRuntime {
     }
 
     private static int resolveHostScale(LaunchConfig config) {
-        return java.lang.Math.max(1, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.HOST_SCALE));
+        return normalizeHostScale(opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.HOST_SCALE));
+    }
+
+    static int normalizeHostScale(int scale) {
+        return java.lang.Math.max(1, java.lang.Math.min(MAX_HOST_SCALE, scale));
     }
 
     private static boolean resolveExternalFrameEnabled(LaunchConfig config) {
@@ -695,8 +729,25 @@ public final class DoJaRuntime {
 
     private void repackWindow() {
         if (frameWindow != null) {
-            frameWindow.pack();
+            Dimension preferred = hostPreferredSizeForScale(hostScale);
+            hostPanel.setSize(preferred);
+            if (!frameWindow.isDisplayable()) {
+                frameWindow.pack();
+            } else {
+                java.awt.Insets insets = frameWindow.getInsets();
+                frameWindow.setSize(
+                        preferred.width + insets.left + insets.right,
+                        preferred.height + insets.top + insets.bottom);
+                frameWindow.validate();
+            }
         }
+    }
+
+    private Dimension hostPreferredSizeForScale(int scale) {
+        return externalFrameRenderer.layoutFor(
+                displayWidth(),
+                displayHeight(),
+                normalizeHostScale(scale)).preferredSize();
     }
 
 
@@ -830,6 +881,7 @@ public final class DoJaRuntime {
             setBackground(Color.BLACK);
             setOpaque(true);
             setFocusable(true);
+            installHostScalePopup();
             addFocusListener(new FocusAdapter() {
                 @Override
                 public void focusLost(FocusEvent e) {
@@ -880,10 +932,56 @@ public final class DoJaRuntime {
             return timer::stop;
         }
 
+        private void installHostScalePopup() {
+            MouseAdapter popupListener = new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent event) {
+                    maybeShowPopup(event);
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent event) {
+                    maybeShowPopup(event);
+                }
+            };
+            addMouseListener(popupListener);
+        }
+
+        private void maybeShowPopup(MouseEvent event) {
+            if (!event.isPopupTrigger()) {
+                return;
+            }
+            JPopupMenu menu = buildHostScalePopup();
+            menu.show(event.getComponent(), event.getX(), event.getY());
+        }
+
+        private JPopupMenu buildHostScalePopup() {
+            JPopupMenu menu = new JPopupMenu();
+            ButtonGroup group = new ButtonGroup();
+            for (int scale = 1; scale <= MAX_HOST_SCALE; scale++) {
+                int selectedScale = scale;
+                JRadioButtonMenuItem item = new JRadioButtonMenuItem(new AbstractAction((scale * 100) + "%") {
+                    @Override
+                    public void actionPerformed(ActionEvent event) {
+                        runtime.setHostScale(selectedScale);
+                        HostPanel.this.requestFocusInWindow();
+                    }
+                });
+                item.setSelected(runtime.hostScale() == scale);
+                group.add(item);
+                menu.add(item);
+            }
+            return menu;
+        }
+
         private void refreshPreferredSize() {
             ExternalFrameLayout layout = runtime.externalFrameRenderer.layoutFor(
                     runtime.displayWidth(), runtime.displayHeight(), runtime.hostScale());
-            setPreferredSize(layout.preferredSize());
+            Dimension preferred = layout.preferredSize();
+            setPreferredSize(preferred);
+            setMinimumSize(preferred);
+            setMaximumSize(preferred);
+            setSize(preferred);
             revalidate();
         }
 

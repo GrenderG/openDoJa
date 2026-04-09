@@ -345,7 +345,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         ButtonGroup group = new ButtonGroup();
         for (int scale = 1; scale <= 4; scale++) {
             final int selectedScale = scale;
-            JRadioButtonMenuItem item = new JRadioButtonMenuItem(new AbstractAction(Integer.toString(scale)) {
+            JRadioButtonMenuItem item = new JRadioButtonMenuItem(new AbstractAction((scale * 100) + "%") {
                 @Override
                 public void actionPerformed(ActionEvent event) {
                     LauncherSettings current = jamLaunchService.loadSettings();
