@@ -77,6 +77,12 @@ public final class ScratchpadStreams {
         public int read(byte[] b, int off, int len) throws IOException {
             return file.read(b, off, len);
         }
+
+        @Override
+        public int available() throws IOException {
+            long remaining = file.length() - file.getFilePointer();
+            return (int) Math.min(remaining, Integer.MAX_VALUE);
+        }
     }
 
     private static final class RandomAccessFileOutputStream extends OutputStream {
@@ -128,6 +134,12 @@ public final class ScratchpadStreams {
                 remaining -= read;
             }
             return read;
+        }
+
+        @Override
+        public int available() throws IOException {
+            int delegateAvailable = delegate.available();
+            return (int) Math.min(delegateAvailable, remaining);
         }
     }
 

@@ -121,6 +121,18 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 updateUserId();
             }
         }));
+        settingsMenu.add(new JMenuItem(new AbstractAction("HTTP Host Override...") {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                updateHttpOverrideDomain();
+            }
+        }));
+        settingsMenu.add(new JMenuItem(new AbstractAction("Phone Model...") {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                updateMicroeditionPlatformOverride();
+            }
+        }));
 
         JMenu helpMenu = new JMenu("Help");
         helpMenu.add(new JMenuItem(new AbstractAction("Keybinds") {
@@ -345,7 +357,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         ButtonGroup group = new ButtonGroup();
         for (int scale = 1; scale <= 4; scale++) {
             final int selectedScale = scale;
-            JRadioButtonMenuItem item = new JRadioButtonMenuItem(new AbstractAction(Integer.toString(scale)) {
+            JRadioButtonMenuItem item = new JRadioButtonMenuItem(new AbstractAction((scale * 100) + "%") {
                 @Override
                 public void actionPerformed(ActionEvent event) {
                     LauncherSettings current = jamLaunchService.loadSettings();
@@ -355,6 +367,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                             current.terminalId(),
                             current.userId(),
                             current.fontType(),
+                            current.httpOverrideDomain(),
+                            current.microeditionPlatformOverride(),
                             current.disableBytecodeVerification(),
                             current.disableOsDpiScaling()));
                 }
@@ -381,6 +395,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                             current.terminalId(),
                             current.userId(),
                             fontType.id,
+                            current.httpOverrideDomain(),
+                            current.microeditionPlatformOverride(),
                             current.disableBytecodeVerification(),
                             current.disableOsDpiScaling()));
                 }
@@ -407,6 +423,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                             current.terminalId(),
                             current.userId(),
                             current.fontType(),
+                            current.httpOverrideDomain(),
+                            current.microeditionPlatformOverride(),
                             current.disableBytecodeVerification(),
                             current.disableOsDpiScaling()));
                 }
@@ -432,6 +450,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                     current.terminalId(),
                     current.userId(),
                     current.fontType(),
+                    current.httpOverrideDomain(),
+                    current.microeditionPlatformOverride(),
                     disableBytecodeVerificationItem.isSelected(),
                     current.disableOsDpiScaling()));
         });
@@ -447,6 +467,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                     current.terminalId(),
                     current.userId(),
                     current.fontType(),
+                    current.httpOverrideDomain(),
+                    current.microeditionPlatformOverride(),
                     current.disableBytecodeVerification(),
                     disableOsDpiScalingItem.isSelected()));
         });
@@ -467,6 +489,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 updated,
                 current.userId(),
                 current.fontType(),
+                current.httpOverrideDomain(),
+                current.microeditionPlatformOverride(),
                 current.disableBytecodeVerification(),
                 current.disableOsDpiScaling()));
     }
@@ -483,6 +507,44 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 current.terminalId(),
                 updated,
                 current.fontType(),
+                current.httpOverrideDomain(),
+                current.microeditionPlatformOverride(),
+                current.disableBytecodeVerification(),
+                current.disableOsDpiScaling()));
+    }
+
+    private void updateHttpOverrideDomain() {
+        LauncherSettings current = jamLaunchService.loadSettings();
+        String updated = settingsController.promptHttpOverrideDomain(this, current.httpOverrideDomain());
+        if (updated == null) {
+            return;
+        }
+        jamLaunchService.saveSettings(new LauncherSettings(
+                current.hostScale(),
+                current.synthId(),
+                current.terminalId(),
+                current.userId(),
+                current.fontType(),
+                updated,
+                current.microeditionPlatformOverride(),
+                current.disableBytecodeVerification(),
+                current.disableOsDpiScaling()));
+    }
+
+    private void updateMicroeditionPlatformOverride() {
+        LauncherSettings current = jamLaunchService.loadSettings();
+        String updated = settingsController.promptMicroeditionPlatformOverride(this, current.microeditionPlatformOverride());
+        if (updated == null) {
+            return;
+        }
+        jamLaunchService.saveSettings(new LauncherSettings(
+                current.hostScale(),
+                current.synthId(),
+                current.terminalId(),
+                current.userId(),
+                current.fontType(),
+                current.httpOverrideDomain(),
+                updated,
                 current.disableBytecodeVerification(),
                 current.disableOsDpiScaling()));
     }

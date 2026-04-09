@@ -10,6 +10,8 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -87,10 +89,21 @@ public final class JamLauncher {
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 1) {
-            throw new IllegalArgumentException("Usage: JamLauncher <path-to-jam>");
+        List<String> effectiveArgs = new ArrayList<>();
+        for (int i = 0; i < args.length; i++) {
+            if ("--phone-model".equals(args[i])) {
+                if (i + 1 >= args.length) {
+                    throw new IllegalArgumentException("Usage: JamLauncher [--phone-model <model>] <path-to-jam>");
+                }
+                OpenDoJaLaunchArgs.set(OpenDoJaLaunchArgs.MICROEDITION_PLATFORM_OVERRIDE, args[++i]);
+                continue;
+            }
+            effectiveArgs.add(args[i]);
         }
-        Path jamPath = Path.of(args[0]);
+        if (effectiveArgs.size() != 1) {
+            throw new IllegalArgumentException("Usage: JamLauncher [--phone-model <model>] <path-to-jam>");
+        }
+        Path jamPath = Path.of(effectiveArgs.get(0));
         LaunchCompatibility.reexecJamLauncherIfNeeded(jamPath);
         try {
             launch(jamPath, true);

@@ -72,6 +72,7 @@ final class LaunchCompatibility {
             }
             command.add(arg);
         }
+        appendCurrentOpenDoJaProperties(command);
         command.add("-D" + OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED + "=true");
         if (disableExplicitGc) {
             // Games issue System.gc() liberally around UI/resource transitions as a lightweight
@@ -116,6 +117,7 @@ final class LaunchCompatibility {
             }
             command.add(arg);
         }
+        appendCurrentOpenDoJaProperties(command);
         command.add("-D" + OpenDoJaLaunchArgs.VERIFY_FALLBACK_APPLIED + "=true");
         command.add("-Xverify:none");
         command.add("-cp");
@@ -125,6 +127,22 @@ final class LaunchCompatibility {
             command.add(arg);
         }
         return command;
+    }
+
+    private static void appendCurrentOpenDoJaProperties(List<String> command) {
+        for (String name : System.getProperties().stringPropertyNames()) {
+            if (!name.startsWith("opendoja.")) {
+                continue;
+            }
+            if (name.equals(OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED)
+                    || name.equals(OpenDoJaLaunchArgs.VERIFY_FALLBACK_APPLIED)) {
+                continue;
+            }
+            String value = System.getProperty(name);
+            if (value != null) {
+                command.add("-D" + name + "=" + value);
+            }
+        }
     }
 
     private static String targetDefaultEncoding() {

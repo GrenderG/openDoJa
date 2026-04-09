@@ -8,6 +8,8 @@ import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class OpenDoJaLauncher {
     static final String APP_NAME = "openDoJa Launcher";
@@ -15,6 +17,7 @@ public final class OpenDoJaLauncher {
     static final String REPOSITORY_URL = "https://github.com/GrenderG/openDoJa";
     static final String LATEST_RELEASE_URL = REPOSITORY_URL + "/releases/latest";
     static final String GITHUB_LATEST_RELEASE_API_URL = "https://api.github.com/repos/GrenderG/openDoJa/releases/latest";
+    private static final String PHONE_MODEL_FLAG = "--phone-model";
     private static final String RUN_JAM_FLAG = "--run-jam";
     private static final String RUN_JAM_INTERNAL_FLAG = "--run-jam-internal";
     private static final String SPAWN_JAM_FLAG = "--spawn-jam";
@@ -32,7 +35,18 @@ public final class OpenDoJaLauncher {
     }
 
     private static void run(String[] args) throws Exception {
-        if (args.length == 0) {
+        List<String> effectiveArgs = new ArrayList<>();
+        for (int i = 0; i < args.length; i++) {
+            if (PHONE_MODEL_FLAG.equals(args[i])) {
+                if (i + 1 >= args.length) {
+                    throw new IllegalArgumentException("Usage: " + usageLine());
+                }
+                OpenDoJaLaunchArgs.set(OpenDoJaLaunchArgs.MICROEDITION_PLATFORM_OVERRIDE, args[++i]);
+                continue;
+            }
+            effectiveArgs.add(args[i]);
+        }
+        if (effectiveArgs.isEmpty() && args.length == 0) {
             configureLookAndFeel();
             SwingUtilities.invokeLater(() -> {
                 OpenDoJaLauncherFrame frame = new OpenDoJaLauncherFrame(
@@ -43,29 +57,29 @@ public final class OpenDoJaLauncher {
             });
             return;
         }
-        if (args.length == 1 && looksLikeJamPath(args[0])) {
-            GameLaunchSelection selection = new JamGameJarResolver().resolve(Path.of(args[0]));
+        if (effectiveArgs.size() == 1 && looksLikeJamPath(effectiveArgs.get(0))) {
+            GameLaunchSelection selection = new JamGameJarResolver().resolve(Path.of(effectiveArgs.get(0)));
             int exitCode = new LauncherProcessSupport().runInForeground(selection);
             System.exit(exitCode);
         }
-        if (args.length == 2 && RUN_JAM_FLAG.equals(args[0])) {
-            GameLaunchSelection selection = new JamGameJarResolver().resolve(Path.of(args[1]));
+        if (effectiveArgs.size() == 2 && RUN_JAM_FLAG.equals(effectiveArgs.get(0))) {
+            GameLaunchSelection selection = new JamGameJarResolver().resolve(Path.of(effectiveArgs.get(1)));
             int exitCode = new LauncherProcessSupport().runInForeground(selection);
             System.exit(exitCode);
         }
-        if (args.length == 2 && RUN_JAM_INTERNAL_FLAG.equals(args[0])) {
-            JamLauncher.main(new String[]{Path.of(args[1]).toString()});
+        if (effectiveArgs.size() == 2 && RUN_JAM_INTERNAL_FLAG.equals(effectiveArgs.get(0))) {
+            JamLauncher.main(new String[]{Path.of(effectiveArgs.get(1)).toString()});
             return;
         }
-        if (args.length == 2 && SPAWN_JAM_FLAG.equals(args[0])) {
-            GameLaunchSelection selection = new JamGameJarResolver().resolve(Path.of(args[1]));
+        if (effectiveArgs.size() == 2 && SPAWN_JAM_FLAG.equals(effectiveArgs.get(0))) {
+            GameLaunchSelection selection = new JamGameJarResolver().resolve(Path.of(effectiveArgs.get(1)));
             Process process = new LauncherProcessSupport().startInBackground(selection);
             OpenDoJaLog.configureIfUnset(OpenDoJaLog.Level.INFO);
             OpenDoJaLog.info(OpenDoJaLauncher.class,
                     "Spawned " + selection.jamPath() + " as pid " + process.pid());
             return;
         }
-        if (args.length == 1 && ("--help".equals(args[0]) || "-h".equals(args[0]))) {
+        if (effectiveArgs.size() == 1 && ("--help".equals(effectiveArgs.get(0)) || "-h".equals(effectiveArgs.get(0)))) {
             printUsage();
             return;
         }
@@ -89,7 +103,7 @@ public final class OpenDoJaLauncher {
     }
 
     private static String usageLine() {
-        return APP_NAME + " [<path-to-jam> | " + RUN_JAM_FLAG + " <path-to-jam> | "
+        return APP_NAME + " [" + PHONE_MODEL_FLAG + " <model>] [<path-to-jam> | " + RUN_JAM_FLAG + " <path-to-jam> | "
                 + SPAWN_JAM_FLAG + " <path-to-jam>]";
     }
 
@@ -97,6 +111,7 @@ public final class OpenDoJaLauncher {
         return usageLine()
                 + "\n\nPass custom runtime properties before -jar, for example:"
                 + "\n  java -D" + OpenDoJaLaunchArgs.HOST_SCALE + "=2 -jar target/opendoja-{version}.jar <game.jam>"
+                + "\n  java -jar target/opendoja-{version}.jar " + PHONE_MODEL_FLAG + " P900i <game.jam>"
                 + "\n\n" + OpenDoJaLaunchArgs.formatProperties();
     }
 
