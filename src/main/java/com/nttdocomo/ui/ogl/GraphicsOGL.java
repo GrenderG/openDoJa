@@ -377,253 +377,253 @@ public interface GraphicsOGL {
     int GL_WEIGHT_ARRAY_TYPE_OES = 34473;
     int GL_WRITE_ONLY = 35001;
 
-    void beginDrawing();
+    default void beginDrawing() {}
 
-    void endDrawing();
+    default void endDrawing() {}
 
-    void glActiveTexture(int texture);
+    default void glActiveTexture(int texture) {}
 
-    void glAlphaFunc(int func, float ref);
+    default void glAlphaFunc(int func, float ref) {}
 
-    void glBindTexture(int target, int texture);
+    default void glBindTexture(int target, int texture) {}
 
-    void glBlendFunc(int sfactor, int dfactor);
+    default void glBlendFunc(int sfactor, int dfactor) {}
 
-    void glClear(int mask);
+    default void glClear(int mask) {}
 
-    void glClearColor(float red, float green, float blue, float alpha);
+    default void glClearColor(float red, float green, float blue, float alpha) {}
 
-    void glClearDepthf(float depth);
+    default void glClearDepthf(float depth) {}
 
-    void glClearStencil(int s);
+    default void glClearStencil(int s) {}
 
-    void glClientActiveTexture(int texture);
+    default void glClientActiveTexture(int texture) {}
 
-    void glColor4f(float red, float green, float blue, float alpha);
+    default void glColor4f(float red, float green, float blue, float alpha) {}
 
-    void glColorMask(boolean red, boolean green, boolean blue, boolean alpha);
+    default void glColorMask(boolean red, boolean green, boolean blue, boolean alpha) {}
 
-    void glColorPointer(int size, int type, int stride, DirectBuffer pointer);
+    default void glColorPointer(int size, int type, int stride, DirectBuffer pointer) {}
 
-    void glColorPointer(int size, int type, int stride, int pointer);
+    default void glColorPointer(int size, int type, int stride, int pointer) {}
 
-    void glCompressedTexImage2D(int target, int level, int internalformat, int width, int height, int border, int imageSize, DirectBuffer data);
+    default void glCompressedTexImage2D(int target, int level, int internalformat, int width, int height, int border, int imageSize, DirectBuffer data) {}
 
-    void glCompressedTexSubImage2D(int target, int level, int xoffset, int yoffset, int width, int height, int format, int imageSize, DirectBuffer data);
+    default void glCompressedTexSubImage2D(int target, int level, int xoffset, int yoffset, int width, int height, int format, int imageSize, DirectBuffer data) {}
 
-    void glCopyTexImage2D(int target, int level, int internalformat, int x, int y, int width, int height, int border);
+    default void glCopyTexImage2D(int target, int level, int internalformat, int x, int y, int width, int height, int border) {}
 
-    void glCopyTexSubImage2D(int target, int level, int xoffset, int yoffset, int x, int y, int width, int height);
+    default void glCopyTexSubImage2D(int target, int level, int xoffset, int yoffset, int x, int y, int width, int height) {}
 
-    void glCullFace(int mode);
+    default void glCullFace(int mode) {}
 
-    void glDeleteTextures(int n, int[] textures);
+    default void glDeleteTextures(int n, int[] textures) {}
 
-    void glDepthFunc(int func);
+    default void glDepthFunc(int func) {}
 
-    void glDepthMask(boolean flag);
+    default void glDepthMask(boolean flag) {}
 
-    void glDepthRangef(float zNear, float zFar);
+    default void glDepthRangef(float zNear, float zFar) {}
 
-    void glDisable(int cap);
+    default void glDisable(int cap) {}
 
-    void glDisableClientState(int array);
+    default void glDisableClientState(int array) {}
 
-    void glDrawArrays(int mode, int first, int count);
+    default void glDrawArrays(int mode, int first, int count) {}
 
-    void glDrawElements(int mode, int count, int type, DirectBuffer indices);
+    default void glDrawElements(int mode, int count, int type, DirectBuffer indices) {}
 
-    void glDrawElements(int mode, int count, int type, int indices);
+    default void glDrawElements(int mode, int count, int type, int indices) {}
 
-    void glEnable(int cap);
+    default void glEnable(int cap) {}
 
-    void glEnableClientState(int array);
+    default void glEnableClientState(int array) {}
 
-    void glFlush();
+    default void glFlush() {}
 
-    void glFogf(int pname, float param);
+    default void glFogf(int pname, float param) {}
 
-    void glFogfv(int pname, float[] params);
+    default void glFogfv(int pname, float[] params) {}
 
-    void glFrontFace(int mode);
+    default void glFrontFace(int mode) {}
 
-    void glFrustumf(float left, float right, float bottom, float top, float zNear, float zFar);
+    default void glFrustumf(float left, float right, float bottom, float top, float zNear, float zFar) {}
 
-    void glGenTextures(int n, int[] textures);
+    default void glGenTextures(int n, int[] textures) {}
 
-    int glGetError();
+    default int glGetError() { return 0; }
 
-    void glGetIntegerv(int pname, int[] params);
+    default void glGetIntegerv(int pname, int[] params) {}
 
-    void glHint(int target, int mode);
+    default void glHint(int target, int mode) {}
 
-    void glLightModelf(int pname, float param);
+    default void glLightModelf(int pname, float param) {}
 
-    void glLightModelfv(int pname, float[] params);
+    default void glLightModelfv(int pname, float[] params) {}
 
-    void glLightf(int light, int pname, float param);
+    default void glLightf(int light, int pname, float param) {}
 
-    void glLightfv(int light, int pname, float[] params);
+    default void glLightfv(int light, int pname, float[] params) {}
 
-    void glLineWidth(float width);
+    default void glLineWidth(float width) {}
 
-    void glLoadIdentity();
+    default void glLoadIdentity() {}
 
-    void glLoadMatrixf(float[] m);
+    default void glLoadMatrixf(float[] m) {}
 
-    void glLogicOp(int opcode);
+    default void glLogicOp(int opcode) {}
 
-    void glMaterialf(int face, int pname, float param);
+    default void glMaterialf(int face, int pname, float param) {}
 
-    void glMaterialfv(int face, int pname, float[] params);
+    default void glMaterialfv(int face, int pname, float[] params) {}
 
-    void glMatrixMode(int mode);
+    default void glMatrixMode(int mode) {}
 
-    void glMultMatrixf(float[] m);
+    default void glMultMatrixf(float[] m) {}
 
-    void glMultiTexCoord4f(int target, float s, float t, float r, float q);
+    default void glMultiTexCoord4f(int target, float s, float t, float r, float q) {}
 
-    void glNormal3f(float nx, float ny, float nz);
+    default void glNormal3f(float nx, float ny, float nz) {}
 
-    void glNormalPointer(int type, int stride, DirectBuffer pointer);
+    default void glNormalPointer(int type, int stride, DirectBuffer pointer) {}
 
-    void glNormalPointer(int type, int stride, int pointer);
+    default void glNormalPointer(int type, int stride, int pointer) {}
 
-    void glOrthof(float left, float right, float bottom, float top, float zNear, float zFar);
+    default void glOrthof(float left, float right, float bottom, float top, float zNear, float zFar) {}
 
-    void glPixelStorei(int pname, int param);
+    default void glPixelStorei(int pname, int param) {}
 
-    void glPointSize(float size);
+    default void glPointSize(float size) {}
 
-    void glPolygonOffset(float factor, float units);
+    default void glPolygonOffset(float factor, float units) {}
 
-    void glPopMatrix();
+    default void glPopMatrix() {}
 
-    void glPushMatrix();
+    default void glPushMatrix() {}
 
-    void glRotatef(float angle, float x, float y, float z);
+    default void glRotatef(float angle, float x, float y, float z) {}
 
-    void glSampleCoverage(float value, boolean invert);
+    default void glSampleCoverage(float value, boolean invert) {}
 
-    void glScalef(float x, float y, float z);
+    default void glScalef(float x, float y, float z) {}
 
-    void glScissor(int x, int y, int width, int height);
+    default void glScissor(int x, int y, int width, int height) {}
 
-    void glShadeModel(int mode);
+    default void glShadeModel(int mode) {}
 
-    void glStencilFunc(int func, int ref, int mask);
+    default void glStencilFunc(int func, int ref, int mask) {}
 
-    void glStencilMask(int mask);
+    default void glStencilMask(int mask) {}
 
-    void glStencilOp(int fail, int zfail, int zpass);
+    default void glStencilOp(int fail, int zfail, int zpass) {}
 
-    void glTexCoordPointer(int size, int type, int stride, DirectBuffer pointer);
+    default void glTexCoordPointer(int size, int type, int stride, DirectBuffer pointer) {}
 
-    void glTexCoordPointer(int size, int type, int stride, int pointer);
+    default void glTexCoordPointer(int size, int type, int stride, int pointer) {}
 
-    void glTexEnvf(int target, int pname, float param);
+    default void glTexEnvf(int target, int pname, float param) {}
 
-    void glTexEnvfv(int target, int pname, float[] params);
+    default void glTexEnvfv(int target, int pname, float[] params) {}
 
-    void glTexImage2D(int target, int level, int internalformat, int width, int height, int border, int format, int type, DirectBuffer pixels);
+    default void glTexImage2D(int target, int level, int internalformat, int width, int height, int border, int format, int type, DirectBuffer pixels) {}
 
-    void glTexParameterf(int target, int pname, float param);
+    default void glTexParameterf(int target, int pname, float param) {}
 
-    void glTexSubImage2D(int target, int level, int xoffset, int yoffset, int width, int height, int format, int type, DirectBuffer pixels);
+    default void glTexSubImage2D(int target, int level, int xoffset, int yoffset, int width, int height, int format, int type, DirectBuffer pixels) {}
 
-    void glTranslatef(float x, float y, float z);
+    default void glTranslatef(float x, float y, float z) {}
 
-    void glVertexPointer(int size, int type, int stride, DirectBuffer pointer);
+    default void glVertexPointer(int size, int type, int stride, DirectBuffer pointer) {}
 
-    void glVertexPointer(int size, int type, int stride, int pointer);
+    default void glVertexPointer(int size, int type, int stride, int pointer) {}
 
-    void glViewport(int x, int y, int width, int height);
+    default void glViewport(int x, int y, int width, int height) {}
 
-    void glCompressedTexImage2D(int target, int level, int internalformat, int width, int height, int border, ByteBuffer data);
+    default void glCompressedTexImage2D(int target, int level, int internalformat, int width, int height, int border, ByteBuffer data) {}
 
-    void glCompressedTexSubImage2D(int target, int level, int xoffset, int yoffset, int width, int height, int format, ByteBuffer data);
+    default void glCompressedTexSubImage2D(int target, int level, int xoffset, int yoffset, int width, int height, int format, ByteBuffer data) {}
 
-    void glDeleteTextures(int[] textures);
+    default void glDeleteTextures(int[] textures) {}
 
-    void glDrawElements(int mode, int count, DirectBuffer indices);
+    default void glDrawElements(int mode, int count, DirectBuffer indices) {}
 
-    void glGenTextures(int[] textures);
+    default void glGenTextures(int[] textures) {}
 
-    String glGetString(int name);
+    default String glGetString(int name) { return ""; }
 
-    void glBindBuffer(int target, int buffer);
+    default void glBindBuffer(int target, int buffer) {}
 
-    void glBufferData(int target, DirectBuffer data, int usage);
+    default void glBufferData(int target, DirectBuffer data, int usage) {}
 
-    void glBufferSubData(int target, int offset, DirectBuffer data);
+    default void glBufferSubData(int target, int offset, DirectBuffer data) {}
 
-    void glClipPlanef(int plane, float[] equation);
+    default void glClipPlanef(int plane, float[] equation) {}
 
-    void glColor4ub(short red, short green, short blue, short alpha);
+    default void glColor4ub(short red, short green, short blue, short alpha) {}
 
-    void glCurrentPaletteMatrixOES(int matrixpaletteindex);
+    default void glCurrentPaletteMatrixOES(int matrixpaletteindex) {}
 
-    void glDeleteBuffers(int[] buffers);
+    default void glDeleteBuffers(int[] buffers) {}
 
-    void glDrawTexfOES(float x, float y, float z, float width, float height);
+    default void glDrawTexfOES(float x, float y, float z, float width, float height) {}
 
-    void glDrawTexiOES(int x, int y, int z, int width, int height);
+    default void glDrawTexiOES(int x, int y, int z, int width, int height) {}
 
-    void glDrawTexsOES(short x, short y, short z, short width, short height);
+    default void glDrawTexsOES(short x, short y, short z, short width, short height) {}
 
-    void glGenBuffers(int[] buffers);
+    default void glGenBuffers(int[] buffers) {}
 
-    void glGetBooleanv(int pname, boolean[] params);
+    default void glGetBooleanv(int pname, boolean[] params) {}
 
-    void glGetBufferParameteriv(int target, int pname, int[] params);
+    default void glGetBufferParameteriv(int target, int pname, int[] params) {}
 
-    void glGetClipPlanef(int pname, float[] eqn);
+    default void glGetClipPlanef(int pname, float[] eqn) {}
 
-    void glGetFloatv(int pname, float[] params);
+    default void glGetFloatv(int pname, float[] params) {}
 
-    void glGetLightfv(int light, int pname, float[] params);
+    default void glGetLightfv(int light, int pname, float[] params) {}
 
-    void glGetMaterialfv(int face, int pname, float[] params);
+    default void glGetMaterialfv(int face, int pname, float[] params) {}
 
-    void glGetTexEnvfv(int env, int pname, float[] params);
+    default void glGetTexEnvfv(int env, int pname, float[] params) {}
 
-    void glGetTexEnviv(int env, int pname, int[] params);
+    default void glGetTexEnviv(int env, int pname, int[] params) {}
 
-    void glGetTexParameterfv(int target, int pname, float[] params);
+    default void glGetTexParameterfv(int target, int pname, float[] params) {}
 
-    void glGetTexParameteriv(int target, int pname, int[] params);
+    default void glGetTexParameteriv(int target, int pname, int[] params) {}
 
-    boolean glIsBuffer(int buffer);
+    default boolean glIsBuffer(int buffer) { return false; }
 
-    boolean glIsEnabled(int cap);
+    default boolean glIsEnabled(int cap) { return false; }
 
-    boolean glIsTexture(int texture);
+    default boolean glIsTexture(int texture) { return false; }
 
-    void glLoadPaletteFromModelViewMatrixOES();
+    default void glLoadPaletteFromModelViewMatrixOES() {}
 
-    void glMatrixIndexPointerOES(int size, int type, int stride, DirectBuffer pointer);
+    default void glMatrixIndexPointerOES(int size, int type, int stride, DirectBuffer pointer) {}
 
-    void glMatrixIndexPointerOES(int size, int type, int stride, int pointer);
+    default void glMatrixIndexPointerOES(int size, int type, int stride, int pointer) {}
 
-    void glPointParameterf(int pname, float param);
+    default void glPointParameterf(int pname, float param) {}
 
-    void glPointParameterfv(int pname, float[] params);
+    default void glPointParameterfv(int pname, float[] params) {}
 
-    void glPointSizePointerOES(int type, int stride, DirectBuffer pointer);
+    default void glPointSizePointerOES(int type, int stride, DirectBuffer pointer) {}
 
-    void glPointSizePointerOES(int type, int stride, int pointer);
+    default void glPointSizePointerOES(int type, int stride, int pointer) {}
 
-    void glTexEnvi(int target, int pname, int param);
+    default void glTexEnvi(int target, int pname, int param) {}
 
-    void glTexEnviv(int target, int pname, int[] params);
+    default void glTexEnviv(int target, int pname, int[] params) {}
 
-    void glTexParameterfv(int target, int pname, float[] params);
+    default void glTexParameterfv(int target, int pname, float[] params) {}
 
-    void glTexParameteri(int target, int pname, int param);
+    default void glTexParameteri(int target, int pname, int param) {}
 
-    void glTexParameteriv(int target, int pname, int[] params);
+    default void glTexParameteriv(int target, int pname, int[] params) {}
 
-    void glWeightPointerOES(int size, int type, int stride, DirectBuffer pointer);
+    default void glWeightPointerOES(int size, int type, int stride, DirectBuffer pointer) {}
 
-    void glWeightPointerOES(int size, int type, int stride, int pointer);
+    default void glWeightPointerOES(int size, int type, int stride, int pointer) {}
 }
