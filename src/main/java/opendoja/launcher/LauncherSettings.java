@@ -3,6 +3,7 @@ package opendoja.launcher;
 import opendoja.audio.mld.MLDSynth;
 import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.LaunchConfig;
+import opendoja.host.OpenDoJaLaunchArgs;
 
 record LauncherSettings(
         int hostScale,
@@ -10,6 +11,8 @@ record LauncherSettings(
         String terminalId,
         String userId,
         String fontType,
+        String httpOverrideDomain,
+        String microeditionPlatformOverride,
         boolean disableBytecodeVerification,
         boolean disableOsDpiScaling) {
     LauncherSettings {
@@ -18,6 +21,8 @@ record LauncherSettings(
         terminalId = OpenDoJaIdentity.normalizeTerminalId(terminalId);
         userId = OpenDoJaIdentity.normalizeUserId(userId);
         fontType = LaunchConfig.FontType.normalizeId(fontType);
+        httpOverrideDomain = normalizeHttpOverrideDomain(httpOverrideDomain);
+        microeditionPlatformOverride = OpenDoJaLaunchArgs.normalizeMicroeditionPlatformOverride(microeditionPlatformOverride);
     }
 
     static LauncherSettings defaults() {
@@ -25,6 +30,8 @@ record LauncherSettings(
                 OpenDoJaIdentity.defaultTerminalId(),
                 OpenDoJaIdentity.defaultUserId(),
                 LaunchConfig.FontType.BITMAP.id,
+                "",
+                "",
                 false,
                 false);
     }
@@ -36,5 +43,12 @@ record LauncherSettings(
     private static String normalizeSynthId(String candidate) {
         MLDSynth synth = MLDSynth.fromId(candidate);
         return synth == null ? MLDSynth.DEFAULT.id : synth.id;
+    }
+
+    private static String normalizeHttpOverrideDomain(String candidate) {
+        if (candidate == null) {
+            return "";
+        }
+        return candidate.trim().toLowerCase(java.util.Locale.ROOT);
     }
 }
