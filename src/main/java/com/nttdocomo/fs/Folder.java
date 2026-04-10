@@ -5,6 +5,7 @@ import opendoja.host.storage.DoJaStorageHost;
 
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -101,7 +102,7 @@ public class Folder {
         if (!FileAttribute.class.isAssignableFrom(clazz)) {
             throw new IllegalArgumentException("Not a FileAttribute subtype: " + clazz.getName());
         }
-        return false;
+        return DoJaStorageHost.isFileAttributeSupported(clazz);
     }
 
     /**
@@ -128,14 +129,18 @@ public class Folder {
     public File createFile(String fileName, FileAttribute[] attributes) throws IOException {
         DoJaStorageHost.validateFileName(fileName);
         validateAttributes(attributes);
-        Path filePath = backingPath.resolve(fileName);
         try {
             DoJaStorageHost.ensureNamespaceExists(backingPath);
+            Path existing = DoJaStorageHost.resolveExistingFile(backingPath, fileName);
+            if (existing != null) {
+                throw new FileAlreadyExistsException(existing.toString());
+            }
+            Path filePath = backingPath.resolve(fileName);
             Files.createFile(filePath);
+            return File.of(this, fileName, filePath);
         } catch (IOException exception) {
             throw DoJaStorageHost.translateCreateFailure(exception);
         }
-        return File.of(this, fileName, filePath);
     }
 
     /**
@@ -175,8 +180,13 @@ public class Folder {
      */
     public File getFile(String fileName) throws IOException {
         DoJaStorageHost.validateFileName(fileName);
-        Path filePath = backingPath.resolve(fileName);
-        if (!Files.exists(filePath)) {
+        Path filePath;
+        try {
+            filePath = DoJaStorageHost.resolveExistingFile(backingPath, fileName);
+        } catch (IOException exception) {
+            throw DoJaStorageHost.translateExistingPathFailure(exception);
+        }
+        if (filePath == null) {
             throw new FileNotAccessibleException(FileNotAccessibleException.NOT_FOUND,
                     "File not found: " + fileName);
         }
@@ -184,7 +194,7 @@ public class Folder {
             throw new FileNotAccessibleException(FileNotAccessibleException.ACCESS_DENIED,
                     "Path does not refer to a file: " + fileName);
         }
-        return File.of(this, fileName, filePath);
+        return File.of(this, filePath.getFileName().toString(), filePath);
     }
 
     Path backingPath() {

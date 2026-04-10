@@ -193,11 +193,26 @@ public final class JamLauncher {
     }
 
     private static URI normalizePackageUri(URI packageUri) {
-        String path = packageUri.getPath();
-        if (!isJarName(lastPathSegment(path))) {
+        if (!packageUri.isAbsolute()) {
             return packageUri;
         }
-        return packageUri.resolve(".");
+        String path = packageUri.getPath();
+        if (path != null && path.endsWith("/")) {
+            return stripQueryAndFragment(packageUri);
+        }
+        // DoJa titles commonly treat getSourceURL() as a base URL and append
+        // relative endpoints directly. Normalize any concrete package/download
+        // URL such as ".../game.jar" or ".../jar.php?uid=..." to its parent
+        // directory so that concatenation continues to work.
+        return stripQueryAndFragment(packageUri.resolve("."));
+    }
+
+    private static URI stripQueryAndFragment(URI uri) {
+        try {
+            return new URI(uri.getScheme(), uri.getAuthority(), uri.getPath(), null, null);
+        } catch (java.net.URISyntaxException exception) {
+            throw new IllegalArgumentException("Could not normalize package URI: " + uri, exception);
+        }
     }
 
     private static boolean isJarPath(Path path) {

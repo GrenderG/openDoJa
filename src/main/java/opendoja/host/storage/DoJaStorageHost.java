@@ -12,6 +12,7 @@ import opendoja.host.DoJaRuntime;
 
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
 import java.nio.file.FileSystemException;
@@ -30,11 +31,13 @@ import java.util.UUID;
 public final class DoJaStorageHost {
     public static final String EXTERNAL_DEVICE_NAME = "/ext0";
     public static final String PRINT_NAME = "SD Memory Card";
+    private static final String SD_BIND_DIRECTORY_NAME = "SD_BIND";
 
     private static final String[] ALL_CAPABILITIES = {
             StorageDevice.CAPABILITY_SD,
             StorageDevice.CAPABILITY_FAT32,
-            StorageDevice.CAPABILITY_FAT_LONG_NAME
+            StorageDevice.CAPABILITY_FAT_LONG_NAME,
+            StorageDevice.CAPABILITY_SD_BINDING
     };
     private static final String[] HARDWARE_CAPABILITIES = {
             StorageDevice.CAPABILITY_SD
@@ -42,6 +45,9 @@ public final class DoJaStorageHost {
     private static final String[] FILESYSTEM_CAPABILITIES = {
             StorageDevice.CAPABILITY_FAT32,
             StorageDevice.CAPABILITY_FAT_LONG_NAME
+    };
+    private static final String[] ENCRYPTION_CAPABILITIES = {
+            StorageDevice.CAPABILITY_SD_BINDING
     };
 
     private static final Object OPEN_LOCK = new Object();
@@ -65,6 +71,10 @@ public final class DoJaStorageHost {
         return OpenDoJaPaths.hostDataRoot().resolve("storage").resolve("ext0");
     }
 
+    public static Path bindingRoot() {
+        return deviceRoot().resolve(SD_BIND_DIRECTORY_NAME);
+    }
+
     public static String[] getCapabilities(String category) {
         if (category == null) {
             return ALL_CAPABILITIES.clone();
@@ -72,7 +82,7 @@ public final class DoJaStorageHost {
         return switch (category) {
             case StorageDevice.CATEGORY_HARDWARE -> HARDWARE_CAPABILITIES.clone();
             case StorageDevice.CATEGORY_FILESYSTEM -> FILESYSTEM_CAPABILITIES.clone();
-            case StorageDevice.CATEGORY_ENCRYPTION -> null;
+            case StorageDevice.CATEGORY_ENCRYPTION -> ENCRYPTION_CAPABILITIES.clone();
             default -> null;
         };
     }
@@ -84,12 +94,44 @@ public final class DoJaStorageHost {
 
     public static Path resolveNamespaceRoot(DoJaAccessToken token) {
         ensureStoragePermission();
-        String scopeName = switch (token.getShare()) {
-            case DoJaStorageService.SHARE_APPLICATION -> "app-" + stableId(applicationScopeKey());
-            case DoJaStorageService.SHARE_CONTENTS_PROVIDER -> "cp-" + stableId(contentsProviderScopeKey());
-            default -> throw new IllegalArgumentException("Unsupported share mode: " + token.getShare());
+        DoJaRuntime runtime = DoJaRuntime.current();
+        if (runtime == null) {
+            throw new SecurityException("Storage access requires an active DoJa runtime");
+        }
+        String applicationClassName = runtime.application() == null
+                ? trim(runtime.parameters().get("AppClass"))
+                : runtime.application().getClass().getName();
+        return resolveNamespaceRoot(runtime.parameters(), runtime.sourceUrl(), applicationClassName,
+                token.getAccess(), token.getShare());
+    }
+
+    static Path resolveNamespaceRoot(Map<String, String> parameters,
+                                     String sourceUrl,
+                                     String applicationClassName,
+                                     int access,
+                                     int share) {
+        String scopeName = switch (share) {
+            case DoJaStorageService.SHARE_APPLICATION -> scopedDirectoryName(
+                    applicationScopeDisplayName(parameters, sourceUrl, applicationClassName),
+                    "app-" + stableId(applicationScopeKey(parameters, sourceUrl, applicationClassName)));
+            case DoJaStorageService.SHARE_CONTENTS_PROVIDER -> scopedDirectoryName(
+                    contentsProviderDisplayName(parameters),
+                    "cp-" + stableId(contentsProviderScopeKey(parameters)));
+            default -> throw new IllegalArgumentException("Unsupported share mode: " + share);
         };
-        return deviceRoot().resolve(scopeName).resolve("access-" + token.getAccess());
+        Path scopeRoot = bindingRoot().resolve(scopeName);
+        if (share == DoJaStorageService.SHARE_APPLICATION) {
+            // Official DoJa documents per-access isolation behind SD-Binding
+            // bind IDs, but real extracted game packages are commonly
+            // distributed for idkDoJa-style manual installs under one visible
+            // application folder. Keep every app-shared token rooted at the
+            // same SD_BIND/<app> directory so those media dumps remain
+            // consumable while contents-provider shares stay isolated.
+            return scopeRoot;
+        }
+        return scopeRoot.resolve(".odj-bind")
+                .resolve("access-" + access)
+                .resolve("share-" + share);
     }
 
     public static void ensureNamespaceExists(Path namespaceRoot) throws IOException {
@@ -124,6 +166,42 @@ public final class DoJaStorageHost {
             throw new FileNotAccessibleException(FileNotAccessibleException.ILLEGAL_NAME,
                     "Illegal file name: " + fileName);
         }
+    }
+
+    public static boolean isFileAttributeSupported(Class<?> clazz) {
+        return com.nttdocomo.fs.EncryptionAttribute.class.isAssignableFrom(clazz);
+    }
+
+    public static Path resolveExistingFile(Path directory, String fileName) throws IOException {
+        Path exact = directory.resolve(fileName);
+        if (Files.exists(exact)) {
+            return exact;
+        }
+        if (!Files.isDirectory(directory)) {
+            return null;
+        }
+        Path match = null;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory)) {
+            for (Path candidate : stream) {
+                String candidateName = candidate.getFileName().toString();
+                if (!candidateName.equalsIgnoreCase(fileName)) {
+                    continue;
+                }
+                if (candidateName.equals(fileName)) {
+                    return candidate;
+                }
+                // Real SD-card dumps often keep the original handset-era case,
+                // while games request lower-case names. Pick one deterministic
+                // case-insensitive match so lookups and duplicate checks behave
+                // consistently across platforms.
+                if (match == null
+                        || candidateName.compareToIgnoreCase(match.getFileName().toString()) < 0
+                        || candidateName.compareTo(match.getFileName().toString()) < 0) {
+                    match = candidate;
+                }
+            }
+        }
+        return match;
     }
 
     public static Runnable acquireOpen(Path path, int mode) throws FileNotAccessibleException {
@@ -205,34 +283,68 @@ public final class DoJaStorageHost {
         return Instant.now().toEpochMilli();
     }
 
-    private static String applicationScopeKey() {
-        DoJaRuntime runtime = DoJaRuntime.current();
-        if (runtime == null) {
-            return "runtime-missing";
-        }
-        String sourceUrl = runtime.sourceUrl();
+    private static String applicationScopeKey(Map<String, String> parameters,
+                                              String sourceUrl,
+                                              String applicationClassName) {
         if (sourceUrl != null && !sourceUrl.isBlank()) {
             return sourceUrl.trim();
         }
-        return runtime.application().getClass().getName();
+        String appClass = trim(applicationClassName);
+        if (appClass != null) {
+            return appClass;
+        }
+        String appName = trim(parameters.get("AppName"));
+        if (appName != null) {
+            return appName;
+        }
+        return "runtime-missing";
     }
 
-    private static String contentsProviderScopeKey() {
-        DoJaRuntime runtime = DoJaRuntime.current();
-        if (runtime == null) {
-            throw new SecurityException("Contents-provider sharing requires an active DoJa runtime");
+    private static String applicationScopeDisplayName(Map<String, String> parameters,
+                                                      String sourceUrl,
+                                                      String applicationClassName) {
+        String appName = trim(parameters.get("AppName"));
+        if (appName != null) {
+            return appName;
         }
-        String cpName = trim(runtime.parameters().get("CPName"));
+        String appClass = trim(parameters.get("AppClass"));
+        if (appClass == null) {
+            appClass = trim(applicationClassName);
+        }
+        if (appClass != null) {
+            int separator = java.lang.Math.max(appClass.lastIndexOf('.'), appClass.lastIndexOf('$'));
+            return separator >= 0 ? appClass.substring(separator + 1) : appClass;
+        }
+        String trimmedSource = trim(sourceUrl);
+        if (trimmedSource == null) {
+            return null;
+        }
+        int slash = trimmedSource.lastIndexOf('/');
+        String tail = slash >= 0 ? trimmedSource.substring(slash + 1) : trimmedSource;
+        int query = tail.indexOf('?');
+        if (query >= 0) {
+            tail = tail.substring(0, query);
+        }
+        int dot = tail.lastIndexOf('.');
+        return dot > 0 ? tail.substring(0, dot) : tail;
+    }
+
+    private static String contentsProviderScopeKey(Map<String, String> parameters) {
+        String cpName = trim(parameters.get("CPName"));
         if (cpName == null) {
             throw new SecurityException("CPName is required for contents-provider sharing");
         }
-        String trustedApiId = trim(runtime.parameters().get("TrustedAPID"));
-        String cpBindingAuth = trim(runtime.parameters().get("CPBindingAuth"));
+        String trustedApiId = trim(parameters.get("TrustedAPID"));
+        String cpBindingAuth = trim(parameters.get("CPBindingAuth"));
         if (trustedApiId == null && cpBindingAuth == null) {
             throw new SecurityException("TrustedAPID or CPBindingAuth is required for contents-provider sharing");
         }
         String binding = trustedApiId != null ? trustedApiId : cpBindingAuth;
         return cpName + ":" + binding;
+    }
+
+    private static String contentsProviderDisplayName(Map<String, String> parameters) {
+        return trim(parameters.get("CPName"));
     }
 
     private static String stableId(String raw) {
@@ -247,6 +359,39 @@ public final class DoJaStorageHost {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String scopedDirectoryName(String preferredName, String fallbackName) {
+        String sanitized = sanitizeDirectoryName(preferredName);
+        return sanitized == null ? fallbackName : sanitized;
+    }
+
+    private static String sanitizeDirectoryName(String value) {
+        String trimmed = trim(value);
+        if (trimmed == null) {
+            return null;
+        }
+        StringBuilder builder = new StringBuilder(trimmed.length());
+        boolean wroteReplacement = false;
+        for (int i = 0; i < trimmed.length(); i++) {
+            char ch = trimmed.charAt(i);
+            // Keep any Unicode letters/digits so real AppName values such as
+            // Japanese titles still map to a recognizable SD_BIND folder, and
+            // only collapse characters that are awkward across common desktop
+            // filesystems.
+            boolean allowed = Character.isLetterOrDigit(ch) || ch == '_' || ch == '-' || ch == '.';
+            if (allowed) {
+                builder.append(ch);
+                wroteReplacement = false;
+                continue;
+            }
+            if (!wroteReplacement) {
+                builder.append('_');
+                wroteReplacement = true;
+            }
+        }
+        String sanitized = builder.toString();
+        return sanitized.isEmpty() ? null : sanitized;
     }
 
     private static boolean isNoSpace(IOException exception) {
