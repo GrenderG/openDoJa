@@ -2,31 +2,27 @@ package opendoja.host;
 
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
-import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-final class LaunchCompatibility {
-    private LaunchCompatibility() {
+final class RelaunchCompatibility {
+    private RelaunchCompatibility() {
     }
 
     static void reexecJamLauncherIfNeeded(Path jamPath) throws IOException, InterruptedException {
         if (OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED)) {
             return;
         }
-        String targetEncoding = targetDefaultEncoding();
-        boolean needsEncodingCompat = targetEncoding != null && !defaultCharsetMatches(targetEncoding);
         boolean disableExplicitGc = shouldDisableExplicitGc();
         boolean limitHotSpotTier = shouldLimitHotSpotTier();
         boolean disableOnStackReplacement = shouldDisableOnStackReplacement();
-        if (!needsEncodingCompat && !disableExplicitGc && !limitHotSpotTier
+        if (!disableExplicitGc && !limitHotSpotTier
                 && !disableOnStackReplacement) {
             return;
         }
 
         Process process = new ProcessBuilder(buildCompatibilityCommand(
-                        targetEncoding,
                         disableExplicitGc,
                         limitHotSpotTier,
                         disableOnStackReplacement,
@@ -55,14 +51,12 @@ final class LaunchCompatibility {
         return true;
     }
 
-    private static List<String> buildCompatibilityCommand(String targetEncoding,
-            boolean disableExplicitGc, boolean limitHotSpotTier,
+    private static List<String> buildCompatibilityCommand(boolean disableExplicitGc, boolean limitHotSpotTier,
             boolean disableOnStackReplacement, String mainClass, String[] args) {
         List<String> command = new ArrayList<>();
         command.add(Path.of(OpenDoJaLaunchArgs.get("java.home"), "bin", "java").toString());
         for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
             if (arg.startsWith("-D" + OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED + "=")
-                    || arg.startsWith("-Dfile.encoding=")
                     || arg.startsWith("-XX:TieredStopAtLevel=")
                     || arg.equals("-XX:+UseOnStackReplacement")
                     || arg.equals("-XX:-UseOnStackReplacement")
@@ -90,12 +84,6 @@ final class LaunchCompatibility {
             // when tiering is capped. Disabling OSR keeps those loops on the normal entry path so
             // cross-thread scene handoffs used by legacy titles like DDR remain observable.
             command.add("-XX:-UseOnStackReplacement");
-        }
-        // Many DoJa-era games decode resource tables through String(byte[], off, len), which
-        // follows the VM default charset. Modern Java defaults to UTF-8, but the handset-era
-        // blobs here are Shift-JIS/Windows-31J encoded.
-        if (targetEncoding != null) {
-            command.add("-Dfile.encoding=" + targetEncoding);
         }
         command.add("-cp");
         command.add(OpenDoJaLaunchArgs.get("java.class.path"));
@@ -145,13 +133,6 @@ final class LaunchCompatibility {
         }
     }
 
-    private static String targetDefaultEncoding() {
-        if (LaunchEncodingSupport.hasExplicitFileEncodingArgument()) {
-            return null;
-        }
-        return LaunchEncodingSupport.configuredDefaultEncoding();
-    }
-
     private static boolean shouldDisableExplicitGc() {
         if (OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.KEEP_EXPLICIT_GC)) {
             return false;
@@ -166,14 +147,6 @@ final class LaunchCompatibility {
             }
         }
         return null;
-    }
-
-    private static boolean defaultCharsetMatches(String targetEncoding) {
-        try {
-            return Charset.defaultCharset().name().equalsIgnoreCase(Charset.forName(targetEncoding).name());
-        } catch (RuntimeException ignored) {
-            return true;
-        }
     }
 
     private static String explicitVerificationArgument() {

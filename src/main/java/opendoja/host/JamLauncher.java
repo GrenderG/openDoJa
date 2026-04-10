@@ -104,14 +104,14 @@ public final class JamLauncher {
             throw new IllegalArgumentException("Usage: JamLauncher [--phone-model <model>] <path-to-jam>");
         }
         Path jamPath = Path.of(effectiveArgs.get(0));
-        LaunchCompatibility.reexecJamLauncherIfNeeded(jamPath);
+        RelaunchCompatibility.reexecJamLauncherIfNeeded(jamPath);
         try {
             launch(jamPath, true);
         } catch (VerifyError error) {
             // A few handset-era jars contain bytecode that modern HotSpot rejects up front even
             // though the same title otherwise runs once verification is disabled. Retry once from
             // the top launch boundary so the default path stays strict for all normal titles.
-            if (!LaunchCompatibility.reexecJamLauncherOnVerifyError(jamPath)) {
+            if (!RelaunchCompatibility.reexecJamLauncherOnVerifyError(jamPath)) {
                 throw error;
             }
             return;
