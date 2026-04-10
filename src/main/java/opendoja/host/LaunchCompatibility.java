@@ -6,8 +6,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-final class RelaunchCompatibility {
-    private RelaunchCompatibility() {
+final class LaunchCompatibility {
+    private LaunchCompatibility() {
     }
 
     static void reexecJamLauncherIfNeeded(Path jamPath) throws IOException, InterruptedException {
