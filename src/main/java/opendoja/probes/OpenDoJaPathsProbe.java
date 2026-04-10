@@ -1,5 +1,6 @@
-package opendoja.host;
+package opendoja.probes;
 
+import opendoja.host.OpenDoJaPaths;
 import opendoja.host.storage.DoJaStorageHost;
 
 import java.nio.file.Path;

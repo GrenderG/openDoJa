@@ -13,7 +13,7 @@ import java.util.List;
 
 public final class OpenDoJaLauncher {
     static final String APP_NAME = "openDoJa Launcher";
-    static final String VERSION = "0.1.4";
+    static final String VERSION = "0.1.5";
     static final String REPOSITORY_URL = "https://github.com/GrenderG/openDoJa";
     static final String LATEST_RELEASE_URL = REPOSITORY_URL + "/releases/latest";
     static final String GITHUB_LATEST_RELEASE_API_URL = "https://api.github.com/repos/GrenderG/openDoJa/releases/latest";

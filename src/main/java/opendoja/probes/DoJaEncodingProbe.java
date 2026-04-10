@@ -1,4 +1,6 @@
-package opendoja.host;
+package opendoja.probes;
+
+import opendoja.host.DoJaEncoding;
 
 import java.nio.charset.Charset;
 
