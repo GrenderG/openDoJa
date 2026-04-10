@@ -1557,21 +1557,25 @@ public final class Software3DContext {
         }
         int dest = target.getRGB(x, y);
         switch (blendOp) {
+            // M3G REPLACE disables framebuffer blending; source alpha only gates discarded pixels.
             case REPLACE -> {
                 target.setRGB(x, y, 0xFF000000 | (source & 0x00FFFFFF));
                 return;
             }
+            // Explicit alpha blend uses the shared source-over compositing path after the switch.
             case ALPHA -> {
             }
+            // Mascot material blend bits use framebuffer blend ops, not alpha-over.
             case HALF -> {
-                // Mascot material blend bits use framebuffer blend ops, not alpha-over.
                 target.setRGB(x, y, averagePixel(dest, applySourceAlphaToBlendColor(source)));
                 return;
             }
+            // Additive blend accumulates source color into the current framebuffer color.
             case ADD -> {
                 target.setRGB(x, y, addPixel(dest, applySourceAlphaToBlendColor(source)));
                 return;
             }
+            // Subtractive blend darkens the framebuffer by the source color.
             case SUB -> {
                 target.setRGB(x, y, subtractPixel(dest, applySourceAlphaToBlendColor(source)));
                 return;
