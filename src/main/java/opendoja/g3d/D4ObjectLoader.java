@@ -16,6 +16,11 @@ import java.util.Map;
  * the final mesh group because mesh-group construction uses package-private state.
  */
 public final class D4ObjectLoader {
+    private static final int M3G_KEYFRAME_LINEAR = 0xB0;
+    private static final int M3G_REPEAT_LOOP = 0xC1;
+    private static final int M3G_WRAP_REPEAT = 0xF1;
+    private static final int M3G_ANIM_TRANSLATION = 275;
+
     private D4ObjectLoader() {
     }
 
@@ -172,7 +177,19 @@ public final class D4ObjectLoader {
         float originY = object.payload.length >= 24 ? littleFloat(object.payload, 20) : 0f;
         float originZ = object.payload.length >= 28 ? littleFloat(object.payload, 24) : 0f;
         float vertexScale = object.payload.length >= 32 ? littleFloat(object.payload, 28) : 1f;
-        return new D4MeshArrays(positions, uvs, colors, originX, originY, originZ, vertexScale);
+        float texCoordBiasU = 0f;
+        float texCoordBiasV = 0f;
+        float texCoordScale = 1f / 4096f;
+        if (object.payload.length >= 64 && littleInt(object.payload, 40) > 0) {
+            texCoordBiasU = littleFloat(object.payload, 48);
+            texCoordBiasV = littleFloat(object.payload, 52);
+            float decodedScale = littleFloat(object.payload, 60);
+            if (Float.isFinite(decodedScale) && decodedScale != 0f) {
+                texCoordScale = decodedScale;
+            }
+        }
+        return new D4MeshArrays(positions, uvs, colors, originX, originY, originZ, vertexScale,
+                texCoordBiasU, texCoordBiasV, texCoordScale);
     }
 
     private static D4Array decodeArray(D4Object object) throws IOException {
@@ -257,14 +274,16 @@ public final class D4ObjectLoader {
                 textureBindingId = ref;
             }
         }
-        int textureId = -1;
+        D4TextureBinding textureBinding = null;
         if (textureBindingId >= 0) {
-            textureId = firstShift16TargetOfType(objects.get(textureBindingId), objects, 10);
+            textureBinding = decodeTextureBinding(objects.get(textureBindingId), objects);
         }
-        boolean textureWrapEnabled = decodeTextureWrapEnabled(objects.get(textureFlagsId));
+        boolean textureWrapEnabled = textureBinding == null
+                ? decodeTextureWrapEnabled(objects.get(textureFlagsId))
+                : textureBinding.wrapS && textureBinding.wrapT;
         int primitiveType = object.payload.length == 0 ? Primitive.PRIMITIVE_TRIANGLES
                 : unsigned(object.payload[object.payload.length - 1]);
-        return new D4MeshDescriptor(textureId, primitiveType, textureWrapEnabled);
+        return new D4MeshDescriptor(textureBinding, primitiveType, textureWrapEnabled);
     }
 
     private static DecodedPrimitive buildPrimitive(D4IndexSet indexSet, D4MeshDescriptor descriptor,
@@ -284,13 +303,14 @@ public final class D4ObjectLoader {
         if (triangleCount <= 0) {
             return null;
         }
-        int primitiveParam = descriptor.textureId >= 0 && arrays.uvs != null
+        int textureId = descriptor.textureBinding == null ? -1 : descriptor.textureBinding.textureId;
+        int primitiveParam = textureId >= 0 && arrays.uvs != null
                 ? Primitive.TEXTURE_COORD_PER_VERTEX
                 : Primitive.COLOR_NONE;
         if (arrays.colors != null) {
             primitiveParam |= Primitive.COLOR_PER_VERTEX_INTERNAL;
         }
-        D4TextureData textureData = textures.get(descriptor.textureId);
+        D4TextureData textureData = textures.get(textureId);
         if (textureData != null && textureData.transparentPaletteZero) {
             primitiveParam |= Primitive.TEXTURE_COLORKEY;
         }
@@ -318,16 +338,17 @@ public final class D4ObjectLoader {
                     writeColor(colors, triangle * 3 + 2, arrays.colors, indexSet.indices[cursor + i + 1]);
                 }
                 if (uvs != null) {
-                    writeUv(uvs, triangle * 6, arrays.uvs, first, textureData);
-                    writeUv(uvs, triangle * 6 + 2, arrays.uvs, indexSet.indices[cursor + i], textureData);
-                    writeUv(uvs, triangle * 6 + 4, arrays.uvs, indexSet.indices[cursor + i + 1], textureData);
+                    writeUv(uvs, triangle * 6, arrays.uvs, first, textureData, arrays);
+                    writeUv(uvs, triangle * 6 + 2, arrays.uvs, indexSet.indices[cursor + i], textureData, arrays);
+                    writeUv(uvs, triangle * 6 + 4, arrays.uvs, indexSet.indices[cursor + i + 1], textureData, arrays);
                 }
                 triangle++;
             }
             cursor += length;
         }
         return new DecodedPrimitive(primitiveParam, vertices, colors, uvs,
-                textureData == null ? null : textureData.texture, descriptor.textureWrapEnabled);
+                textureData == null ? null : textureData.texture, descriptor.textureWrapEnabled,
+                descriptor.textureBinding == null ? TextureCoordinateTransform.IDENTITY : descriptor.textureBinding.textureCoordinateTransform);
     }
 
     private static void writeVertex(int[] target, int offset, D4Array positions, int index) {
@@ -340,7 +361,8 @@ public final class D4ObjectLoader {
         target[offset + 2] = positions.values[source + 2];
     }
 
-    private static void writeUv(int[] target, int offset, D4Array uvs, int index, D4TextureData textureData) {
+    private static void writeUv(int[] target, int offset, D4Array uvs, int index, D4TextureData textureData,
+                                D4MeshArrays arrays) {
         int source = index * uvs.components;
         if (source + 1 >= uvs.values.length) {
             return;
@@ -350,8 +372,10 @@ public final class D4ObjectLoader {
             target[offset + 1] = uvs.values[source + 1];
             return;
         }
-        target[offset] = scaleTextureCoord(uvs.values[source], textureData.texture.width());
-        target[offset + 1] = scaleTextureCoord(uvs.values[source + 1], textureData.texture.height());
+        target[offset] = scaleTextureCoord(uvs.values[source], textureData.texture.width(),
+                arrays.texCoordBiasU, arrays.texCoordScale);
+        target[offset + 1] = scaleTextureCoord(uvs.values[source + 1], textureData.texture.height(),
+                arrays.texCoordBiasV, arrays.texCoordScale);
     }
 
     private static void writeColor(int[] target, int offset, D4Array colors, int index) {
@@ -376,11 +400,8 @@ public final class D4ObjectLoader {
         return littleShort(object.payload, 8) == 0x0101;
     }
 
-    private static int scaleTextureCoord(int encoded, int textureSize) {
-        // The captured D4 UV streams use a 12-bit fixed-point domain (`1.0 == 4096`).
-        // Convert that container-specific coordinate space into texel coordinates before
-        // handing it to DoJa `Primitive`.
-        return java.lang.Math.round(encoded * (textureSize / 4096f));
+    private static int scaleTextureCoord(int encoded, int textureSize, float bias, float scale) {
+        return java.lang.Math.round((bias + encoded * scale) * textureSize);
     }
 
     private static Transform groupTransformOf(D4MeshArrays arrays) {
@@ -455,6 +476,142 @@ public final class D4ObjectLoader {
         byte[] pixels = slice(object.payload, pixelOffset, width * height);
         SoftwareTexture texture = SoftwareTexture.fromIndexed(width, height, palette, pixels, true);
         return new D4TextureData(texture, transparentPaletteZero);
+    }
+
+    private static D4TextureBinding decodeTextureBinding(D4Object object, Map<Integer, D4Object> objects) {
+        if (object == null || object.payload.length < 12) {
+            return null;
+        }
+        D4ObjectData objectData = decodeObjectData(object);
+        int offset = objectData.payloadOffset;
+        float translationU = 0f;
+        float translationV = 0f;
+        if (offset < object.payload.length) {
+            int hasComponentTransform = unsigned(object.payload[offset++]);
+            if (hasComponentTransform != 0) {
+                if (offset + 40 > object.payload.length) {
+                    return null;
+                }
+                translationU = littleFloat(object.payload, offset);
+                translationV = littleFloat(object.payload, offset + 4);
+                offset += 40;
+            }
+        }
+        if (offset < object.payload.length) {
+            int hasGenericTransform = unsigned(object.payload[offset++]);
+            if (hasGenericTransform != 0) {
+                if (offset + 64 > object.payload.length) {
+                    return null;
+                }
+                offset += 64;
+            }
+        }
+        if (offset + 12 > object.payload.length) {
+            return null;
+        }
+        int textureId = decodePlainRef(littleInt(object.payload, offset));
+        if (textureId < 0 || objects.get(textureId) == null || objects.get(textureId).type != 10) {
+            return null;
+        }
+        boolean wrapS = unsigned(object.payload[offset + 8]) == M3G_WRAP_REPEAT;
+        boolean wrapT = unsigned(object.payload[offset + 9]) == M3G_WRAP_REPEAT;
+        TextureCoordinateTransform.LinearTranslation animation = null;
+        for (int animationTrackId : objectData.animationTrackIds) {
+            animation = decodeTranslationAnimation(objects.get(animationTrackId), objects);
+            if (animation != null) {
+                break;
+            }
+        }
+        return new D4TextureBinding(textureId, wrapS, wrapT,
+                new TextureCoordinateTransform(translationU, translationV, animation));
+    }
+
+    private static TextureCoordinateTransform.LinearTranslation decodeTranslationAnimation(
+            D4Object animationTrack, Map<Integer, D4Object> objects) {
+        if (animationTrack == null || animationTrack.type != 2) {
+            return null;
+        }
+        D4ObjectData objectData = decodeObjectData(animationTrack);
+        int offset = objectData.payloadOffset;
+        if (offset + 12 > animationTrack.payload.length) {
+            return null;
+        }
+        int keyframeSequenceId = decodePlainRef(littleInt(animationTrack.payload, offset));
+        int property = littleInt(animationTrack.payload, offset + 8);
+        if (property != M3G_ANIM_TRANSLATION) {
+            return null;
+        }
+        return decodeLinearTranslationSequence(objects.get(keyframeSequenceId));
+    }
+
+    private static TextureCoordinateTransform.LinearTranslation decodeLinearTranslationSequence(D4Object keyframeSequence) {
+        if (keyframeSequence == null || keyframeSequence.type != 19) {
+            return null;
+        }
+        D4ObjectData objectData = decodeObjectData(keyframeSequence);
+        int offset = objectData.payloadOffset;
+        if (offset + 23 > keyframeSequence.payload.length) {
+            return null;
+        }
+        int interpolation = unsigned(keyframeSequence.payload[offset++]);
+        int repeatMode = unsigned(keyframeSequence.payload[offset++]);
+        int encoding = unsigned(keyframeSequence.payload[offset++]);
+        if (interpolation != M3G_KEYFRAME_LINEAR || encoding != 0) {
+            return null;
+        }
+        int duration = littleInt(keyframeSequence.payload, offset);
+        offset += 4;
+        offset += 8; // valid range first/last
+        int components = littleInt(keyframeSequence.payload, offset);
+        offset += 4;
+        int keyframes = littleInt(keyframeSequence.payload, offset);
+        offset += 4;
+        if (components < 2 || keyframes <= 0 || offset + keyframes * (4 + components * 4) > keyframeSequence.payload.length) {
+            return null;
+        }
+        int[] times = new int[keyframes];
+        float[] uValues = new float[keyframes];
+        float[] vValues = new float[keyframes];
+        for (int i = 0; i < keyframes; i++) {
+            times[i] = littleInt(keyframeSequence.payload, offset);
+            offset += 4;
+            uValues[i] = littleFloat(keyframeSequence.payload, offset);
+            vValues[i] = littleFloat(keyframeSequence.payload, offset + 4);
+            offset += components * 4;
+        }
+        return new TextureCoordinateTransform.LinearTranslation(duration, repeatMode == M3G_REPEAT_LOOP,
+                times, uValues, vValues);
+    }
+
+    private static D4ObjectData decodeObjectData(D4Object object) {
+        if (object == null || object.payload.length < 8) {
+            return new D4ObjectData(0, new int[0]);
+        }
+        int animationTrackCount = littleInt(object.payload, 0);
+        int offset = 4;
+        if (animationTrackCount < 0 || animationTrackCount > (object.payload.length - offset) / 4) {
+            return new D4ObjectData(8, new int[0]);
+        }
+        int[] animationTrackIds = new int[animationTrackCount];
+        for (int i = 0; i < animationTrackCount; i++) {
+            animationTrackIds[i] = decodePlainRef(littleInt(object.payload, offset));
+            offset += 4;
+        }
+        if (offset + 4 > object.payload.length) {
+            return new D4ObjectData(java.lang.Math.min(offset, object.payload.length), animationTrackIds);
+        }
+        int userParamCount = littleInt(object.payload, offset);
+        offset += 4;
+        for (int i = 0; i < userParamCount && offset + 8 <= object.payload.length; i++) {
+            offset += 4;
+            int userParamLength = littleInt(object.payload, offset);
+            offset += 4;
+            if (userParamLength < 0 || offset + userParamLength > object.payload.length) {
+                return new D4ObjectData(object.payload.length, animationTrackIds);
+            }
+            offset += userParamLength;
+        }
+        return new D4ObjectData(offset, animationTrackIds);
     }
 
     private static int firstPlainTargetOfType(D4Object object, Map<Integer, D4Object> objects, int type) {
@@ -532,22 +689,31 @@ public final class D4ObjectLoader {
 
     private record D4MeshArrays(D4Array positions, D4Array uvs, D4Array colors,
                                 float originX, float originY, float originZ,
-                                float vertexScale) {
+                                float vertexScale, float texCoordBiasU,
+                                float texCoordBiasV, float texCoordScale) {
     }
 
     private record D4IndexSet(int[] indices, int[] lengths) {
     }
 
-    private record D4MeshDescriptor(int textureId, int primitiveType, boolean textureWrapEnabled) {
+    private record D4MeshDescriptor(D4TextureBinding textureBinding, int primitiveType, boolean textureWrapEnabled) {
     }
 
     private record D4TextureData(SoftwareTexture texture, boolean transparentPaletteZero) {
+    }
+
+    private record D4TextureBinding(int textureId, boolean wrapS, boolean wrapT,
+                                    TextureCoordinateTransform textureCoordinateTransform) {
+    }
+
+    private record D4ObjectData(int payloadOffset, int[] animationTrackIds) {
     }
 
     public record DecodedGroup(Transform transform, List<DecodedPrimitive> elements) {
     }
 
     public record DecodedPrimitive(int primitiveParam, int[] vertices, int[] colors, int[] textureCoords,
-                                   SoftwareTexture textureHandle, boolean textureWrapEnabled) {
+                                   SoftwareTexture textureHandle, boolean textureWrapEnabled,
+                                   TextureCoordinateTransform textureCoordinateTransform) {
     }
 }

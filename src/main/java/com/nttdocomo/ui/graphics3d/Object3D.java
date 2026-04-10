@@ -123,6 +123,7 @@ public abstract class Object3D {
                     if (loadedPrimitive.textureHandle() != null) {
                         primitive.setTexture(new Texture(loadedPrimitive.textureHandle()));
                         primitive.setTextureWrapEnabled(loadedPrimitive.textureWrapEnabled());
+                        primitive.setTextureCoordinateTransform(loadedPrimitive.textureCoordinateTransform());
                     }
                     group.addElement(primitive);
                 }

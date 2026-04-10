@@ -26,22 +26,23 @@ public final class RockmanDashD4GroupProbe {
     private static final float EXPECTED_MAX_Z = 109.0f;
     private static final float TRANSFORM_EPSILON = 0.00001f;
     private static final float BOUNDS_EPSILON = 0.01f;
+    private static final float TEXTURE_TRANSLATION_EPSILON = 0.02f;
     private static final ExpectedPrimitive[] EXPECTED_PRIMITIVES = {
-            new ExpectedPrimitive(128, 128, 1, 135, -237, -130, new int[]{1, -219, 68, -219, 68, -158},
+            new ExpectedPrimitive(128, 128, 1, 126, 0, 100, new int[]{1, 17, 63, 17, 63, 74},
                     new int[]{0xffffffff, 0xffffffff, 0xffbfbfbf}, 102, 0),
-            new ExpectedPrimitive(64, 64, 0, 68, -181, 24, new int[]{0, -181, 0, 24, 68, 24},
+            new ExpectedPrimitive(64, 64, 0, 64, -58, 134, new int[]{0, -58, 0, 134, 64, 134},
                     new int[]{0xffc0c0c0, 0xffc0c0c0, 0xffc0c0c0}, 12, 0),
-            new ExpectedPrimitive(256, 256, -546, 819, -952, -201, new int[]{0, -201, 0, -338, 273, -338},
+            new ExpectedPrimitive(256, 256, -512, 768, -448, 256, new int[]{0, 256, 0, 128, 256, 128},
                     new int[]{0xffbf7f3f, 0xffbf7f3f, 0xffbf7f3f}, 2317, 0),
-            new ExpectedPrimitive(128, 128, 0, 137, -237, -101, new int[]{102, -101, 89, -101, 89, -225},
+            new ExpectedPrimitive(128, 128, 0, 128, 0, 128, new int[]{96, 128, 83, 128, 83, 11},
                     new int[]{0xffffbf7f, 0xffffbf7f, 0xff8c8c8c}, 798, 0),
-            new ExpectedPrimitive(32, 32, -239, 239, -213, 163, new int[]{137, 60, 137, -8, 34, -110},
+            new ExpectedPrimitive(32, 32, -224, 224, -144, 208, new int[]{128, 112, 128, 48, 32, -48},
                     new int[]{0x6c999999, 0x6cffffff, 0x6cffffff}, 477, 477),
-            new ExpectedPrimitive(32, 32, -256, 256, -230, 180, new int[]{-51, -196, -34, 111, -34, -162},
+            new ExpectedPrimitive(32, 32, -240, 240, -160, 224, new int[]{-48, -128, -32, 160, -32, -96},
                     new int[]{0x0cffbf7f, 0x6cff7e18, 0x6cff7e18}, 2063, 1743),
-            new ExpectedPrimitive(64, 64, 0, 28, -71, -51, new int[]{27, -51, 0, -51, 14, -71},
+            new ExpectedPrimitive(64, 64, 0, 26, 45, 63, new int[]{26, 63, 0, 63, 13, 45},
                     new int[]{0xffbf5959, 0xffbf5959, 0xffffffff}, 108, 0),
-            new ExpectedPrimitive(32, 32, -110, 110, -196, 230, new int[]{-51, -128, 0, -72, 51, -128},
+            new ExpectedPrimitive(32, 32, -103, 103, -128, 271, new int[]{-48, -64, 0, -12, 48, -64},
                     new int[]{0xff000000, 0xffffffff, 0xffffffff}, 251, 0)
     };
 
@@ -70,6 +71,10 @@ public final class RockmanDashD4GroupProbe {
         textureHandle.setAccessible(true);
         Method textureWrapEnabled = Primitive.class.getDeclaredMethod("textureWrapEnabled");
         textureWrapEnabled.setAccessible(true);
+        Method textureCoordinateTranslateU = Primitive.class.getDeclaredMethod("textureCoordinateTranslateU");
+        textureCoordinateTranslateU.setAccessible(true);
+        Method textureCoordinateTranslateV = Primitive.class.getDeclaredMethod("textureCoordinateTranslateV");
+        textureCoordinateTranslateV.setAccessible(true);
         IdentityHashMap<SoftwareTexture, Boolean> verifiedTextures = new IdentityHashMap<>();
         int primitiveCount = 0;
         int triangleCount = 0;
@@ -92,6 +97,7 @@ public final class RockmanDashD4GroupProbe {
         if (triangleCount <= 0) {
             throw new IllegalStateException("Decoded group produced no triangles");
         }
+        verifyTextureAnimation(group, textureCoordinateTranslateU, textureCoordinateTranslateV);
         verifyTransformedBounds(group);
 
         group.setPerspectiveCorrectionEnabled(true);
@@ -231,6 +237,34 @@ public final class RockmanDashD4GroupProbe {
         if (opaque == 0) {
             throw new IllegalStateException("Primitive " + primitiveIndex + " texture decoded fully transparent");
         }
+    }
+
+    private static void verifyTextureAnimation(Group group, Method textureCoordinateTranslateU,
+                                               Method textureCoordinateTranslateV) throws Exception {
+        Primitive staticPrimitive = (Primitive) group.getElement(0);
+        Primitive animatedPrimitive = (Primitive) group.getElement(7);
+
+        group.setTime(0);
+        assertClose("static texture translation U at t=0",
+                ((Number) textureCoordinateTranslateU.invoke(staticPrimitive)).floatValue(), 0f, TEXTURE_TRANSLATION_EPSILON);
+        assertClose("animated texture translation U at t=0",
+                ((Number) textureCoordinateTranslateU.invoke(animatedPrimitive)).floatValue(), 0f, TEXTURE_TRANSLATION_EPSILON);
+        assertClose("animated texture translation V at t=0",
+                ((Number) textureCoordinateTranslateV.invoke(animatedPrimitive)).floatValue(), 0f, TEXTURE_TRANSLATION_EPSILON);
+
+        group.setTime(483);
+        assertClose("static texture translation V at t=483",
+                ((Number) textureCoordinateTranslateV.invoke(staticPrimitive)).floatValue(), 0f, TEXTURE_TRANSLATION_EPSILON);
+        assertClose("animated texture translation U at t=483",
+                ((Number) textureCoordinateTranslateU.invoke(animatedPrimitive)).floatValue(), 0f, TEXTURE_TRANSLATION_EPSILON);
+        assertClose("animated texture translation V at t=483",
+                ((Number) textureCoordinateTranslateV.invoke(animatedPrimitive)).floatValue(),
+                483f / 967f * 32f, TEXTURE_TRANSLATION_EPSILON);
+
+        group.setTime(967);
+        assertClose("looped animated texture translation V",
+                ((Number) textureCoordinateTranslateV.invoke(animatedPrimitive)).floatValue(), 0f, TEXTURE_TRANSLATION_EPSILON);
+        group.setTime(0);
     }
 
     private static void assertClose(String label, float actual, float expected, float epsilon) {

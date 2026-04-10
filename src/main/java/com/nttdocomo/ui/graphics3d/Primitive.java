@@ -2,6 +2,7 @@ package com.nttdocomo.ui.graphics3d;
 
 import opendoja.g3d.FixedPoint;
 import opendoja.g3d.SoftwareTexture;
+import opendoja.g3d.TextureCoordinateTransform;
 
 /**
  * Defines the primitive object that stores vertex and attribute data for
@@ -104,6 +105,7 @@ public class Primitive extends DrawableObject3D {
     private final int[] pointSpriteArray;
     private Texture texture;
     private boolean textureWrapEnabled;
+    private TextureCoordinateTransform textureCoordinateTransform = TextureCoordinateTransform.IDENTITY;
 
     /**
      * Creates a primitive object with the specified type, parameter flags, and
@@ -312,5 +314,21 @@ public class Primitive extends DrawableObject3D {
 
     boolean textureWrapEnabled() {
         return textureWrapEnabled;
+    }
+
+    void setTextureCoordinateTransform(TextureCoordinateTransform textureCoordinateTransform) {
+        this.textureCoordinateTransform = textureCoordinateTransform == null
+                ? TextureCoordinateTransform.IDENTITY
+                : textureCoordinateTransform;
+    }
+
+    float textureCoordinateTranslateU() {
+        SoftwareTexture handle = textureHandle();
+        return handle == null ? 0f : textureCoordinateTransform.pixelTranslationU(getTime(), handle.width());
+    }
+
+    float textureCoordinateTranslateV() {
+        SoftwareTexture handle = textureHandle();
+        return handle == null ? 0f : textureCoordinateTransform.pixelTranslationV(getTime(), handle.height());
     }
 }

@@ -48,7 +48,9 @@ public final class Textured3DProbe {
                     Software3DContext.identity(),
                     0,
                     1f,
-                    false
+                    false,
+                    0f,
+                    0f
             );
         } finally {
             graphics.dispose();

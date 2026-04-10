@@ -214,7 +214,8 @@ public final class Software3DContext {
     public void renderUiPrimitive(Graphics2D g, BufferedImage target, int originX, int originY, int surfaceWidth, int surfaceHeight,
                                   int primitiveType, int primitiveParam, int primitiveCount, int[] vertexArray, int[] colorArray,
                                   int[] textureCoordArray, SoftwareTexture texture, float[] objectTransform, int blendMode,
-                                  float transparency, boolean wrapTextureCoords) {
+                                  float transparency, boolean wrapTextureCoords,
+                                  float textureTranslateU, float textureTranslateV) {
         Projection projection = uiPerspective ? createUiProjection(surfaceWidth, surfaceHeight) : null;
         float[] effectiveTransform = objectTransform == null ? uiTransform : multiply(uiTransform, objectTransform);
         // UI `Primitive` keeps the palette-zero color-key bit in primitiveParam, unlike opt `PrimitiveArray`.
@@ -226,7 +227,7 @@ public final class Software3DContext {
                 0, primitiveCount, vertexArray, colorArray, textureCoordArray, null, texture, effectiveTransform,
                 projection, uiClip, surfaceWidth / 2f, surfaceHeight / 2f, uiOrthoWidth, uiOrthoHeight, true,
                 (primitiveParam & 0x10) != 0, blendMode, transparency, false, false, true, true,
-                uiFog, null, null, BlendSemantics.UI_GRAPHICS3D);
+                uiFog, null, null, textureTranslateU, textureTranslateV, BlendSemantics.UI_GRAPHICS3D);
     }
 
     public void renderOptFigure(Graphics2D g, BufferedImage target, int originX, int originY, int surfaceWidth, int surfaceHeight, MascotFigure figure) {
@@ -293,7 +294,8 @@ public final class Software3DContext {
                 primitives.getVertexArray(), primitives.getColorArray(), primitives.getTextureCoordArray(), primitives.getPointSpriteArray(),
                 texture, optViewTransform, projection, optClip,
                 optScreenCenterX, optScreenCenterY, resolveOptOrthoWidth(surfaceWidth), resolveOptOrthoHeight(surfaceHeight),
-                optSemiTransparent, (attr & 0x10) != 0, attr & 0x60, 1f, true, invertScreenY, true, true, null, sphereTexture, toonShader, BlendSemantics.FRAMEBUFFER);
+                optSemiTransparent, (attr & 0x10) != 0, attr & 0x60, 1f, true, invertScreenY, true, true,
+                null, sphereTexture, toonShader, 0f, 0f, BlendSemantics.FRAMEBUFFER);
     }
 
     public void flushPendingOptPrimitiveBlends(Graphics2D g, BufferedImage target) {
@@ -336,6 +338,8 @@ public final class Software3DContext {
                     null,
                     pending.sphereTexture(),
                     pending.toonShader(),
+                    0f,
+                    0f,
                     BlendSemantics.FRAMEBUFFER);
         }
         pendingOptPrimitiveBlends.clear();
@@ -495,7 +499,7 @@ public final class Software3DContext {
                                        boolean allowBlend, boolean transparentPaletteZero, int blendMode, float transparency,
                                        boolean unsignedByteTextureCoords, boolean invertScreenY, boolean opaqueRgbColors, boolean depthWrite,
                                        FogState fog, SoftwareTexture sphereTexture, ToonShaderParams defaultToonShader,
-                                       BlendSemantics blendSemantics) {
+                                       float textureTranslateU, float textureTranslateV, BlendSemantics blendSemantics) {
         if (vertexArray == null) {
             return;
         }
@@ -541,6 +545,7 @@ public final class Software3DContext {
                     uv[i] = unsignedByteTextureCoords
                             ? (coordinate & 0xFF)
                             : coordinate;
+                    uv[i] += (i & 1) == 0 ? textureTranslateU : textureTranslateV;
                 }
             }
             if (texture != null && verticesPerPrimitive >= 3
