@@ -107,6 +107,8 @@ public abstract class IApplication {
 
     private static volatile IApplication currentApp;
 
+    private static final String[] NO_ARGS = new String[0];
+
     private final String[] args;
     private final Map<String, String> parameters;
     private final String sourceUrl;
@@ -124,12 +126,13 @@ public abstract class IApplication {
     public IApplication() {
         LaunchConfig config = DoJaRuntime.consumePreparedLaunch();
         if (config == null) {
-            this.args = null;
+            this.args = NO_ARGS;
             this.parameters = new HashMap<>();
             this.sourceUrl = null;
             this.launchType = LAUNCHED_FROM_MENU;
         } else {
-            this.args = config.args();
+            String[] configuredArgs = config.args();
+            this.args = configuredArgs == null ? NO_ARGS : configuredArgs;
             this.parameters = new HashMap<>(config.parameters());
             this.sourceUrl = config.sourceUrl();
             this.launchType = config.launchType();
@@ -150,10 +153,10 @@ public abstract class IApplication {
     /**
      * Gets the startup arguments passed to this application.
      *
-     * @return a copy of the startup arguments, or {@code null}
+     * @return a copy of the startup arguments
      */
     public final String[] getArgs() {
-        return args == null ? null : args.clone();
+        return args.clone();
     }
 
     /**
