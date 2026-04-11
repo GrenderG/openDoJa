@@ -144,6 +144,10 @@ public final class OpenDoJaLaunchArgs {
     public static final String VERIFY_FALLBACK_APPLIED = "opendoja.verifyFallbackApplied";
     /** Minimum OpenDoJa log level. */
     public static final String LOG_LEVEL = "opendoja.logLevel";
+    /** Preferred executable path for external video playback. */
+    public static final String VISUAL_PLAYER_PATH = "opendoja.visualPlayerPath";
+    /** Fallback completion delay for visual playback shims in ms. */
+    public static final String VISUAL_PLAYER_FALLBACK_DELAY_MS = "opendoja.visualPlayerFallbackDelayMs";
     /** Status returned by the mock media player. */
     public static final String MEDIAPLAYER_STATUS = "opendoja.mediaplayer.status";
     /** Stop position returned by the mock media player. */
@@ -308,6 +312,8 @@ public final class OpenDoJaLaunchArgs {
             IRRECEIVER_DATA,
             KEEP_EXPLICIT_GC,
             LOG_LEVEL,
+            VISUAL_PLAYER_PATH,
+            VISUAL_PLAYER_FALLBACK_DELAY_MS,
             MEDIAPLAYER_STATUS,
             MEDIAPLAYER_STOP_POSITION,
             MLD_BUFFER_FRAMES,
@@ -530,6 +536,8 @@ public final class OpenDoJaLaunchArgs {
         defaults.put(LAUNCH_COMPAT_APPLIED, () -> "false");
         defaults.put(VERIFY_FALLBACK_APPLIED, () -> "false");
         defaults.put(LOG_LEVEL, () -> OpenDoJaLog.Level.OFF.name());
+        defaults.put(VISUAL_PLAYER_PATH, () -> "");
+        defaults.put(VISUAL_PLAYER_FALLBACK_DELAY_MS, () -> "2000");
         defaults.put(MEDIAPLAYER_STATUS, () -> Integer.toString(com.nttdocomo.opt.device.MediaPlayer.STATUS_COMPLETED));
         defaults.put(MEDIAPLAYER_STOP_POSITION, () -> "0");
         defaults.put(MLD_BUFFER_FRAMES, () -> Integer.toString(MLDSynth.resolveConfigured().defaultBufferFrames));

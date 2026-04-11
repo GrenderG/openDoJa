@@ -4,7 +4,10 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
 final class LaunchCompatibility {
     private LaunchCompatibility() {
@@ -14,15 +17,18 @@ final class LaunchCompatibility {
         if (OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED)) {
             return;
         }
+        boolean interpretLegacyBusyWaits = shouldUseInterpreterForLegacyJam(jamPath);
         boolean disableExplicitGc = shouldDisableExplicitGc();
         boolean limitHotSpotTier = shouldLimitHotSpotTier();
         boolean disableOnStackReplacement = shouldDisableOnStackReplacement();
-        if (!disableExplicitGc && !limitHotSpotTier
+        if (!interpretLegacyBusyWaits
+                && !disableExplicitGc && !limitHotSpotTier
                 && !disableOnStackReplacement) {
             return;
         }
 
         Process process = new ProcessBuilder(buildCompatibilityCommand(
+                        interpretLegacyBusyWaits,
                         disableExplicitGc,
                         limitHotSpotTier,
                         disableOnStackReplacement,
@@ -51,12 +57,14 @@ final class LaunchCompatibility {
         return true;
     }
 
-    private static List<String> buildCompatibilityCommand(boolean disableExplicitGc, boolean limitHotSpotTier,
+    private static List<String> buildCompatibilityCommand(boolean interpretLegacyBusyWaits,
+            boolean disableExplicitGc, boolean limitHotSpotTier,
             boolean disableOnStackReplacement, String mainClass, String[] args) {
         List<String> command = new ArrayList<>();
         command.add(Path.of(OpenDoJaLaunchArgs.get("java.home"), "bin", "java").toString());
         for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
             if (arg.startsWith("-D" + OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED + "=")
+                    || arg.equals("-Xint")
                     || arg.startsWith("-XX:TieredStopAtLevel=")
                     || arg.equals("-XX:+UseOnStackReplacement")
                     || arg.equals("-XX:-UseOnStackReplacement")
@@ -74,12 +82,17 @@ final class LaunchCompatibility {
             // stalls the single game thread and drags audio down with it.
             command.add("-XX:+DisableExplicitGC");
         }
-        if (limitHotSpotTier) {
+        if (interpretLegacyBusyWaits) {
+            // Early DoJa Apps exchange frame/timer ownership through unsynchronized
+            // empty polling loops. Running those apps in the interpreter keeps each flag load
+            // observable enough to preserve the handset-era handoff behavior.
+            command.add("-Xint");
+        } else if (limitHotSpotTier) {
             // The official emulator runs on JBlend rather than HotSpot C2. Stopping at tier 1
             // keeps legacy empty polling loops observable without per-title deoptimization.
             command.add("-XX:TieredStopAtLevel=1");
         }
-        if (disableOnStackReplacement) {
+        if (!interpretLegacyBusyWaits && disableOnStackReplacement) {
             // HotSpot OSR can still compile empty scene polling loops into a stale-value spin even
             // when tiering is capped. Disabling OSR keeps those loops on the normal entry path so
             // cross-thread scene handoffs used by legacy titles like DDR remain observable.
@@ -92,6 +105,23 @@ final class LaunchCompatibility {
             command.add(arg);
         }
         return command;
+    }
+
+    private static boolean shouldUseInterpreterForLegacyJam(Path jamPath) {
+        if (explicitCompilationModeArgument() != null) {
+            return false;
+        }
+        try {
+            Properties properties = JamLauncher.loadJamProperties(jamPath);
+            Map<String, String> parameters = new HashMap<>();
+            for (String name : properties.stringPropertyNames()) {
+                parameters.put(name, properties.getProperty(name));
+            }
+            DoJaProfile profile = DoJaProfile.fromParametersOrDocumentedDeviceIdentity(parameters);
+            return profile.isKnown() && profile.isBefore(3, 0);
+        } catch (IOException | RuntimeException ignored) {
+            return false;
+        }
     }
 
     private static List<String> buildVerifyFallbackCommand(String mainClass, String[] args) {
@@ -152,6 +182,20 @@ final class LaunchCompatibility {
     private static String explicitVerificationArgument() {
         for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
             if (arg.startsWith("-Xverify:") || arg.equals("-noverify")) {
+                return arg;
+            }
+        }
+        return null;
+    }
+
+    private static String explicitCompilationModeArgument() {
+        for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+            if (arg.equals("-Xint")
+                    || arg.startsWith("-XX:TieredStopAtLevel=")
+                    || arg.equals("-XX:+TieredCompilation")
+                    || arg.equals("-XX:-TieredCompilation")
+                    || arg.equals("-XX:+UseOnStackReplacement")
+                    || arg.equals("-XX:-UseOnStackReplacement")) {
                 return arg;
             }
         }

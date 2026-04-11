@@ -1,5 +1,9 @@
 package com.nttdocomo.ui;
 
+import opendoja.host.DesktopExternalVideoPlayback;
+import opendoja.host.DesktopVideoSupport;
+import opendoja.host.DoJaRuntime;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -74,6 +78,7 @@ public class VisualPresenter extends Component implements MediaPresenter {
     private MediaListener listener;
     private boolean playing;
     private boolean pendingPlay;
+    private DesktopExternalVideoPlayback externalVideoPlayback;
 
     /**
      * Creates an empty presenter object.
@@ -146,9 +151,7 @@ public class VisualPresenter extends Component implements MediaPresenter {
             pendingPlay = true;
             return;
         }
-        playing = true;
-        pendingPlay = false;
-        notifyListener(VISUAL_PLAYING, 0);
+        beginPlayback();
     }
 
     /**
@@ -216,9 +219,7 @@ public class VisualPresenter extends Component implements MediaPresenter {
         boolean wasVisible = visible();
         super.setVisible(visible);
         if (!wasVisible && visible && pendingPlay && !playing) {
-            playing = true;
-            pendingPlay = false;
-            notifyListener(VISUAL_PLAYING, 0);
+            beginPlayback();
         }
     }
 
@@ -245,6 +246,7 @@ public class VisualPresenter extends Component implements MediaPresenter {
     }
 
     private void stopInternal(boolean notify) {
+        stopVideoPlayback();
         boolean wasPlaying = playing || pendingPlay;
         playing = false;
         pendingPlay = false;
@@ -257,5 +259,68 @@ public class VisualPresenter extends Component implements MediaPresenter {
         if (listener != null) {
             listener.mediaAction(this, type, param);
         }
+    }
+
+    private void beginPlayback() {
+        playing = true;
+        pendingPlay = false;
+        try {
+            startVideoPlaybackIfNeeded();
+        } catch (RuntimeException exception) {
+            playing = false;
+            pendingPlay = false;
+            throw exception;
+        }
+        notifyListener(VISUAL_PLAYING, 0);
+    }
+
+    private void startVideoPlaybackIfNeeded() {
+        stopVideoPlayback();
+        DesktopVideoSupport.VideoMetadata metadata = videoMetadata();
+        if (!metadata.isVideo()) {
+            return;
+        }
+        DoJaRuntime runtime = DoJaRuntime.current();
+        if (runtime == null) {
+            return;
+        }
+        DesktopExternalVideoPlayback[] playbackRef = new DesktopExternalVideoPlayback[1];
+        DesktopExternalVideoPlayback playback = new DesktopExternalVideoPlayback(
+                runtime,
+                metadata.data(),
+                metadata.extension(),
+                metadata.durationMillis(),
+                () -> finishVideoPlayback(playbackRef[0]));
+        playbackRef[0] = playback;
+        externalVideoPlayback = playback;
+        playback.start();
+    }
+
+    private DesktopVideoSupport.VideoMetadata videoMetadata() {
+        if (resource instanceof DesktopVideoMediaImage videoImage) {
+            return videoImage.metadata();
+        }
+        if (resource instanceof MediaManager.BasicMediaData mediaData) {
+            return DesktopVideoSupport.probe(mediaData.bytes());
+        }
+        return DesktopVideoSupport.VideoMetadata.notVideo();
+    }
+
+    private void stopVideoPlayback() {
+        DesktopExternalVideoPlayback playback = externalVideoPlayback;
+        externalVideoPlayback = null;
+        if (playback != null) {
+            playback.close();
+        }
+    }
+
+    private void finishVideoPlayback(DesktopExternalVideoPlayback playback) {
+        if (playback == null || playback != externalVideoPlayback) {
+            return;
+        }
+        stopVideoPlayback();
+        playing = false;
+        pendingPlay = false;
+        notifyListener(VISUAL_COMPLETE, 0);
     }
 }

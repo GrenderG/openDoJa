@@ -56,11 +56,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 
 public final class DoJaRuntime {
     public static final int MIN_HOST_SCALE = 1;
     public static final int MAX_HOST_SCALE = 4;
+    private static final long LEGACY_FRAME_PACE_NANOS = 10_000_000L;
 
     private static final ThreadLocal<LaunchConfig> PREPARED_LAUNCH = new ThreadLocal<>();
     private static final boolean TRACE_EVENTS = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.TRACE_EVENTS);
@@ -72,6 +74,7 @@ public final class DoJaRuntime {
     private static volatile DoJaRuntime current;
 
     private final LaunchConfig config;
+    private final boolean legacyFramePacingEnabled;
     private final AtomicBoolean shutdown = new AtomicBoolean();
     private final CountDownLatch shutdownLatch = new CountDownLatch(1);
     private final ReentrantLock surfaceLock = new ReentrantLock(true);
@@ -91,6 +94,7 @@ public final class DoJaRuntime {
     private final ThreadLocal<Boolean> drainingApplicationCallbacks =
             ThreadLocal.withInitial(() -> false);
     private final AtomicBoolean renderQueued = new AtomicBoolean();
+    private final Object renderMonitor = new Object();
     private final Set<AutoCloseable> shutdownResources = ConcurrentHashMap.newKeySet();
     private final HostPanel hostPanel;
     private final ExternalFrameRenderer externalFrameRenderer;
@@ -103,6 +107,10 @@ public final class DoJaRuntime {
     private volatile BufferedImage presentedFrame;
     private volatile int keypadState;
     private volatile long selectLatchedUntilNanos;
+    private volatile Thread renderThread;
+    private volatile long renderRequestedGeneration;
+    private volatile long renderCompletedGeneration;
+    private volatile long nextLegacyRenderAtNanos;
     private String previousMicroeditionPlatform;
     private String previousMicroeditionProfiles;
     private boolean restoreMicroeditionPlatform;
@@ -110,6 +118,8 @@ public final class DoJaRuntime {
 
     private DoJaRuntime(LaunchConfig config) {
         this.config = config;
+        DoJaProfile profile = DoJaProfile.fromParametersOrDocumentedDeviceIdentity(config.parameters());
+        this.legacyFramePacingEnabled = profile.isKnown() && profile.isBefore(4, 0);
         this.hostScale = resolveHostScale(config);
         this.externalFrameRenderer = new ExternalFrameRenderer(
                 resolveExternalFrameEnabled(config),
@@ -355,8 +365,14 @@ public final class DoJaRuntime {
     }
 
     public void requestRender(Canvas canvas) {
+        long requestedGeneration = 0L;
+        boolean waitForLegacyFrame = shouldWaitForLegacyFrame(canvas);
+        if (waitForLegacyFrame) {
+            requestedGeneration = markRenderRequested();
+        }
         Runnable paintTask = () -> {
             try {
+                waitForLegacyFrameSlot();
                 synchronized (canvas) {
                     // Drain queued callbacks immediately before application
                     // paint code so titles observe them at a normal frame
@@ -376,8 +392,17 @@ public final class DoJaRuntime {
                         g.dispose();
                     }
                 }
+            } catch (Throwable throwable) {
+                OpenDoJaLog.error(DoJaRuntime.class, "Unhandled canvas paint failure", throwable);
             } finally {
+                LegacyDrawFlagState drawFlagState = inspectLegacyDrawFlag();
+                boolean replayLegacyRender = shouldReplayLegacyRender(canvas, drawFlagState);
+                recoverLegacyDrawFlag(drawFlagState);
                 renderQueued.set(false);
+                finishRender();
+                if (replayLegacyRender) {
+                    requestRender(canvas);
+                }
             }
         };
         if (shutdown.get()) {
@@ -385,6 +410,9 @@ public final class DoJaRuntime {
         }
         if (renderQueued.compareAndSet(false, true)) {
             renderExecutor.execute(paintTask);
+        }
+        if (waitForLegacyFrame) {
+            awaitRenderCompletion(requestedGeneration);
         }
     }
 
@@ -546,6 +574,114 @@ public final class DoJaRuntime {
 
     private void ensureCanvasSurface(Canvas canvas) {
         invokeCanvasMethod(canvas, "ensureSurface", new Class<?>[]{int.class, int.class}, displayWidth(), displayHeight());
+    }
+
+    private boolean shouldWaitForLegacyFrame(Canvas canvas) {
+        return legacyFramePacingEnabled
+                && currentFrame == canvas
+                && !shutdown.get()
+                && Thread.currentThread() != renderThread
+                && !Thread.holdsLock(canvas)
+                && !SwingUtilities.isEventDispatchThread();
+    }
+
+    private long markRenderRequested() {
+        synchronized (renderMonitor) {
+            return ++renderRequestedGeneration;
+        }
+    }
+
+    private void waitForLegacyFrameSlot() {
+        if (!legacyFramePacingEnabled) {
+            renderThread = Thread.currentThread();
+            return;
+        }
+        renderThread = Thread.currentThread();
+        long target = nextLegacyRenderAtNanos;
+        if (target <= 0L) {
+            return;
+        }
+        long remaining = target - System.nanoTime();
+        if (remaining > 0L) {
+            LockSupport.parkNanos(remaining);
+        }
+    }
+
+    private void finishRender() {
+        if (!legacyFramePacingEnabled) {
+            return;
+        }
+        synchronized (renderMonitor) {
+            renderCompletedGeneration = java.lang.Math.max(renderCompletedGeneration, renderRequestedGeneration);
+            nextLegacyRenderAtNanos = System.nanoTime() + LEGACY_FRAME_PACE_NANOS;
+            renderMonitor.notifyAll();
+        }
+    }
+
+    private void awaitRenderCompletion(long requestedGeneration) {
+        if (!legacyFramePacingEnabled || requestedGeneration <= 0L) {
+            return;
+        }
+        synchronized (renderMonitor) {
+            while (!shutdown.get() && renderCompletedGeneration < requestedGeneration) {
+                try {
+                    renderMonitor.wait(20L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
+    private void recoverLegacyDrawFlag(LegacyDrawFlagState drawFlagState) {
+        if (drawFlagState == null || drawFlagState.value() != 3) {
+            return;
+        }
+        try {
+            drawFlagState.field().setInt(null, 0);
+            OpenDoJaLog.debug(DoJaRuntime.class,
+                    "Recovered wedged legacy draw flag on " + drawFlagState.ownerName());
+        } catch (IllegalAccessException e) {
+            OpenDoJaLog.error(DoJaRuntime.class,
+                    "Failed to reset legacy draw flag on " + drawFlagState.ownerName(), e);
+        }
+    }
+
+    private boolean shouldReplayLegacyRender(Canvas canvas, LegacyDrawFlagState drawFlagState) {
+        if (shutdown.get() || currentFrame != canvas) {
+            return false;
+        }
+        return drawFlagState != null && drawFlagState.value() == 2;
+    }
+
+    private LegacyDrawFlagState inspectLegacyDrawFlag() {
+        IApplication currentApplication = application;
+        if (currentApplication == null) {
+            return null;
+        }
+        Class<?> type = currentApplication.getClass();
+        while (type != null) {
+            try {
+                java.lang.reflect.Field drawFlag = type.getDeclaredField("m_drawFlag");
+                if (!java.lang.reflect.Modifier.isStatic(drawFlag.getModifiers())
+                        || drawFlag.getType() != int.class) {
+                    return null;
+                }
+                drawFlag.setAccessible(true);
+                return new LegacyDrawFlagState(drawFlag, drawFlag.getInt(null), type.getName());
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            } catch (IllegalAccessException e) {
+                OpenDoJaLog.error(DoJaRuntime.class,
+                        "Failed to inspect legacy draw flag on " + type.getName(), e);
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private record LegacyDrawFlagState(java.lang.reflect.Field field, int value, String ownerName) {
     }
 
     private BufferedImage getCanvasImage(Canvas canvas) {

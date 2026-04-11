@@ -3,6 +3,7 @@ package com.nttdocomo.ui;
 import com.nttdocomo.io.ConnectionException;
 import com.nttdocomo.lang.IterationAbortedException;
 import opendoja.audio.mld.MLD;
+import opendoja.host.DesktopVideoSupport;
 import opendoja.host.DoJaRuntime;
 
 import javax.imageio.ImageIO;
@@ -76,7 +77,7 @@ public final class MediaManager {
      */
     public static MediaImage getImage(String name) {
         try (InputStream in = openNamedInputStream(name)) {
-            return getImage(in);
+            return getImage(readAllBytes(in));
         } catch (IOException e) {
             throw new UIException(UIException.UNSUPPORTED_FORMAT, e.getMessage());
         }
@@ -91,11 +92,7 @@ public final class MediaManager {
      */
     public static MediaImage getImage(InputStream inputStream) {
         try {
-            java.awt.image.BufferedImage bufferedImage = ImageIO.read(inputStream);
-            if (bufferedImage == null) {
-                throw new UIException(UIException.UNSUPPORTED_FORMAT, "Unsupported image format");
-            }
-            return new BasicMediaImage(bufferedImage);
+            return getImage(readAllBytes(inputStream));
         } catch (IOException e) {
             throw new UIException(UIException.UNSUPPORTED_FORMAT, e.getMessage());
         }
@@ -109,7 +106,16 @@ public final class MediaManager {
      * @return the media-image object
      */
     public static MediaImage getImage(byte[] data) {
-        return getImage(new ByteArrayInputStream(data));
+        byte[] bytes = data == null ? new byte[0] : data.clone();
+        java.awt.image.BufferedImage bufferedImage = decodeStillImage(bytes);
+        if (bufferedImage != null) {
+            return new BasicMediaImage(bufferedImage);
+        }
+        DesktopVideoSupport.VideoMetadata video = DesktopVideoSupport.probe(bytes);
+        if (video.isVideo()) {
+            return new DesktopVideoMediaImage(video.data());
+        }
+        throw new UIException(UIException.UNSUPPORTED_FORMAT, "Unsupported image format");
     }
 
     /**
@@ -270,6 +276,14 @@ public final class MediaManager {
             }
         }
         return out.toByteArray();
+    }
+
+    private static java.awt.image.BufferedImage decodeStillImage(byte[] data) {
+        try (ByteArrayInputStream in = new ByteArrayInputStream(data)) {
+            return ImageIO.read(in);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private static InputStream openNamedInputStream(String name) throws IOException {

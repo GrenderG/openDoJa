@@ -257,7 +257,7 @@ public final class JamLauncher {
         return Class.forName(className, false, JamLauncher.class.getClassLoader());
     }
 
-    private static Properties loadJamProperties(Path jamPath) throws IOException {
+    static Properties loadJamProperties(Path jamPath) throws IOException {
         byte[] data = Files.readAllBytes(jamPath);
         CharacterCodingException lastCodingFailure = null;
         for (String charsetName : DoJaEncoding.defaultEncodingCandidates()) {
@@ -274,7 +274,7 @@ public final class JamLauncher {
         throw new IllegalStateException("No JAM property charsets configured");
     }
 
-    private static Properties loadJamProperties(byte[] data, Charset charset) throws IOException {
+    static Properties loadJamProperties(byte[] data, Charset charset) throws IOException {
         Properties properties = new Properties();
         String text = charset.newDecoder()
                 .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
