@@ -4,10 +4,7 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Properties;
 
 final class LaunchCompatibility {
     private LaunchCompatibility() {
@@ -17,7 +14,7 @@ final class LaunchCompatibility {
         if (OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.LAUNCH_COMPAT_APPLIED)) {
             return;
         }
-        boolean interpretLegacyBusyWaits = shouldUseInterpreterForLegacyJam(jamPath);
+        boolean interpretLegacyBusyWaits = shouldUseInterpreterForLegacyJam();
         boolean disableExplicitGc = shouldDisableExplicitGc();
         boolean limitHotSpotTier = shouldLimitHotSpotTier();
         boolean disableOnStackReplacement = shouldDisableOnStackReplacement();
@@ -107,21 +104,12 @@ final class LaunchCompatibility {
         return command;
     }
 
-    private static boolean shouldUseInterpreterForLegacyJam(Path jamPath) {
+    private static boolean shouldUseInterpreterForLegacyJam() {
         if (explicitCompilationModeArgument() != null) {
             return false;
         }
-        try {
-            Properties properties = JamLauncher.loadJamProperties(jamPath);
-            Map<String, String> parameters = new HashMap<>();
-            for (String name : properties.stringPropertyNames()) {
-                parameters.put(name, properties.getProperty(name));
-            }
-            DoJaProfile profile = DoJaProfile.fromParametersOrDocumentedDeviceIdentity(parameters);
-            return profile.isKnown() && profile.isBefore(3, 0);
-        } catch (IOException | RuntimeException ignored) {
-            return false;
-        }
+        DoJaProfile profile = DoJaProfile.current();
+        return profile.isKnown() && profile.isBefore(3, 0);
     }
 
     private static List<String> buildVerifyFallbackCommand(String mainClass, String[] args) {

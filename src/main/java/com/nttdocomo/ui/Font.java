@@ -2,7 +2,6 @@ package com.nttdocomo.ui;
 
 import com.nttdocomo.lang.XString;
 import opendoja.host.DoJaProfile;
-import opendoja.host.DoJaRuntime;
 import opendoja.host.OpenDoJaLaunchArgs;
 import opendoja.host.LaunchConfig;
 
@@ -612,17 +611,11 @@ public class Font {
         };
     }
 
-    private static DoJaProfile currentProfile() {
-        DoJaRuntime runtime = DoJaRuntime.current();
-        return runtime == null ? DoJaProfile.UNKNOWN
-                : DoJaProfile.fromParametersOrDocumentedDeviceIdentity(runtime.parameters());
-    }
-
     private static boolean useLegacyBitmapLogicalSizes() {
         if (!BITMAP_FONT_ENABLED) {
             return false;
         }
-        DoJaProfile profile = currentProfile();
+        DoJaProfile profile = DoJaProfile.current();
         return profile.isKnown() && profile.isBefore(3, 0);
     }
 
