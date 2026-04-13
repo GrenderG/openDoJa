@@ -1,7 +1,8 @@
 package opendoja.launcher;
 
+import opendoja.host.JamMetadataResolver;
+
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -48,10 +49,7 @@ final class JamGameJarResolver {
     }
 
     private Path jarFromPackageUrl(Path jamPath, Path directory) throws IOException {
-        Properties properties = new Properties();
-        try (InputStream in = Files.newInputStream(jamPath)) {
-            properties.load(in);
-        }
+        Properties properties = JamMetadataResolver.loadJamProperties(jamPath);
         String packageUrl = properties.getProperty("PackageURL");
         if (packageUrl == null || packageUrl.isBlank()) {
             return null;

@@ -4,10 +4,10 @@ import com.nttdocomo.ui.IApplication;
 
 import java.nio.file.Path;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.TreeMap;
 
 public final class LaunchConfig {
     public static final String DEFAULT_STATUS_BAR_ICON_DEVICE = "n900i";
@@ -38,7 +38,7 @@ public final class LaunchConfig {
         this.args = builder.args;
         this.launchType = builder.launchType;
         this.sourceUrl = builder.sourceUrl;
-        this.parameters = Collections.unmodifiableMap(new HashMap<>(builder.parameters));
+        this.parameters = Collections.unmodifiableMap(caseInsensitiveCopy(builder.parameters));
         this.scratchpadRoot = builder.scratchpadRoot;
         this.scratchpadPackedFile = builder.scratchpadPackedFile;
         this.scratchpadSizes = builder.scratchpadSizes == null ? new int[0] : builder.scratchpadSizes.clone();
@@ -120,7 +120,7 @@ public final class LaunchConfig {
         private String[] args;
         private int launchType = IApplication.LAUNCHED_FROM_MENU;
         private String sourceUrl = "resource:///";
-        private final Map<String, String> parameters = new HashMap<>();
+        private final Map<String, String> parameters = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         private Path scratchpadRoot;
         private Path scratchpadPackedFile;
         private int[] scratchpadSizes = new int[0];
@@ -213,6 +213,12 @@ public final class LaunchConfig {
         public LaunchConfig build() {
             return new LaunchConfig(this);
         }
+    }
+
+    private static Map<String, String> caseInsensitiveCopy(Map<String, String> source) {
+        Map<String, String> copy = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        copy.putAll(source);
+        return copy;
     }
 
     private static String resolveDefaultStatusBarIconDevice() {

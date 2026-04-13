@@ -8,19 +8,21 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class JamMetadataResolver {
+public final class JamMetadataResolver {
     private static final Pattern DEVICE_HINT_PATTERN = Pattern.compile(
             "(?i)(?:^|[^A-Za-z0-9])((?:FOMA\\s+)?[A-Z]?[0-9]{3,4}i?[A-Z]?(?:S|V|C)?)(?:[^A-Za-z0-9]|$)");
 
     private JamMetadataResolver() {
     }
 
-    static Properties loadJamProperties(Path jamPath) throws IOException {
+    public static Properties loadJamProperties(Path jamPath) throws IOException {
         byte[] data = Files.readAllBytes(jamPath);
         CharacterCodingException lastCodingFailure = null;
         for (String charsetName : DoJaEncoding.defaultEncodingCandidates()) {
@@ -38,7 +40,7 @@ final class JamMetadataResolver {
     }
 
     static Map<String, String> resolveEffectiveParameters(Path jamPath, Properties properties) {
-        Map<String, String> parameters = new HashMap<>();
+        Map<String, String> parameters = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String name : properties.stringPropertyNames()) {
             parameters.put(name, properties.getProperty(name));
         }
@@ -63,7 +65,7 @@ final class JamMetadataResolver {
     }
 
     private static Properties loadJamProperties(byte[] data, Charset charset) throws IOException {
-        Properties properties = new Properties();
+        Properties properties = new CaseInsensitiveProperties();
         String text = charset.newDecoder()
                 .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
                 .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
@@ -73,6 +75,75 @@ final class JamMetadataResolver {
             properties.load(reader);
         }
         return properties;
+    }
+
+    // JAM field casing varies across real packages. Normalize lookups once here so
+    // all metadata consumers share the same contract.
+    private static final class CaseInsensitiveProperties extends Properties {
+        private final Map<String, String> keysByLowercase = new HashMap<>();
+
+        @Override
+        public synchronized Object put(Object key, Object value) {
+            if (key instanceof String stringKey) {
+                String lowercase = stringKey.toLowerCase(Locale.ROOT);
+                String previousKey = keysByLowercase.put(lowercase, stringKey);
+                Object previousValue = null;
+                if (previousKey != null && !previousKey.equals(stringKey)) {
+                    previousValue = super.remove(previousKey);
+                }
+                Object replacedValue = super.put(key, value);
+                return replacedValue == null ? previousValue : replacedValue;
+            }
+            return super.put(key, value);
+        }
+
+        @Override
+        public synchronized Object get(Object key) {
+            if (key instanceof String stringKey) {
+                String storedKey = keysByLowercase.get(stringKey.toLowerCase(Locale.ROOT));
+                if (storedKey != null) {
+                    return super.get(storedKey);
+                }
+            }
+            return super.get(key);
+        }
+
+        @Override
+        public synchronized Object remove(Object key) {
+            if (key instanceof String stringKey) {
+                String storedKey = keysByLowercase.remove(stringKey.toLowerCase(Locale.ROOT));
+                if (storedKey != null) {
+                    return super.remove(storedKey);
+                }
+            }
+            return super.remove(key);
+        }
+
+        @Override
+        public synchronized void clear() {
+            keysByLowercase.clear();
+            super.clear();
+        }
+
+        @Override
+        public String getProperty(String key) {
+            Object value = get(key);
+            return value instanceof String stringValue ? stringValue : null;
+        }
+
+        @Override
+        public String getProperty(String key, String defaultValue) {
+            String value = getProperty(key);
+            return value == null ? defaultValue : value;
+        }
+
+        @Override
+        public synchronized boolean containsKey(Object key) {
+            if (key instanceof String stringKey) {
+                return keysByLowercase.containsKey(stringKey.toLowerCase(Locale.ROOT));
+            }
+            return super.containsKey(key);
+        }
     }
 
     private static String inferTargetDevice(Path jamPath, Properties properties) {

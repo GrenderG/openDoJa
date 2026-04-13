@@ -28,6 +28,7 @@ public final class JamScratchpadProbe {
         OpenDoJaLog.configure(OpenDoJaLog.Level.WARN);
 
         verifyScratchpadIsDisabledWithoutSpSize();
+        verifyJamFieldsAreCaseInsensitive();
         verifySiblingScratchpadWrite();
         verifyParentSpFallbackWrite();
         verifyMissingScratchpadWarningAndCreation();
@@ -50,6 +51,48 @@ public final class JamScratchpadProbe {
 
         launchAndWrite(jam, "ok");
         check("ok".equals(Files.readString(scratchpad, StandardCharsets.UTF_8)), "sibling .sp should receive direct writes");
+    }
+
+    private static void verifyJamFieldsAreCaseInsensitive() throws Exception {
+        Path root = Files.createTempDirectory("jam-case-insensitive");
+        Path jam = root.resolve("MixedCase.jam");
+        Path scratchpad = root.resolve("MixedCase.sp");
+        Files.write(scratchpad, new byte[2]);
+        writeJam(jam, """
+                appclass=%s
+                appname=Case Insensitive Probe
+                spsize=2
+                trustedapid=1
+                appparam=left right
+                """.formatted(ProbeApp.class.getName()));
+
+        LaunchConfig config = JamLauncher.buildLaunchConfig(jam, false);
+        check("Case Insensitive Probe".equals(config.title()), "lowercase AppName should set the launch title");
+        check(scratchpad.equals(config.scratchpadPackedFile()), "lowercase SPsize should enable scratchpad resolution");
+        check(config.iAppliType() == LaunchConfig.IAppliType.I_APPLI_DX,
+                "lowercase TrustedAPID should select i-appli DX");
+        check("1".equals(config.parameters().get("TrustedAPID")),
+                "launch parameters should resolve canonical casing");
+        check("1".equals(config.parameters().get("trustedapid")),
+                "launch parameters should resolve lowercase casing");
+        check(Arrays.equals(new String[]{"left", "right"}, config.args()), "lowercase AppParam should set launch args");
+
+        IApplication app = JamLauncher.launch(jam, false);
+        try {
+            check("1".equals(app.getParameter("TrustedAPID")),
+                    "application parameters should resolve canonical casing");
+            check("1".equals(app.getParameter("trustedapid")),
+                    "application parameters should resolve lowercase casing");
+        } finally {
+            DoJaRuntime runtime = DoJaRuntime.current();
+            if (runtime != null) {
+                runtime.shutdown();
+            }
+        }
+
+        launchAndWrite(jam, "ci");
+        check("ci".equals(Files.readString(scratchpad, StandardCharsets.UTF_8)),
+                "case-insensitive SPsize should enable scratchpad writes");
     }
 
     private static void verifyParentSpFallbackWrite() throws Exception {

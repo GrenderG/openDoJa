@@ -8,6 +8,7 @@ import opendoja.host.system.DoJaExternalActionSupport;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Provides the template for an application.
@@ -127,13 +128,14 @@ public abstract class IApplication {
         LaunchConfig config = DoJaRuntime.consumePreparedLaunch();
         if (config == null) {
             this.args = NO_ARGS;
-            this.parameters = new HashMap<>();
+            this.parameters = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
             this.sourceUrl = null;
             this.launchType = LAUNCHED_FROM_MENU;
         } else {
             String[] configuredArgs = config.args();
             this.args = configuredArgs == null ? NO_ARGS : configuredArgs;
-            this.parameters = new HashMap<>(config.parameters());
+            this.parameters = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            this.parameters.putAll(config.parameters());
             this.sourceUrl = config.sourceUrl();
             this.launchType = config.launchType();
         }
