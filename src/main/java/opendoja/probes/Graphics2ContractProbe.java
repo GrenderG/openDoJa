@@ -125,7 +125,6 @@ public final class Graphics2ContractProbe {
 
     private static void verifyDrawSpriteSetContract() {
         Graphics2 graphics = graphics2(Image.createImage(4, 4).getGraphics());
-        assertThrows("drawSpriteSet empty", NullPointerException.class, () -> graphics.drawSpriteSet(new SpriteSet(new Sprite[0])));
 
         Image spriteImage = Image.createImage(1, 1);
         Sprite sprite = new Sprite(spriteImage);

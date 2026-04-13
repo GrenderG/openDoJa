@@ -1,11 +1,14 @@
 package com.nttdocomo.opt.ui;
 
+import com.nttdocomo.ui.Image;
+import com.nttdocomo.ui._ImageInternalAccess;
+
 /**
  * Defines a set of optional sprites.
  */
 public class SpriteSet {
     private final Sprite[] sprites;
-    private int collisionMask;
+    private final int[] collisionFlags;
 
     /**
      * Creates a sprite set.
@@ -13,7 +16,14 @@ public class SpriteSet {
      * @param sprites the sprites to hold
      */
     public SpriteSet(Sprite[] sprites) {
-        this.sprites = sprites == null ? new Sprite[0] : sprites.clone();
+        if (sprites == null) {
+            throw new NullPointerException("sprites");
+        }
+        if (sprites.length == 0 || sprites.length > 32) {
+            throw new IllegalArgumentException("sprites");
+        }
+        this.sprites = sprites;
+        this.collisionFlags = new int[sprites.length];
     }
 
     /**
@@ -31,7 +41,7 @@ public class SpriteSet {
      * @return the sprites in this set
      */
     public Sprite[] getSprites() {
-        return sprites.clone();
+        return sprites;
     }
 
     /**
@@ -48,7 +58,10 @@ public class SpriteSet {
      * Marks all sprites as collision targets.
      */
     public void setCollisionAll() {
-        collisionMask = -1;
+        validateSprites();
+        for (int i = 0; i < sprites.length; i++) {
+            collisionFlags[i] = computeCollisionFlag(i);
+        }
     }
 
     /**
@@ -57,7 +70,9 @@ public class SpriteSet {
      * @param index the sprite index
      */
     public void setCollisionOf(int index) {
-        collisionMask |= 1 << index;
+        collisionFlags[index] = 0;
+        validateSprites();
+        collisionFlags[index] = computeCollisionFlag(index);
     }
 
     /**
@@ -68,15 +83,15 @@ public class SpriteSet {
      * @return {@code true} if the sprites overlap
      */
     public boolean isCollision(int leftIndex, int rightIndex) {
-        Sprite left = sprites[leftIndex];
-        Sprite right = sprites[rightIndex];
-        if (left == null || right == null || !left.isVisible() || !right.isVisible()) {
+        if (leftIndex == rightIndex) {
             return false;
         }
-        return left.getX() < right.getX() + right.getWidth()
-                && left.getX() + left.getWidth() > right.getX()
-                && left.getY() < right.getY() + right.getHeight()
-                && left.getY() + left.getHeight() > right.getY();
+        Sprite left = sprites[leftIndex];
+        Sprite right = sprites[rightIndex];
+        if (!isCollisionCandidate(left) || !isCollisionCandidate(right)) {
+            return false;
+        }
+        return overlaps(left, right);
     }
 
     /**
@@ -86,6 +101,50 @@ public class SpriteSet {
      * @return the collision mask
      */
     public int getCollisionFlag(int index) {
-        return collisionMask;
+        return collisionFlags[index];
+    }
+
+    private void validateSprites() {
+        for (Sprite sprite : sprites) {
+            if (sprite == null) {
+                throw new NullPointerException("sprite");
+            }
+        }
+    }
+
+    private int computeCollisionFlag(int index) {
+        Sprite target = sprites[index];
+        if (!isCollisionCandidate(target)) {
+            return 0;
+        }
+        int flag = 0;
+        for (int otherIndex = 0; otherIndex < sprites.length; otherIndex++) {
+            if (otherIndex == index) {
+                continue;
+            }
+            Sprite other = sprites[otherIndex];
+            if (isCollisionCandidate(other) && overlaps(target, other)) {
+                flag |= 1 << otherIndex;
+            }
+        }
+        return flag;
+    }
+
+    private static boolean isCollisionCandidate(Sprite sprite) {
+        if (sprite == null || !sprite.isVisible()) {
+            return false;
+        }
+        Image image = sprite.image();
+        if (image == null || _ImageInternalAccess.isDisposed(image)) {
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean overlaps(Sprite left, Sprite right) {
+        return left.getX() < right.getX() + right.getWidth()
+                && left.getX() + left.getWidth() > right.getX()
+                && left.getY() < right.getY() + right.getHeight()
+                && left.getY() + left.getHeight() > right.getY();
     }
 }

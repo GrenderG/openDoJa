@@ -32,7 +32,7 @@ public class Sprite {
      * @param image the sprite image
      */
     public Sprite(Image image) {
-        this(image, 0, 0, image == null ? 0 : image.getWidth(), image == null ? 0 : image.getHeight());
+        setImage(image);
     }
 
     /**
@@ -65,7 +65,10 @@ public class Sprite {
      * @param image the image
      */
     public void setImage(Image image) {
-        setImage(image, 0, 0, image == null ? 0 : image.getWidth(), image == null ? 0 : image.getHeight());
+        if (image == null) {
+            throw new NullPointerException("image");
+        }
+        setImage(image, 0, 0, image.getWidth(), image.getHeight());
     }
 
     /**
@@ -78,6 +81,12 @@ public class Sprite {
      * @param height the region height
      */
     public void setImage(Image image, int x, int y, int width, int height) {
+        if (image == null) {
+            throw new NullPointerException("image");
+        }
+        if (width < 0 || height < 0) {
+            throw new IllegalArgumentException("width");
+        }
         this.image = image;
         this.sourceX = x;
         this.sourceY = y;
@@ -109,6 +118,12 @@ public class Sprite {
      * @param flipMode the flip mode
      */
     public void setFlipMode(int flipMode) {
+        if (flipMode != Graphics.FLIP_NONE
+                && flipMode != Graphics.FLIP_HORIZONTAL
+                && flipMode != Graphics.FLIP_VERTICAL
+                && flipMode != Graphics.FLIP_ROTATE) {
+            throw new IllegalArgumentException("flipMode");
+        }
         this.flipMode = flipMode;
     }
 
@@ -120,6 +135,12 @@ public class Sprite {
      * @param dstRatio the destination ratio
      */
     public void setRenderMode(int operator, int srcRatio, int dstRatio) {
+        if (operator != Graphics2.OP_REPL && operator != Graphics2.OP_ADD && operator != Graphics2.OP_SUB) {
+            throw new IllegalArgumentException("operator");
+        }
+        if (srcRatio < 0 || srcRatio > 255 || dstRatio < 0 || dstRatio > 255) {
+            throw new IllegalArgumentException("ratio");
+        }
         this.renderOperator = operator;
         this.srcRatio = srcRatio;
         this.dstRatio = dstRatio;

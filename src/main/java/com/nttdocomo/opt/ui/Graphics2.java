@@ -203,6 +203,9 @@ public class Graphics2 extends Graphics {
         if (offset < 0 || count < 0 || offset + count > sprites.getCount()) {
             throw new ArrayIndexOutOfBoundsException();
         }
+        int savedOperator = renderOperator;
+        int savedSrcRatio = srcRatio;
+        int savedDstRatio = dstRatio;
         for (int i = offset; i < offset + count; i++) {
             Sprite sprite = sprites.getSprite(i);
             if (sprite == null || sprite.image() == null) {
@@ -213,6 +216,7 @@ public class Graphics2 extends Graphics {
                 continue;
             }
             super.setFlipMode(sprite.flipMode());
+            setRenderMode(sprite.renderOperator(), sprite.srcRatio(), sprite.dstRatio());
             super.drawImage(sprite.image(),
                     actualCoordinateX(sprite.getX()) - getOriginX(),
                     actualCoordinateY(sprite.getY()) - getOriginY(),
@@ -222,6 +226,7 @@ public class Graphics2 extends Graphics {
                     sprite.getHeight());
         }
         super.setFlipMode(Graphics.FLIP_NONE);
+        setRenderMode(savedOperator, savedSrcRatio, savedDstRatio);
     }
 
     /**
