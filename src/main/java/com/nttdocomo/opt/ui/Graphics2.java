@@ -187,25 +187,28 @@ public class Graphics2 extends Graphics {
      * @param sprites the sprite set
      */
     public void drawSpriteSet(SpriteSet sprites) {
-        drawSpriteSet(sprites, 0, 0);
-    }
-
-    /**
-     * Draws a sprite set using an additional offset.
-     *
-     * @param sprites the sprite set
-     * @param dx the x offset
-     * @param dy the y offset
-     */
-    public void drawSpriteSet(SpriteSet sprites, int dx, int dy) {
         if (sprites == null) {
             throw new NullPointerException("sprites");
         }
-        Sprite[] values = sprites.getSprites();
-        if (values.length == 0) {
+        drawSpriteSet(sprites, 0, sprites.getCount());
+    }
+
+    /**
+     * Draws part of a sprite set.
+     *
+     * @param sprites the sprite set
+     * @param offset the first sprite index to draw
+     * @param count the number of sprites to draw
+     */
+    public void drawSpriteSet(SpriteSet sprites, int offset, int count) {
+        if (sprites == null) {
             throw new NullPointerException("sprites");
         }
-        for (Sprite sprite : values) {
+        if (offset < 0 || count < 0 || offset + count > sprites.getCount()) {
+            throw new ArrayIndexOutOfBoundsException();
+        }
+        for (int i = offset; i < offset + count; i++) {
+            Sprite sprite = sprites.getSprite(i);
             if (sprite == null || sprite.image() == null) {
                 throw new NullPointerException("sprite");
             }
@@ -214,8 +217,8 @@ public class Graphics2 extends Graphics {
             }
             super.setFlipMode(sprite.flipMode());
             super.drawImage(sprite.image(),
-                    actualCoordinateX(dx + sprite.getX()) - getOriginX(),
-                    actualCoordinateY(dy + sprite.getY()) - getOriginY(),
+                    actualCoordinateX(sprite.getX()) - getOriginX(),
+                    actualCoordinateY(sprite.getY()) - getOriginY(),
                     sprite.sourceX(),
                     sprite.sourceY(),
                     sprite.getWidth(),

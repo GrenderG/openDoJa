@@ -759,19 +759,26 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      * Draws sprite Set.
      */
     public void drawSpriteSet(SpriteSet spriteSet) {
-        drawSpriteSet(spriteSet, 0, 0);
+        if (spriteSet == null) {
+            throw new NullPointerException("spriteSet");
+        }
+        drawSpriteSet(spriteSet, 0, spriteSet.getCount());
     }
 
     /**
      * Draws sprite Set.
      */
-    public void drawSpriteSet(SpriteSet spriteSet, int dx, int dy) {
+    public void drawSpriteSet(SpriteSet spriteSet, int offset, int count) {
         if (spriteSet == null) {
-            return;
+            throw new NullPointerException("spriteSet");
         }
-        for (Sprite sprite : spriteSet.getSprites()) {
+        if (offset < 0 || count < 0 || offset + count > spriteSet.getCount()) {
+            throw new ArrayIndexOutOfBoundsException();
+        }
+        for (int i = offset; i < offset + count; i++) {
+            Sprite sprite = spriteSet.getSprite(i);
             if (sprite != null && sprite.isVisible()) {
-                drawImage(sprite.image(), dx + sprite.getX(), dy + sprite.getY(), sprite.sourceX(), sprite.sourceY(), sprite.getWidth(), sprite.getHeight());
+                drawImage(sprite.image(), sprite.getX(), sprite.getY(), sprite.sourceX(), sprite.sourceY(), sprite.getWidth(), sprite.getHeight());
             }
         }
     }
