@@ -52,7 +52,7 @@ public abstract class Image {
             throw new NullPointerException("data");
         }
         DesktopImage image = new DesktopImage(width, height);
-        image.surface().image().setRGB(0, 0, width, height, pixels, offset, width);
+        image.getGraphics().setRGBPixels(0, 0, width, height, pixels, offset);
         return image;
     }
 

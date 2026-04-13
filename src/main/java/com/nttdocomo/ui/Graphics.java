@@ -1153,7 +1153,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      * Sets r G B Pixel.
      */
     public void setRGBPixel(int x, int y, int color) {
-        surface.image().setRGB(originX + x, originY + y, color);
+        surface.image().setRGB(originX + x, originY + y, toOpaqueRgb(color));
         flushSurfacePresentation();
     }
 
@@ -1168,8 +1168,49 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      * Sets r G B Pixels.
      */
     public void setRGBPixels(int x, int y, int width, int height, int[] pixels, int offset) {
-        surface.image().setRGB(originX + x, originY + y, width, height, pixels, offset, width);
+        int length = checkedRgbPixelLength(pixels, offset, width, height);
+        if (hasNonOpaqueRgbPixels(pixels, offset, length)) {
+            surface.image().setRGB(originX + x, originY + y, width, height,
+                    opaqueRgbPixels(pixels, offset, length), 0, width);
+        } else {
+            surface.image().setRGB(originX + x, originY + y, width, height, pixels, offset, width);
+        }
         flushSurfacePresentation();
+    }
+
+    private static int checkedRgbPixelLength(int[] pixels, int offset, int width, int height) {
+        if (pixels == null) {
+            throw new NullPointerException("pixels");
+        }
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("width and height must be > 0");
+        }
+        int length = Math.multiplyExact(width, height);
+        if (offset < 0 || offset > pixels.length - length) {
+            throw new ArrayIndexOutOfBoundsException(offset);
+        }
+        return length;
+    }
+
+    private static boolean hasNonOpaqueRgbPixels(int[] pixels, int offset, int length) {
+        for (int i = 0; i < length; i++) {
+            if ((pixels[offset + i] & 0xFF000000) != 0xFF000000) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int[] opaqueRgbPixels(int[] pixels, int offset, int length) {
+        int[] normalized = new int[length];
+        for (int i = 0; i < length; i++) {
+            normalized[i] = toOpaqueRgb(pixels[offset + i]);
+        }
+        return normalized;
+    }
+
+    private static int toOpaqueRgb(int pixel) {
+        return 0xFF000000 | (pixel & 0x00FFFFFF);
     }
 
     /**

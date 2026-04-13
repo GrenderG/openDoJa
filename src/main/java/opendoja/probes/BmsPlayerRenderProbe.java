@@ -4,6 +4,8 @@ import com.nttdocomo.ui.MediaImage;
 import com.nttdocomo.ui.MediaManager;
 import com.nttdocomo.ui.Graphics;
 import com.nttdocomo.ui.Image;
+import opendoja.host.DoJaRuntime;
+import opendoja.host.LaunchConfig;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -13,7 +15,26 @@ public final class BmsPlayerRenderProbe {
     private BmsPlayerRenderProbe() {
     }
 
+    @SuppressWarnings("unchecked")
     public static void main(String[] args) throws Exception {
+        Class<?> rawAppClass = Class.forName("mdj");
+        Class<? extends com.nttdocomo.ui.IApplication> appClass =
+                (Class<? extends com.nttdocomo.ui.IApplication>) rawAppClass;
+        LaunchConfig config = LaunchConfig.builder(appClass)
+                .viewport(240, 320)
+                .externalFrameEnabled(false)
+                .build();
+        DoJaRuntime.prepareLaunch(config);
+        DoJaRuntime runtime = DoJaRuntime.bootstrap(config);
+        try {
+            verifySubScreen();
+        } finally {
+            runtime.shutdown();
+            DoJaRuntime.clearPreparedLaunch();
+        }
+    }
+
+    private static void verifySubScreen() throws Exception {
         Class<?> canClass = Class.forName("can");
         Constructor<?> canConstructor = canClass.getDeclaredConstructor();
         canConstructor.setAccessible(true);
@@ -25,6 +46,10 @@ public final class BmsPlayerRenderProbe {
         img[0] = loadImage("resource:///0.gif");
         img[11] = loadImage("resource:///11.gif");
         img[26] = loadImage("resource:///26.gif");
+
+        Field keyModeField = canClass.getDeclaredField("keyMode");
+        keyModeField.setAccessible(true);
+        keyModeField.setInt(can, 5);
 
         Class<?> zipUtilClass = Class.forName("ZipUtil");
         Constructor<?> zipUtilConstructor = zipUtilClass.getDeclaredConstructor(int.class, int.class);
@@ -70,6 +95,9 @@ public final class BmsPlayerRenderProbe {
                 transparent,
                 translucent,
                 opaque);
+        if (transparent != 0 || translucent != 0 || opaque != subScreen.getWidth() * subScreen.getHeight()) {
+            throw new IllegalStateException("BMS subScreen must remain fully opaque after RGB pixel writes");
+        }
     }
 
     private static Image loadImage(String name) throws Exception {
