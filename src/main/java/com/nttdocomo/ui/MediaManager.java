@@ -10,6 +10,8 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import javax.microedition.io.Connector;
+import javax.sound.midi.MidiSystem;
+import javax.sound.midi.Sequence;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
@@ -589,21 +591,31 @@ public final class MediaManager {
         private final Kind kind;
         private final byte[] bytes;
         private final AudioFormat sampledFormat;
+        private final Sequence midiSequence;
         private final MLD mld;
 
-        private PreparedSound(Kind kind, byte[] bytes, AudioFormat sampledFormat, MLD mld) {
+        private PreparedSound(Kind kind, byte[] bytes, AudioFormat sampledFormat, Sequence midiSequence, MLD mld) {
             this.kind = kind;
             this.bytes = bytes;
             this.sampledFormat = sampledFormat;
+            this.midiSequence = midiSequence;
             this.mld = mld;
         }
 
         static PreparedSound prepare(byte[] data) throws IOException {
             if (startsWith(data, "MThd")) {
-                return new PreparedSound(Kind.MIDI, data, null, null);
+                try {
+                    Sequence sequence = MidiSystem.getSequence(new ByteArrayInputStream(data));
+                    return new PreparedSound(Kind.MIDI, data, null, sequence, null);
+                } catch (Exception e) {
+                    if (e instanceof IOException ioException) {
+                        throw ioException;
+                    }
+                    throw new IOException("Unsupported MIDI format", e);
+                }
             }
             if (startsWith(data, "melo")) {
-                return new PreparedSound(Kind.MLD, data, null, new MLD(data));
+                return new PreparedSound(Kind.MLD, data, null, null, new MLD(data));
             }
             try (AudioInputStream raw = AudioSystem.getAudioInputStream(new ByteArrayInputStream(data))) {
                 AudioFormat sourceFormat = raw.getFormat();
@@ -616,7 +628,7 @@ public final class MediaManager {
                         pcmBytes = readAllBytes(decoded);
                     }
                 }
-                return new PreparedSound(Kind.SAMPLED, pcmBytes, targetFormat, null);
+                return new PreparedSound(Kind.SAMPLED, pcmBytes, targetFormat, null, null);
             } catch (Exception e) {
                 if (e instanceof IOException ioException) {
                     throw ioException;
@@ -636,6 +648,10 @@ public final class MediaManager {
 
         public AudioFormat sampledFormat() {
             return sampledFormat;
+        }
+
+        public Sequence midiSequence() {
+            return midiSequence;
         }
 
         public MLD mld() {

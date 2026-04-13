@@ -1,6 +1,7 @@
 package com.nttdocomo.ui;
 
 import opendoja.audio.SampledPCMPlayer;
+import opendoja.audio.MidiEventPlayer;
 import opendoja.audio.mld.MLDPCMPlayer;
 import opendoja.host.DoJaProfile;
 import opendoja.host.DoJaRuntime;
@@ -10,7 +11,6 @@ import javax.sound.midi.MidiSystem;
 import javax.sound.midi.Sequence;
 import javax.sound.midi.Sequencer;
 import javax.sound.midi.ShortMessage;
-import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -137,6 +137,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private MediaResource resource;
     private MediaListener mediaListener;
     private SampledPCMPlayer sampledPlayer;
+    private MidiEventPlayer midiEventPlayer;
     private MLDPCMPlayer mldPlayer;
     private Sequencer sequencer;
     private int pausedPosition;
@@ -278,24 +279,31 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             }
             activeSoundKind = prepared.kind();
             if (prepared.kind() == MediaManager.PreparedSound.Kind.MIDI) {
-                sequencer = MidiSystem.getSequencer();
-                sequencer.open();
-                sequencer.addMetaEventListener(meta -> {
-                    // 0x2F is the standard MIDI End-of-Track meta event.
-                    if (meta.getType() == 0x2F) {
-                        handlePlaybackComplete(playbackToken);
+                if (useDirectMidiPlayback(prepared, loopCount)) {
+                    if (midiEventPlayer == null) {
+                        midiEventPlayer = new MidiEventPlayer(new MidiEventListener());
                     }
-                });
-                sequencer.setSequence(new ByteArrayInputStream(prepared.bytes()));
-                if (loopCount < 0) {
-                    sequencer.setLoopCount(Sequencer.LOOP_CONTINUOUSLY);
+                    midiEventPlayer.start(prepared, time, playbackToken);
                 } else {
-                    sequencer.setLoopCount(loopCount);
+                    sequencer = MidiSystem.getSequencer();
+                    sequencer.open();
+                    sequencer.addMetaEventListener(meta -> {
+                        // 0x2F is the standard MIDI End-of-Track meta event.
+                        if (meta.getType() == 0x2F) {
+                            handlePlaybackComplete(playbackToken);
+                        }
+                    });
+                    sequencer.setSequence(prepared.midiSequence());
+                    if (loopCount < 0) {
+                        sequencer.setLoopCount(Sequencer.LOOP_CONTINUOUSLY);
+                    } else {
+                        sequencer.setLoopCount(loopCount);
+                    }
+                    if (time > 0) {
+                        sequencer.setMicrosecondPosition(Math.min((long) time * 1_000L, sequencer.getMicrosecondLength()));
+                    }
+                    sequencer.start();
                 }
-                if (time > 0) {
-                    sequencer.setMicrosecondPosition(Math.min((long) time * 1_000L, sequencer.getMicrosecondLength()));
-                }
-                sequencer.start();
             } else if (prepared.kind() == MediaManager.PreparedSound.Kind.MLD) {
                 if (mldPlayer == null) {
                     mldPlayer = new MLDPCMPlayer(new MldListener());
@@ -387,6 +395,10 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         if (activeSoundKind == MediaManager.PreparedSound.Kind.MLD && mldPlayer != null) {
             return mldPlayer.getCurrentTimeMillis();
         }
+        if (activeSoundKind == MediaManager.PreparedSound.Kind.MIDI
+                && midiEventPlayer != null && midiEventPlayer.isActive()) {
+            return midiEventPlayer.getCurrentTimeMillis();
+        }
         if (activeSoundKind == MediaManager.PreparedSound.Kind.MIDI && sequencer != null) {
             return (int) (sequencer.getMicrosecondPosition() / 1_000L);
         }
@@ -404,6 +416,10 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
         if (activeSoundKind == MediaManager.PreparedSound.Kind.MLD && mldPlayer != null) {
             return mldPlayer.getTotalTimeMillis();
+        }
+        if (activeSoundKind == MediaManager.PreparedSound.Kind.MIDI
+                && midiEventPlayer != null && midiEventPlayer.isActive()) {
+            return midiEventPlayer.getTotalTimeMillis();
         }
         if (activeSoundKind == MediaManager.PreparedSound.Kind.MIDI && sequencer != null) {
             return (int) (sequencer.getMicrosecondLength() / 1_000L);
@@ -454,6 +470,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         if (sampledPlayer != null) {
             sampledPlayer.stop();
         }
+        if (midiEventPlayer != null) {
+            midiEventPlayer.stop();
+        }
         if (sequencer != null) {
             sequencer.stop();
             sequencer.close();
@@ -474,6 +493,10 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         if (sampledPlayer != null) {
             sampledPlayer.close();
             sampledPlayer = null;
+        }
+        if (midiEventPlayer != null) {
+            midiEventPlayer.close();
+            midiEventPlayer = null;
         }
         if (mldPlayer != null) {
             mldPlayer.close();
@@ -617,6 +640,14 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
     }
 
+    private boolean useDirectMidiPlayback(MediaManager.PreparedSound prepared, int loopCount) {
+        // Short one-shot MIDI effects must not pay Sequencer setup on the app
+        // thread; longer or stateful MIDI stays on the sequencer path.
+        return loopCount == 0
+                && attributes.getOrDefault(SYNC_MODE, ATTR_SYNC_OFF) != ATTR_SYNC_ON
+                && MidiEventPlayer.isLowLatencyCandidate(prepared);
+    }
+
     private int configuredLoopCount() {
         return attributes.getOrDefault(LOOP_COUNT, 0);
     }
@@ -738,7 +769,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     private static int singlePlaybackDurationMillis(MediaManager.PreparedSound prepared) throws Exception {
         return switch (prepared.kind()) {
             case MIDI -> {
-                Sequence sequence = MidiSystem.getSequence(new ByteArrayInputStream(prepared.bytes()));
+                Sequence sequence = prepared.midiSequence();
                 yield (int) Math.round(sequence.getMicrosecondLength() / 1_000.0d);
             }
             case MLD -> {
@@ -810,6 +841,18 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         @Override
         public void onFailure(Exception exception, long playbackToken) {
             handlePlaybackFailure(playbackToken, exception, "Sampled playback failed");
+        }
+    }
+
+    private final class MidiEventListener implements MidiEventPlayer.Listener {
+        @Override
+        public void onComplete(long playbackToken) {
+            handlePlaybackComplete(playbackToken);
+        }
+
+        @Override
+        public void onFailure(Exception exception, long playbackToken) {
+            handlePlaybackFailure(playbackToken, exception, "MIDI event playback failed");
         }
     }
 }
