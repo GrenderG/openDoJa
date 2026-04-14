@@ -9,6 +9,8 @@ import java.util.function.Consumer;
 public final class DesktopSurface {
     private static final long PRESENT_SYNC_INTERVAL_NANOS = 16_000_000L;
     private BufferedImage image;
+    private final BufferedImage[] presentationBuffers = new BufferedImage[2];
+    private int presentationBufferIndex;
     private int backgroundColor = 0xFF000000;
     private Consumer<BufferedImage> repaintHook;
     private float[] depthBuffer;
@@ -28,6 +30,9 @@ public final class DesktopSurface {
         g2.drawImage(image, 0, 0, null);
         g2.dispose();
         this.image = resized;
+        this.presentationBuffers[0] = null;
+        this.presentationBuffers[1] = null;
+        this.presentationBufferIndex = 0;
         this.depthBuffer = null;
         this.depthFrameActive = false;
         this.nextRenderSyncNanos = 0L;
@@ -76,6 +81,25 @@ public final class DesktopSurface {
 
     public synchronized void endDepthFrame() {
         depthFrameActive = false;
+    }
+
+    public synchronized BufferedImage copyForPresentation() {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        presentationBufferIndex ^= 1;
+        BufferedImage copy = presentationBuffers[presentationBufferIndex];
+        if (copy == null || copy.getWidth() != width || copy.getHeight() != height) {
+            copy = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            presentationBuffers[presentationBufferIndex] = copy;
+        }
+        // Presentation must be a stable snapshot while the app continues drawing into `image`.
+        Graphics2D g2 = copy.createGraphics();
+        try {
+            g2.drawImage(image, 0, 0, null);
+        } finally {
+            g2.dispose();
+        }
+        return copy;
     }
 
     public synchronized void waitForRenderSync(long intervalNanos) {

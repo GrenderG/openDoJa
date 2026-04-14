@@ -10,11 +10,10 @@ public final class Matrix4f {
     public float[] m;
 
     /**
-     * Creates an identity matrix.
+     * Creates a zero-filled matrix.
      */
     public Matrix4f() {
         m = new float[16];
-        setIdentity();
     }
 
     /**
@@ -26,11 +25,8 @@ public final class Matrix4f {
         if (matrix == null) {
             throw new NullPointerException("matrix");
         }
-        m = matrix.m == null ? null : matrix.m.clone();
-        if (m == null) {
-            m = new float[16];
-            setIdentity();
-        }
+        ensureArray(matrix);
+        m = matrix.m.clone();
     }
 
     /**
@@ -110,8 +106,7 @@ public final class Matrix4f {
                 }
             }
             if (java.lang.Math.abs(augmented[swap][pivot]) < 1e-8d) {
-                setIdentity();
-                return;
+                throw new IllegalArgumentException("matrix is singular");
             }
             if (swap != pivot) {
                 double[] tmp = augmented[pivot];
@@ -162,6 +157,7 @@ public final class Matrix4f {
      */
     public void translate(float x, float y, float z) {
         Matrix4f translation = new Matrix4f();
+        translation.setIdentity();
         translation.m[12] = x;
         translation.m[13] = y;
         translation.m[14] = z;
@@ -171,7 +167,7 @@ public final class Matrix4f {
     /**
      * Applies a rotation about the specified axis.
      *
-     * @param angle the rotation angle in radians
+     * @param angle the rotation angle in degrees
      * @param x the x component of the axis
      * @param y the y component of the axis
      * @param z the z component of the axis
@@ -179,10 +175,12 @@ public final class Matrix4f {
     public void rotate(float angle, float x, float y, float z) {
         Vector3f axis = new Vector3f(x, y, z);
         axis.normalize();
-        float c = (float) java.lang.Math.cos(angle);
-        float s = (float) java.lang.Math.sin(angle);
+        float radians = (float) java.lang.Math.toRadians(angle);
+        float c = (float) java.lang.Math.cos(radians);
+        float s = (float) java.lang.Math.sin(radians);
         float t = 1f - c;
         Matrix4f rotation = new Matrix4f();
+        rotation.setIdentity();
         rotation.m[0] = c + axis.x * axis.x * t;
         rotation.m[1] = axis.y * axis.x * t + axis.z * s;
         rotation.m[2] = axis.z * axis.x * t - axis.y * s;
@@ -204,6 +202,7 @@ public final class Matrix4f {
      */
     public void scale(float x, float y, float z) {
         Matrix4f scale = new Matrix4f();
+        scale.setIdentity();
         scale.m[0] = x;
         scale.m[5] = y;
         scale.m[10] = z;
@@ -221,26 +220,65 @@ public final class Matrix4f {
         if (eye == null || center == null || up == null) {
             throw new NullPointerException("vector");
         }
-        Vector3f forward = new Vector3f(center.x - eye.x, center.y - eye.y, center.z - eye.z);
-        forward.normalize();
-        Vector3f side = new Vector3f();
-        side.cross(forward, up);
-        side.normalize();
-        Vector3f actualUp = new Vector3f();
-        actualUp.cross(side, forward);
-        setIdentity();
-        m[0] = side.x;
-        m[1] = side.y;
-        m[2] = side.z;
-        m[4] = actualUp.x;
-        m[5] = actualUp.y;
-        m[6] = actualUp.z;
-        m[8] = -forward.x;
-        m[9] = -forward.y;
-        m[10] = -forward.z;
-        m[12] = -(side.x * eye.x + side.y * eye.y + side.z * eye.z);
-        m[13] = -(actualUp.x * eye.x + actualUp.y * eye.y + actualUp.z * eye.z);
-        m[14] = forward.x * eye.x + forward.y * eye.y + forward.z * eye.z;
+        ensureArray(this);
+        float fx = center.x - eye.x;
+        float fy = center.y - eye.y;
+        float fz = center.z - eye.z;
+        float forwardLength = length(fx, fy, fz);
+        if (forwardLength <= 0.000001f) {
+            throw new IllegalArgumentException("look-eye is zero");
+        }
+        float inverseForwardLength = 1f / forwardLength;
+        fx *= inverseForwardLength;
+        fy *= inverseForwardLength;
+        fz *= inverseForwardLength;
+
+        float upLength = length(up.x, up.y, up.z);
+        if (upLength <= 0.000001f) {
+            throw new IllegalArgumentException("up is zero");
+        }
+        float inverseUpLength = 1f / upLength;
+        float upX = up.x * inverseUpLength;
+        float upY = up.y * inverseUpLength;
+        float upZ = up.z * inverseUpLength;
+
+        float sx = (fy * upZ) - (fz * upY);
+        float sy = (fz * upX) - (fx * upZ);
+        float sz = (fx * upY) - (fy * upX);
+        float sideLength = length(sx, sy, sz);
+        if (sideLength <= 0.000001f) {
+            throw new IllegalArgumentException("look-eye and up are parallel");
+        }
+        float inverseSideLength = 1f / sideLength;
+        sx *= inverseSideLength;
+        sy *= inverseSideLength;
+        sz *= inverseSideLength;
+
+        float ux = (sy * fz) - (sz * fy);
+        float uy = (sz * fx) - (sx * fz);
+        float uz = (sx * fy) - (sy * fx);
+
+        // DoJa exposes OpenGL column-major storage: |m0 m4 m8 m12| etc.
+        m[0] = sx;
+        m[1] = ux;
+        m[2] = -fx;
+        m[3] = 0f;
+        m[4] = sy;
+        m[5] = uy;
+        m[6] = -fy;
+        m[7] = 0f;
+        m[8] = sz;
+        m[9] = uz;
+        m[10] = -fz;
+        m[11] = 0f;
+        m[12] = -((sx * eye.x) + (sy * eye.y) + (sz * eye.z));
+        m[13] = -((ux * eye.x) + (uy * eye.y) + (uz * eye.z));
+        m[14] = (fx * eye.x) + (fy * eye.y) + (fz * eye.z);
+        m[15] = 1f;
+    }
+
+    private static float length(float x, float y, float z) {
+        return (float) java.lang.Math.sqrt((x * x) + (y * y) + (z * z));
     }
 
     private static void ensureArray(Matrix4f matrix) {
