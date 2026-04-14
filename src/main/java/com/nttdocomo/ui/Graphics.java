@@ -44,9 +44,6 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
     private static final int OPT_RENDER_OP_REPL = 0;
     private static final int OPT_RENDER_OP_ADD = 1;
     private static final int OPT_RENDER_OP_SUB = 2;
-    private static final int OGL_TEXTURE_UNIT_COUNT = 1;
-    private static final int OGL_MAX_VERTEX_UNITS = 8;
-    private static final int OGL_MAX_PALETTE_MATRICES = 32;
     /**
      * Constant for black.
      */
