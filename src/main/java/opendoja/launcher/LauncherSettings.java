@@ -4,6 +4,7 @@ import opendoja.audio.mld.MLDSynth;
 import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.LaunchConfig;
 import opendoja.host.OpenDoJaLaunchArgs;
+import opendoja.host.OpenGlesRendererMode;
 
 record LauncherSettings(
         int hostScale,
@@ -14,6 +15,8 @@ record LauncherSettings(
         String httpOverrideDomain,
         String fileEncodingOverride,
         String microeditionPlatformOverride,
+        OpenGlesRendererMode openGlesRendererMode,
+        boolean showOpenGlesFps,
         boolean disableBytecodeVerification,
         boolean disableOsDpiScaling) {
     LauncherSettings {
@@ -25,6 +28,7 @@ record LauncherSettings(
         httpOverrideDomain = normalizeHttpOverrideDomain(httpOverrideDomain);
         fileEncodingOverride = normalizeFreeformOverride(fileEncodingOverride);
         microeditionPlatformOverride = OpenDoJaLaunchArgs.normalizeMicroeditionPlatformOverride(microeditionPlatformOverride);
+        openGlesRendererMode = openGlesRendererMode == null ? OpenGlesRendererMode.SOFTWARE : openGlesRendererMode;
     }
 
     static LauncherSettings defaults() {
@@ -35,6 +39,8 @@ record LauncherSettings(
                 "",
                 "",
                 "",
+                OpenGlesRendererMode.SOFTWARE,
+                false,
                 false,
                 false);
     }

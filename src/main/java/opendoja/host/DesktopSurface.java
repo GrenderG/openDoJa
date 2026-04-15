@@ -16,6 +16,7 @@ public final class DesktopSurface {
     private float[] depthBuffer;
     private boolean depthFrameActive;
     private long nextRenderSyncNanos;
+    private boolean openGlesSeen;
 
     public DesktopSurface(int width, int height) {
         this.image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
@@ -36,6 +37,7 @@ public final class DesktopSurface {
         this.depthBuffer = null;
         this.depthFrameActive = false;
         this.nextRenderSyncNanos = 0L;
+        this.openGlesSeen = false;
     }
 
     public BufferedImage image() {
@@ -81,6 +83,14 @@ public final class DesktopSurface {
 
     public synchronized void endDepthFrame() {
         depthFrameActive = false;
+    }
+
+    public synchronized void markOpenGlesActivity() {
+        openGlesSeen = true;
+    }
+
+    public synchronized boolean hasOpenGlesActivity() {
+        return openGlesSeen;
     }
 
     public synchronized BufferedImage copyForPresentation() {

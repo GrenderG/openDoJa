@@ -9,6 +9,7 @@ import com.nttdocomo.ui.IApplication;
 
 import javax.swing.AbstractAction;
 import javax.swing.ButtonGroup;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
@@ -100,7 +101,9 @@ public final class DoJaRuntime {
     private final Set<AutoCloseable> shutdownResources = ConcurrentHashMap.newKeySet();
     private final HostPanel hostPanel;
     private final ExternalFrameRenderer externalFrameRenderer;
+    private final OpenGlesFpsOverlay openGlesFpsOverlay;
     private final ScratchpadStorage scratchpadStorage;
+    private volatile boolean openGlesFpsEnabled;
     private volatile int hostScale;
     private volatile IApplication application;
     private JFrame frameWindow;
@@ -122,6 +125,11 @@ public final class DoJaRuntime {
                 resolveExternalFrameEnabled(config),
                 config.statusBarIconDevice(),
                 config.iAppliType());
+        this.openGlesFpsOverlay = new OpenGlesFpsOverlay();
+        this.openGlesFpsEnabled = OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS);
+        if (openGlesFpsEnabled) {
+            this.externalFrameRenderer.addOverlay(openGlesFpsOverlay);
+        }
         this.scratchpadStorage = new ScratchpadStorage(
                 config.scratchpadRoot(),
                 config.scratchpadPackedFile(),
@@ -456,6 +464,24 @@ public final class DoJaRuntime {
         repaintWindow();
     }
 
+    public boolean isOpenGlesFpsEnabled() {
+        return openGlesFpsEnabled;
+    }
+
+    public void setOpenGlesFpsEnabled(boolean enabled) {
+        if (openGlesFpsEnabled == enabled) {
+            return;
+        }
+        openGlesFpsEnabled = enabled;
+        if (enabled) {
+            externalFrameRenderer.addOverlay(openGlesFpsOverlay);
+        } else {
+            externalFrameRenderer.removeOverlay(openGlesFpsOverlay);
+        }
+        OpenDoJaLaunchArgs.set(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS, Boolean.toString(enabled));
+        repaintWindow();
+    }
+
     public Path scratchpadRoot() {
         return config.scratchpadRoot();
     }
@@ -565,6 +591,9 @@ public final class DoJaRuntime {
     }
 
     public void notifySurfaceFlush(Canvas canvas, BufferedImage frame) {
+        if (openGlesFpsEnabled) {
+            openGlesFpsOverlay.recordFrame(canvas, canvasUsesOpenGles(canvas));
+        }
         // Some games start a render thread from the Canvas constructor and flush direct-draw frames
         // before Display.setCurrent(canvas) runs. Preserve that latest frame so it is still visible
         // once the Canvas becomes current, instead of dropping it as "not current yet".
@@ -627,19 +656,28 @@ public final class DoJaRuntime {
     }
 
     private BufferedImage getCanvasImage(Canvas canvas) {
+        DesktopSurface surface = getCanvasSurface(canvas);
+        if (surface == null) {
+            return null;
+        }
+        surfaceLock.lock();
+        try {
+            return surface.image();
+        } finally {
+            surfaceLock.unlock();
+        }
+    }
+
+    private boolean canvasUsesOpenGles(Canvas canvas) {
+        DesktopSurface surface = getCanvasSurface(canvas);
+        return surface != null && surface.hasOpenGlesActivity();
+    }
+
+    private DesktopSurface getCanvasSurface(Canvas canvas) {
         surfaceLock.lock();
         try {
             Object surface = invokeCanvasMethod(canvas, "surface", new Class<?>[0]);
-            if (surface == null) {
-                return null;
-            }
-            try {
-                Method imageMethod = surface.getClass().getDeclaredMethod("image");
-                imageMethod.setAccessible(true);
-                return (BufferedImage) imageMethod.invoke(surface);
-            } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
-                throw new IllegalStateException("Failed to access canvas surface image", e);
-            }
+            return surface instanceof DesktopSurface desktopSurface ? desktopSurface : null;
         } finally {
             surfaceLock.unlock();
         }
@@ -1073,6 +1111,14 @@ public final class DoJaRuntime {
 
         private JPopupMenu buildHostScalePopup() {
             JPopupMenu menu = new JPopupMenu();
+            JCheckBoxMenuItem showOpenGlesFpsItem = new JCheckBoxMenuItem("Show OpenGLES FPS");
+            showOpenGlesFpsItem.setSelected(runtime.isOpenGlesFpsEnabled());
+            showOpenGlesFpsItem.addActionListener(event -> {
+                runtime.setOpenGlesFpsEnabled(showOpenGlesFpsItem.isSelected());
+                HostPanel.this.requestFocusInWindow();
+            });
+            menu.add(showOpenGlesFpsItem);
+            menu.addSeparator();
             ButtonGroup group = new ButtonGroup();
             for (int scale = MIN_HOST_SCALE; scale <= MAX_HOST_SCALE; scale++) {
                 int selectedScale = scale;

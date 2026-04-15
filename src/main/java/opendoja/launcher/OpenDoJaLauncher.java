@@ -18,6 +18,7 @@ public final class OpenDoJaLauncher {
     static final String LATEST_RELEASE_URL = REPOSITORY_URL + "/releases/latest";
     static final String GITHUB_LATEST_RELEASE_API_URL = "https://api.github.com/repos/GrenderG/openDoJa/releases/latest";
     private static final String PHONE_MODEL_FLAG = "--phone-model";
+    private static final String SHOW_OPEN_GLES_FPS_FLAG = "--show-gles-fps";
     private static final String RUN_JAM_FLAG = "--run-jam";
     private static final String RUN_JAM_INTERNAL_FLAG = "--run-jam-internal";
     private static final String SPAWN_JAM_FLAG = "--spawn-jam";
@@ -42,6 +43,10 @@ public final class OpenDoJaLauncher {
                     throw new IllegalArgumentException("Usage: " + usageLine());
                 }
                 OpenDoJaLaunchArgs.set(OpenDoJaLaunchArgs.MICROEDITION_PLATFORM_OVERRIDE, args[++i]);
+                continue;
+            }
+            if (SHOW_OPEN_GLES_FPS_FLAG.equals(args[i])) {
+                OpenDoJaLaunchArgs.set(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS, Boolean.TRUE.toString());
                 continue;
             }
             effectiveArgs.add(args[i]);
@@ -103,7 +108,7 @@ public final class OpenDoJaLauncher {
     }
 
     private static String usageLine() {
-        return APP_NAME + " [" + PHONE_MODEL_FLAG + " <model>] [<path-to-jam> | " + RUN_JAM_FLAG + " <path-to-jam> | "
+        return APP_NAME + " [" + PHONE_MODEL_FLAG + " <model>] [" + SHOW_OPEN_GLES_FPS_FLAG + "] [<path-to-jam> | " + RUN_JAM_FLAG + " <path-to-jam> | "
                 + SPAWN_JAM_FLAG + " <path-to-jam>]";
     }
 
@@ -111,6 +116,7 @@ public final class OpenDoJaLauncher {
         return usageLine()
                 + "\n\nPass custom runtime properties before -jar, for example:"
                 + "\n  java -D" + OpenDoJaLaunchArgs.HOST_SCALE + "=2 -jar target/opendoja-{version}.jar <game.jam>"
+                + "\n  java -jar target/opendoja-{version}.jar " + SHOW_OPEN_GLES_FPS_FLAG + " <game.jam>"
                 + "\n  java -jar target/opendoja-{version}.jar " + PHONE_MODEL_FLAG + " P900i <game.jam>"
                 + "\n\n" + OpenDoJaLaunchArgs.formatProperties();
     }

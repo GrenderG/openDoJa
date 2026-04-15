@@ -85,6 +85,8 @@ public final class LauncherProcessSupportProbe {
                 "",
                 overrideEncoding,
                 "",
+                opendoja.host.OpenGlesRendererMode.SOFTWARE,
+                false,
                 false,
                 false);
         GameLaunchSelection selection = new GameLaunchSelection(

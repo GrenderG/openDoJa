@@ -67,8 +67,7 @@ public abstract class Image {
         if (!(this instanceof DesktopImage desktopImage)) {
             throw new UnsupportedOperationException("This image does not support drawing");
         }
-        desktopImage.ensureNotDisposed();
-        return Graphics.createPlatformGraphics(desktopImage.surface());
+        return desktopImage.graphics();
     }
 
     /**
@@ -194,6 +193,7 @@ public abstract class Image {
 
 final class DesktopImage extends Image {
     private final DesktopSurface surface;
+    private Graphics graphics;
     private int transparentColor;
     private boolean transparentEnabled;
     private int alpha = 255;
@@ -228,6 +228,10 @@ final class DesktopImage extends Image {
 
     @Override
     public void dispose() {
+        if (graphics != null) {
+            graphics.dispose();
+            graphics = null;
+        }
         disposed = true;
     }
 
@@ -263,6 +267,12 @@ final class DesktopImage extends Image {
         // Some legacy titles dispose temporary images immediately after handing them to the
         // current paint pass. Keep read-only pixel access alive after dispose, but continue to
         // reject mutating operations through ensureNotDisposed()/surface().
+        if (graphics != null) {
+            // Offscreen images can be rendered through the hardware OpenGLES path without ever
+            // going through an unlock/present boundary. Flush that pending 3D state back into
+            // the image's software pixels before another Graphics reads the backing image.
+            graphics.syncOffscreenSurfaceForReadback();
+        }
         if (!transparentEnabled) {
             return surface.image();
         }
@@ -284,5 +294,13 @@ final class DesktopImage extends Image {
         if (disposed) {
             throw new UIException(UIException.ILLEGAL_STATE, "Image is disposed");
         }
+    }
+
+    Graphics graphics() {
+        ensureNotDisposed();
+        if (graphics == null) {
+            graphics = Graphics.createPlatformGraphics(surface);
+        }
+        return graphics;
     }
 }

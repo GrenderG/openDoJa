@@ -4,6 +4,7 @@ import opendoja.audio.mld.MLDSynth;
 import opendoja.host.DoJaRuntime;
 import opendoja.host.LaunchConfig;
 import opendoja.host.OpenDoJaLog;
+import opendoja.host.OpenGlesRendererMode;
 
 import javax.swing.AbstractAction;
 import javax.swing.Action;
@@ -378,6 +379,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                             current.httpOverrideDomain(),
                             current.fileEncodingOverride(),
                             current.microeditionPlatformOverride(),
+                            current.openGlesRendererMode(),
+                            current.showOpenGlesFps(),
                             current.disableBytecodeVerification(),
                             current.disableOsDpiScaling()));
                 }
@@ -407,6 +410,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                             current.httpOverrideDomain(),
                             current.fileEncodingOverride(),
                             current.microeditionPlatformOverride(),
+                            current.openGlesRendererMode(),
+                            current.showOpenGlesFps(),
                             current.disableBytecodeVerification(),
                             current.disableOsDpiScaling()));
                 }
@@ -436,6 +441,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                             current.httpOverrideDomain(),
                             current.fileEncodingOverride(),
                             current.microeditionPlatformOverride(),
+                            current.openGlesRendererMode(),
+                            current.showOpenGlesFps(),
                             current.disableBytecodeVerification(),
                             current.disableOsDpiScaling()));
                 }
@@ -451,6 +458,52 @@ final class OpenDoJaLauncherFrame extends JFrame {
         LauncherSettings settings = jamLaunchService.loadSettings();
         JMenu experimentalMenu = new JMenu("Experimental");
 
+        JMenu oglRendererMenu = new JMenu("OpenGLES Renderer");
+        ButtonGroup oglRendererGroup = new ButtonGroup();
+        for (OpenGlesRendererMode mode : OpenGlesRendererMode.values()) {
+            JRadioButtonMenuItem item = new JRadioButtonMenuItem(mode.label());
+            item.setSelected(settings.openGlesRendererMode() == mode);
+            item.addActionListener(event -> {
+                LauncherSettings current = jamLaunchService.loadSettings();
+                jamLaunchService.saveSettings(new LauncherSettings(
+                        current.hostScale(),
+                        current.synthId(),
+                        current.terminalId(),
+                        current.userId(),
+                        current.fontType(),
+                        current.httpOverrideDomain(),
+                        current.fileEncodingOverride(),
+                        current.microeditionPlatformOverride(),
+                        mode,
+                        current.showOpenGlesFps(),
+                        current.disableBytecodeVerification(),
+                        current.disableOsDpiScaling()));
+            });
+            oglRendererGroup.add(item);
+            oglRendererMenu.add(item);
+        }
+        experimentalMenu.add(oglRendererMenu);
+
+        JCheckBoxMenuItem showOpenGlesFpsItem = new JCheckBoxMenuItem("Show OpenGLES FPS");
+        showOpenGlesFpsItem.setSelected(settings.showOpenGlesFps());
+        showOpenGlesFpsItem.addActionListener(event -> {
+            LauncherSettings current = jamLaunchService.loadSettings();
+            jamLaunchService.saveSettings(new LauncherSettings(
+                    current.hostScale(),
+                    current.synthId(),
+                    current.terminalId(),
+                    current.userId(),
+                    current.fontType(),
+                    current.httpOverrideDomain(),
+                    current.fileEncodingOverride(),
+                    current.microeditionPlatformOverride(),
+                    current.openGlesRendererMode(),
+                    showOpenGlesFpsItem.isSelected(),
+                    current.disableBytecodeVerification(),
+                    current.disableOsDpiScaling()));
+        });
+        experimentalMenu.add(showOpenGlesFpsItem);
+
         JCheckBoxMenuItem disableBytecodeVerificationItem = new JCheckBoxMenuItem("Disable Bytecode Verification");
         disableBytecodeVerificationItem.setSelected(settings.disableBytecodeVerification());
         disableBytecodeVerificationItem.addActionListener(event -> {
@@ -464,6 +517,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                     current.httpOverrideDomain(),
                     current.fileEncodingOverride(),
                     current.microeditionPlatformOverride(),
+                    current.openGlesRendererMode(),
+                    current.showOpenGlesFps(),
                     disableBytecodeVerificationItem.isSelected(),
                     current.disableOsDpiScaling()));
         });
@@ -482,6 +537,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                     current.httpOverrideDomain(),
                     current.fileEncodingOverride(),
                     current.microeditionPlatformOverride(),
+                    current.openGlesRendererMode(),
+                    current.showOpenGlesFps(),
                     current.disableBytecodeVerification(),
                     disableOsDpiScalingItem.isSelected()));
         });
@@ -505,6 +562,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 current.httpOverrideDomain(),
                 current.fileEncodingOverride(),
                 current.microeditionPlatformOverride(),
+                current.openGlesRendererMode(),
+                current.showOpenGlesFps(),
                 current.disableBytecodeVerification(),
                 current.disableOsDpiScaling()));
     }
@@ -524,6 +583,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 current.httpOverrideDomain(),
                 current.fileEncodingOverride(),
                 current.microeditionPlatformOverride(),
+                current.openGlesRendererMode(),
+                current.showOpenGlesFps(),
                 current.disableBytecodeVerification(),
                 current.disableOsDpiScaling()));
     }
@@ -543,6 +604,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 updated,
                 current.fileEncodingOverride(),
                 current.microeditionPlatformOverride(),
+                current.openGlesRendererMode(),
+                current.showOpenGlesFps(),
                 current.disableBytecodeVerification(),
                 current.disableOsDpiScaling()));
     }
@@ -562,6 +625,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 current.httpOverrideDomain(),
                 updated,
                 current.microeditionPlatformOverride(),
+                current.openGlesRendererMode(),
+                current.showOpenGlesFps(),
                 current.disableBytecodeVerification(),
                 current.disableOsDpiScaling()));
     }
@@ -581,6 +646,8 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 current.httpOverrideDomain(),
                 current.fileEncodingOverride(),
                 updated,
+                current.openGlesRendererMode(),
+                current.showOpenGlesFps(),
                 current.disableBytecodeVerification(),
                 current.disableOsDpiScaling()));
     }

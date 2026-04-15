@@ -100,6 +100,12 @@ public final class OpenDoJaLaunchArgs {
     public static final String FONT_SCALE = "opendoja.fontScale";
     /** Selects the FueTrek mixer profile variant. */
     public static final String FUETREK_MIX_PROFILE = "opendoja.fuetrekMixProfile";
+    /** OpenGL ES backend mode: software or hardware. */
+    public static final String OPEN_GLES_RENDERER = "opendoja.openGlesRenderer";
+    public static final String SHOW_OPEN_GLES_FPS = "opendoja.showOpenGlesFps";
+    /** Enables explicit AudioPresenter lifecycle tracing. */
+    /** Enables hardware/software OpenGLES sync tracing. */
+    public static final String TRACE_OPEN_GLES_SYNC = "opendoja.traceOpenGlesSync";
     /** Reported GPS accuracy constant. */
     public static final String GPS_ACCURACY = "opendoja.gpsAccuracy";
     /** Reported GPS altitude. */
@@ -239,7 +245,6 @@ public final class OpenDoJaLaunchArgs {
     /** Java text antialias hint name. */
     public static final String TEXT_ANTIALIAS = "opendoja.textAntialias";
     /** Logs audio failures before rethrowing. */
-    public static final String TRACE_AUDIO_FAILURES = "opendoja.traceAudioFailures";
     /** Logs high-level input and runtime events. */
     public static final String TRACE_EVENTS = "opendoja.traceEvents";
     /** Logs API failure details before rethrowing. */
@@ -290,6 +295,9 @@ public final class OpenDoJaLaunchArgs {
             FONT_TYPE,
             FONT_SCALE,
             FUETREK_MIX_PROFILE,
+            OPEN_GLES_RENDERER,
+            SHOW_OPEN_GLES_FPS,
+            TRACE_OPEN_GLES_SYNC,
             GPS_ACCURACY,
             GPS_ALTITUDE,
             GPS_DATUM,
@@ -357,7 +365,6 @@ public final class OpenDoJaLaunchArgs {
             SUB_DISPLAY_HEIGHT,
             SUB_DISPLAY_WIDTH,
             TEXT_ANTIALIAS,
-            TRACE_AUDIO_FAILURES,
             TRACE_EVENTS,
             TRACE_FAILURES,
             UI_FIGURE_VERTEX_SCALE,
@@ -383,6 +390,10 @@ public final class OpenDoJaLaunchArgs {
 
     public static String microeditionPlatformOverride() {
         return normalizeMicroeditionPlatformOverride(get(MICROEDITION_PLATFORM_OVERRIDE, ""));
+    }
+
+    public static OpenGlesRendererMode openGlesRendererMode() {
+        return OpenGlesRendererMode.fromId(get(OPEN_GLES_RENDERER));
     }
 
     public static boolean isEnabled(String property) {
@@ -511,6 +522,9 @@ public final class OpenDoJaLaunchArgs {
         defaults.put(FONT_TYPE, () -> LaunchConfig.FontType.BITMAP.id);
         defaults.put(FONT_SCALE, () -> "0.85");
         defaults.put(FUETREK_MIX_PROFILE, () -> "0");
+        defaults.put(OPEN_GLES_RENDERER, () -> OpenGlesRendererMode.SOFTWARE.id());
+        defaults.put(SHOW_OPEN_GLES_FPS, () -> "false");
+        defaults.put(TRACE_OPEN_GLES_SYNC, () -> "false");
         defaults.put(GPS_ACCURACY, () -> Integer.toString(com.nttdocomo.device.location.Location.ACCURACY_NORMAL));
         defaults.put(GPS_ALTITUDE, () -> Integer.toString(com.nttdocomo.device.location.Location.ALTITUDE_UNKNOWN));
         defaults.put(GPS_DATUM, () -> Integer.toString(com.nttdocomo.device.location.LocationProvider.DATUM_WGS84));
@@ -580,7 +594,6 @@ public final class OpenDoJaLaunchArgs {
         defaults.put(SUB_DISPLAY_HEIGHT, () -> "0");
         defaults.put(SUB_DISPLAY_WIDTH, () -> "0");
         defaults.put(TEXT_ANTIALIAS, () -> "gasp");
-        defaults.put(TRACE_AUDIO_FAILURES, () -> "false");
         defaults.put(TRACE_EVENTS, () -> "false");
         defaults.put(TRACE_FAILURES, () -> "false");
         defaults.put(UI_FIGURE_VERTEX_SCALE, () -> "0.015625");

@@ -2,6 +2,7 @@ package opendoja.launcher;
 
 import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.OpenDoJaLaunchArgs;
+import opendoja.host.OpenGlesRendererMode;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -19,6 +20,8 @@ final class LauncherPreferencesStore {
     private static final String HTTP_OVERRIDE_DOMAIN_KEY = "httpOverrideDomain";
     private static final String FILE_ENCODING_OVERRIDE_KEY = "fileEncodingOverride";
     private static final String MICROEDITION_PLATFORM_OVERRIDE_KEY = "microeditionPlatformOverride";
+    private static final String OPEN_GLES_RENDERER_KEY = "openGlesRenderer";
+    private static final String SHOW_OPEN_GLES_FPS_KEY = "showOpenGlesFps";
     private static final String DISABLE_BYTECODE_VERIFICATION_KEY = "disableBytecodeVerification";
     private static final String DISABLE_OS_DPI_SCALING_KEY = "disableOsDpiScaling";
     private static final String UPDATE_NOTIFICATIONS_PROMPTED_KEY = "updateNotificationsPrompted";
@@ -39,6 +42,10 @@ final class LauncherPreferencesStore {
         String storedFileEncodingOverride = preferences.get(FILE_ENCODING_OVERRIDE_KEY, "");
         String storedMicroeditionPlatformOverride = preferences.get(MICROEDITION_PLATFORM_OVERRIDE_KEY,
                 OpenDoJaLaunchArgs.microeditionPlatformOverride());
+        OpenGlesRendererMode storedOpenGlesRendererMode = OpenGlesRendererMode.fromId(
+                preferences.get(OPEN_GLES_RENDERER_KEY, OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.OPEN_GLES_RENDERER)));
+        boolean storedShowOpenGlesFps = preferences.getBoolean(SHOW_OPEN_GLES_FPS_KEY,
+                OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS));
         boolean storedDisableBytecodeVerification = preferences.getBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, false);
         boolean storedDisableOsDpiScaling = preferences.getBoolean(DISABLE_OS_DPI_SCALING_KEY, false);
         return new LauncherSettings(
@@ -50,6 +57,8 @@ final class LauncherPreferencesStore {
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.HTTP_OVERRIDE_DOMAIN, storedHttpOverrideDomain),
                 storedFileEncodingOverride,
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.MICROEDITION_PLATFORM_OVERRIDE, storedMicroeditionPlatformOverride),
+                OpenGlesRendererMode.fromId(OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.OPEN_GLES_RENDERER, storedOpenGlesRendererMode.id())),
+                OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS, storedShowOpenGlesFps),
                 storedDisableBytecodeVerification,
                 storedDisableOsDpiScaling);
     }
@@ -63,6 +72,8 @@ final class LauncherPreferencesStore {
         preferences.put(HTTP_OVERRIDE_DOMAIN_KEY, settings.httpOverrideDomain());
         preferences.put(FILE_ENCODING_OVERRIDE_KEY, settings.fileEncodingOverride());
         preferences.put(MICROEDITION_PLATFORM_OVERRIDE_KEY, settings.microeditionPlatformOverride());
+        preferences.put(OPEN_GLES_RENDERER_KEY, settings.openGlesRendererMode().id());
+        preferences.putBoolean(SHOW_OPEN_GLES_FPS_KEY, settings.showOpenGlesFps());
         preferences.putBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, settings.disableBytecodeVerification());
         preferences.putBoolean(DISABLE_OS_DPI_SCALING_KEY, settings.disableOsDpiScaling());
     }

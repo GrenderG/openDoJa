@@ -6,6 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class DesktopLauncher {
+    private static final String PHONE_MODEL_FLAG = "--phone-model";
+    private static final String SHOW_OPEN_GLES_FPS_FLAG = "--show-gles-fps";
+
     private DesktopLauncher() {
     }
 
@@ -40,19 +43,25 @@ public final class DesktopLauncher {
     public static void main(String[] args) throws ClassNotFoundException {
         List<String> effectiveArgs = new ArrayList<>();
         for (int i = 0; i < args.length; i++) {
-            if ("--phone-model".equals(args[i])) {
+            if (PHONE_MODEL_FLAG.equals(args[i])) {
                 if (i + 1 >= args.length) {
                     throw new IllegalArgumentException(
-                            "Usage: DesktopLauncher [--phone-model <model>] <fully.qualified.IApplicationClass> [args...]");
+                            "Usage: DesktopLauncher [" + PHONE_MODEL_FLAG + " <model>] [" + SHOW_OPEN_GLES_FPS_FLAG
+                                    + "] <fully.qualified.IApplicationClass> [args...]");
                 }
                 OpenDoJaLaunchArgs.set(OpenDoJaLaunchArgs.MICROEDITION_PLATFORM_OVERRIDE, args[++i]);
+                continue;
+            }
+            if (SHOW_OPEN_GLES_FPS_FLAG.equals(args[i])) {
+                OpenDoJaLaunchArgs.set(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS, Boolean.TRUE.toString());
                 continue;
             }
             effectiveArgs.add(args[i]);
         }
         if (effectiveArgs.isEmpty()) {
             throw new IllegalArgumentException(
-                    "Usage: DesktopLauncher [--phone-model <model>] <fully.qualified.IApplicationClass> [args...]");
+                    "Usage: DesktopLauncher [" + PHONE_MODEL_FLAG + " <model>] [" + SHOW_OPEN_GLES_FPS_FLAG
+                            + "] <fully.qualified.IApplicationClass> [args...]");
         }
         ClassLoader contextLoader = Thread.currentThread().getContextClassLoader();
         Class<?> rawClass = contextLoader == null

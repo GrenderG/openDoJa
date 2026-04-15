@@ -1,5 +1,12 @@
 package opendoja.host.ogl;
 
+import com.jogamp.opengl.GL;
+import com.jogamp.opengl.GL2;
+import com.jogamp.opengl.GLCapabilities;
+import com.jogamp.opengl.GLContext;
+import com.jogamp.opengl.GLDrawableFactory;
+import com.jogamp.opengl.GLOffscreenAutoDrawable;
+import com.jogamp.opengl.GLProfile;
 import com.nttdocomo.ui.ogl.ByteBuffer;
 import com.nttdocomo.ui.ogl.DirectBuffer;
 import com.nttdocomo.ui.ogl.DirectBufferFactory;
@@ -8,6 +15,9 @@ import com.nttdocomo.ui.ogl.GraphicsOGL;
 import com.nttdocomo.ui.ogl.IntBuffer;
 import com.nttdocomo.ui.ogl.ShortBuffer;
 import opendoja.host.DesktopSurface;
+import opendoja.host.OpenDoJaLaunchArgs;
+import opendoja.host.OpenDoJaLog;
+import opendoja.host.OpenGlesRendererMode;
 
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -15,6 +25,7 @@ import java.awt.Rectangle;
 import java.awt.Shape;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.nio.ByteOrder;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Deque;
@@ -23,6 +34,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Host-owned software OpenGL ES 1.1 renderer boundary.
@@ -31,21 +44,27 @@ public class OglRenderer {
     private static final int OGL_TEXTURE_UNIT_COUNT = 1;
     private static final int OGL_MAX_VERTEX_UNITS = 8;
     private static final int OGL_MAX_PALETTE_MATRICES = 32;
+    private static final SharedGlObjectStore SHARED_GL_OBJECT_STORE = new SharedGlObjectStore();
 
     public interface Host {
         DesktopSurface surface();
 
         Graphics2D delegate();
 
+        void markOpenGlesActivity();
+
         void flushSurfacePresentation();
+
+        void onSoftwareSurfaceMutation();
     }
 
     private final Host host;
-    private int oglClearColor = 0xFF000000;
+    private int oglClearColor = 0x00000000;
     private final OglState ogl = new OglState(this);
     private final ClipVector clipVectorTemp = new ClipVector();
     private final ClipVector eyeVectorTemp = new ClipVector();
     private final ClipVector normalVectorTemp = new ClipVector();
+    private final HardwareBackend hardware = new HardwareBackend();
 
     public OglRenderer(Host host) {
         this.host = Objects.requireNonNull(host, "host");
@@ -53,6 +72,34 @@ public class OglRenderer {
         ogl.viewportY = 0;
         ogl.viewportWidth = host.surface().width();
         ogl.viewportHeight = host.surface().height();
+    }
+
+    public void close() {
+        hardware.close();
+    }
+
+    public void onHostDelegateRecreated() {
+        hardware.onHostDelegateRecreated();
+    }
+
+    public void onSoftwareSurfaceMutation() {
+        hardware.onSoftwareSurfaceMutation();
+    }
+
+    public void onPresentedSoftwareOverlay() {
+        hardware.onPresentedSoftwareOverlay(null);
+    }
+
+    public void onPresentedSoftwareOverlay(Rectangle bounds) {
+        hardware.onPresentedSoftwareOverlay(bounds);
+    }
+
+    public void prepareForSoftwareMutation() {
+        hardware.prepareForSoftwareMutation();
+    }
+
+    public void flushHardwarePresentation() {
+        hardware.flush();
     }
 
     public boolean acceptsExtensionMatrixMode(int mode) {
@@ -90,6 +137,13 @@ public class OglRenderer {
         throw new IllegalArgumentException("Unsupported extension matrix mode: " + mode);
     }
 
+    private boolean usesHardwareRenderer() {
+        // Offscreen Image surfaces do not have repaint hooks, but they still need to use the
+        // same GL path as the canvas so renderImage()/syncOffscreenSurfaceForReadback() can
+        // read back the finished frame before a later drawImage() composite.
+        return OpenDoJaLaunchArgs.openGlesRendererMode() == OpenGlesRendererMode.HARDWARE;
+    }
+
 public final void glClearColor(float red, float green, float blue, float alpha) {
     oglClearColor = ((clampOglChannel(alpha) & 0xFF) << 24)
             | ((clampOglChannel(red) & 0xFF) << 16)
@@ -98,8 +152,12 @@ public final void glClearColor(float red, float green, float blue, float alpha) 
 }
 
 public final void glClear(int mask) {
+    host.markOpenGlesActivity();
     if ((mask & GraphicsOGL.GL_DEPTH_BUFFER_BIT) != 0) {
         host.surface().endDepthFrame();
+    }
+    if (usesHardwareRenderer() && hardware.clear(mask)) {
+        return;
     }
     if ((mask & GraphicsOGL.GL_COLOR_BUFFER_BIT) == 0) {
         return;
@@ -117,11 +175,14 @@ public final void glClear(int mask) {
 }
 
 public final void beginDrawing() {
+    host.markOpenGlesActivity();
     ogl.beginDrawing();
 }
 
 public final void endDrawing() {
+    host.markOpenGlesActivity();
     ogl.endDrawing();
+    hardware.endDrawing();
 }
 
 public final void glEnable(int cap) {
@@ -582,9 +643,7 @@ public final void glGenTextures(int n, int[] textures) {
     }
     int count = Math.min(n, textures.length);
     for (int i = 0; i < count; i++) {
-        int id = ogl.nextTextureId++;
-        ogl.textures.put(id, new OglTexture());
-        textures[i] = id;
+        textures[i] = SHARED_GL_OBJECT_STORE.createTextureId();
     }
 }
 
@@ -600,6 +659,7 @@ public final void glDeleteTextures(int n, int[] textures) {
     for (int i = 0; i < count; i++) {
         int textureId = textures[i];
         ogl.textures.remove(textureId);
+        hardware.onTextureDeleted(textureId);
         if (ogl.boundTextureId == textureId) {
             ogl.boundTextureId = 0;
         }
@@ -665,9 +725,7 @@ public final void glGenBuffers(int[] buffers) {
         throw new NullPointerException("buffers");
     }
     for (int i = 0; i < buffers.length; i++) {
-        int id = ogl.nextBufferId++;
-        ogl.buffers.put(id, new OglBufferObject());
-        buffers[i] = id;
+        buffers[i] = SHARED_GL_OBJECT_STORE.createBufferId();
     }
 }
 
@@ -796,10 +854,12 @@ public final void glWeightPointerOES(int size, int type, int stride, int pointer
 }
 
 public final void glDrawArrays(int mode, int first, int count) {
+    host.markOpenGlesActivity();
     drawOgl(mode, first, count, null);
 }
 
 public final void glDrawElements(int mode, int count, int type, DirectBuffer indices) {
+    host.markOpenGlesActivity();
     if (type != GraphicsOGL.GL_UNSIGNED_SHORT) {
         ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
         return;
@@ -812,6 +872,7 @@ public final void glDrawElements(int mode, int count, int type, DirectBuffer ind
 }
 
 public final void glDrawElements(int mode, int count, int type, int indices) {
+    host.markOpenGlesActivity();
     if (type != GraphicsOGL.GL_UNSIGNED_SHORT) {
         ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
         return;
@@ -832,6 +893,7 @@ public final void glDrawElements(int mode, int count, DirectBuffer indices) {
 }
 
 public final void glFlush() {
+    hardware.flush();
 }
 
 public final int glGetError() {
@@ -1133,6 +1195,11 @@ private void drawOgl(int mode, int first, int count, OglIndexSource indexSource)
     if (ogl.vertexPointer == null || count <= 0) {
         return;
     }
+    if (usesHardwareRenderer() && hardware.draw(mode, first, count, indexSource)) {
+        return;
+    }
+    hardware.flush();
+    host.onSoftwareSurfaceMutation();
     int primitiveCount = count;
     if (indexSource != null) {
         primitiveCount = Math.min(Math.max(0, count), indexSource.elementCount());
@@ -2453,6 +2520,1078 @@ private static float edge(float ax, float ay, float bx, float by, float px, floa
 private static int clamp(int value, int min, int max) {
     return Math.max(min, Math.min(max, value));
 }
+
+private interface HardwareGlCall {
+    boolean execute(GL2 gl);
+}
+
+private static final class SharedGlObjectStore {
+    private final AtomicInteger nextTextureId = new AtomicInteger(1);
+    private final AtomicInteger nextBufferId = new AtomicInteger(1);
+    private final Map<Integer, OglTexture> textures = new ConcurrentHashMap<>();
+    private final Map<Integer, OglBufferObject> buffers = new ConcurrentHashMap<>();
+
+    int createTextureId() {
+        int id = nextTextureId.getAndIncrement();
+        textures.put(id, new OglTexture());
+        return id;
+    }
+
+    int createBufferId() {
+        int id = nextBufferId.getAndIncrement();
+        buffers.put(id, new OglBufferObject());
+        return id;
+    }
+}
+
+private final class HardwareBackend {
+    private final Map<Integer, HardwareTexture> textureCache = new HashMap<>();
+    private GLOffscreenAutoDrawable drawable;
+    private boolean available;
+    private boolean failureLogged;
+    private boolean surfaceDirty = true;
+    private boolean readbackPending;
+    private int drawableWidth = -1;
+    private int drawableHeight = -1;
+    private int surfaceTextureId;
+    private int surfaceTextureWidth = -1;
+    private int surfaceTextureHeight = -1;
+    private java.nio.ByteBuffer readbackBuffer;
+    private java.nio.ByteBuffer surfaceUploadBuffer;
+    private java.nio.ByteBuffer textureUploadBuffer;
+    private float[] vertexScratch = new float[0];
+    private float[] normalScratch = new float[0];
+    private float[] texCoordScratch = new float[0];
+    private byte[] colorScratch = new byte[0];
+    private short[] indexScratch = new short[0];
+    private final float[] viewportProjectionScratch = new float[16];
+    private final float[] viewportTransformScratch = new float[16];
+    private java.nio.ByteBuffer vertexBufferBytes;
+    private java.nio.ByteBuffer normalBufferBytes;
+    private java.nio.ByteBuffer texCoordBufferBytes;
+    private java.nio.ByteBuffer colorBufferBytes;
+    private java.nio.ByteBuffer indexBufferBytes;
+    private int[] lastHardwareSnapshot;
+    private int[] outsideLockOverlaySnapshot;
+    private Rectangle outsideLockOverlayBounds;
+
+    boolean clear(int mask) {
+        if ((mask & (GraphicsOGL.GL_COLOR_BUFFER_BIT | GraphicsOGL.GL_DEPTH_BUFFER_BIT)) == 0) {
+            return true;
+        }
+        return withContext(gl -> {
+            prepareFramebuffer(gl);
+            applyViewportState(gl);
+            applyClipState(gl);
+            int glMask = 0;
+            if ((mask & GraphicsOGL.GL_COLOR_BUFFER_BIT) != 0) {
+                float[] clearColor = unpackColor(oglClearColor);
+                gl.glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+                glMask |= GraphicsOGL.GL_COLOR_BUFFER_BIT;
+            }
+            if ((mask & GraphicsOGL.GL_DEPTH_BUFFER_BIT) != 0) {
+                gl.glDepthMask(true);
+                gl.glClearDepth(0d);
+                glMask |= GraphicsOGL.GL_DEPTH_BUFFER_BIT;
+            }
+            if (glMask != 0) {
+                gl.glClear(glMask);
+                if ((mask & GraphicsOGL.GL_DEPTH_BUFFER_BIT) != 0) {
+                    gl.glDepthMask(ogl.depthMask);
+                }
+                if ((mask & GraphicsOGL.GL_COLOR_BUFFER_BIT) != 0) {
+                    readbackPending = true;
+                }
+            }
+            return gl.glGetError() == GL.GL_NO_ERROR;
+        });
+    }
+
+    boolean draw(int mode, int first, int count, OglIndexSource indexSource) {
+        int primitiveCount = indexSource == null ? count : Math.min(Math.max(0, count), indexSource.elementCount());
+        if (primitiveCount <= 0) {
+            return true;
+        }
+        int glMode = toHardwarePrimitiveMode(mode);
+        if (glMode == -1) {
+            return false;
+        }
+        PreparedArrayState arrayState = prepareArrayState(first, primitiveCount, indexSource);
+        if (arrayState == null) {
+            return false;
+        }
+        return withContext(gl -> {
+            prepareFramebuffer(gl);
+            applyClipState(gl);
+            applyViewportState(gl);
+            applyRenderState(gl, arrayState.emulateMatrixPalette());
+            applyTextureState(gl);
+            bindArrayState(gl, arrayState);
+            try {
+                if (arrayState.indexBuffer() == null) {
+                    gl.glDrawArrays(glMode, arrayState.drawFirst(), arrayState.drawCount());
+                } else {
+                    gl.glDrawElements(glMode, arrayState.drawCount(), GraphicsOGL.GL_UNSIGNED_SHORT, arrayState.indexBuffer());
+                }
+            } finally {
+                unbindArrayState(gl);
+            }
+            readbackPending = true;
+            return gl.glGetError() == GL.GL_NO_ERROR;
+        });
+    }
+
+    void endDrawing() {
+        flush();
+    }
+
+    void prepareForSoftwareMutation() {
+        if (readbackPending) {
+            flush();
+        }
+    }
+
+    void flush() {
+        if (!readbackPending) {
+            return;
+        }
+        withContext(gl -> {
+            gl.glFlush();
+            readBackColorBuffer(gl);
+            int[] currentHardwareSnapshot = copySurfacePixels(host.surface().image());
+            int overlayPixels = reapplyOutsideLockOverlay(lastHardwareSnapshot, outsideLockOverlaySnapshot);
+            readbackPending = false;
+            surfaceDirty = false;
+            lastHardwareSnapshot = currentHardwareSnapshot;
+            return true;
+        });
+    }
+
+    void onTextureDeleted(int textureId) {
+        HardwareTexture removed = textureCache.remove(textureId);
+        if (removed == null || removed.textureId() == 0) {
+            return;
+        }
+        withContext(gl -> {
+            gl.glDeleteTextures(1, new int[]{removed.textureId()}, 0);
+            return true;
+        });
+    }
+
+    void onSoftwareSurfaceMutation() {
+        surfaceDirty = true;
+    }
+
+    void onPresentedSoftwareOverlay(Rectangle bounds) {
+        outsideLockOverlaySnapshot = copySurfacePixels(host.surface().image());
+        Rectangle surfaceBounds = new Rectangle(0, 0, host.surface().width(), host.surface().height());
+        if (bounds != null) {
+            outsideLockOverlayBounds = bounds.intersection(surfaceBounds);
+        } else {
+            Rectangle clip = host.delegate().getClipBounds();
+            outsideLockOverlayBounds = clip == null ? surfaceBounds : clip.intersection(surfaceBounds);
+        }
+        if (lastHardwareSnapshot == null) {
+            surfaceDirty = true;
+        }
+    }
+
+    void onHostDelegateRecreated() {
+        surfaceDirty = true;
+    }
+
+    void close() {
+        if (drawable == null) {
+            textureCache.clear();
+            surfaceTextureId = 0;
+            surfaceTextureWidth = -1;
+            surfaceTextureHeight = -1;
+            readbackBuffer = null;
+            surfaceUploadBuffer = null;
+            textureUploadBuffer = null;
+            available = false;
+            return;
+        }
+        withContext(gl -> {
+            int[] textureIds = new int[textureCache.size() + (surfaceTextureId == 0 ? 0 : 1)];
+            int offset = 0;
+            for (HardwareTexture texture : textureCache.values()) {
+                if (texture.textureId() != 0) {
+                    textureIds[offset++] = texture.textureId();
+                }
+            }
+            if (surfaceTextureId != 0) {
+                textureIds[offset++] = surfaceTextureId;
+            }
+            if (offset > 0) {
+                gl.glDeleteTextures(offset, textureIds, 0);
+            }
+            return true;
+        });
+        drawable.destroy();
+        drawable = null;
+        textureCache.clear();
+        surfaceTextureId = 0;
+        surfaceTextureWidth = -1;
+        surfaceTextureHeight = -1;
+        readbackBuffer = null;
+        surfaceUploadBuffer = null;
+        textureUploadBuffer = null;
+        drawableWidth = -1;
+        drawableHeight = -1;
+        available = false;
+        surfaceDirty = true;
+        readbackPending = false;
+        lastHardwareSnapshot = null;
+        outsideLockOverlaySnapshot = null;
+        outsideLockOverlayBounds = null;
+    }
+
+    private boolean withContext(HardwareGlCall call) {
+        if (!ensureDrawable()) {
+            return false;
+        }
+        GLContext context = drawable.getContext();
+        boolean current = false;
+        try {
+            current = context.makeCurrent() != GLContext.CONTEXT_NOT_CURRENT;
+            if (!current) {
+                return false;
+            }
+            return call.execute(drawable.getGL().getGL2());
+        } catch (RuntimeException exception) {
+            available = false;
+            if (!failureLogged) {
+                failureLogged = true;
+                OpenDoJaLog.warn(OglRenderer.class, "OpenGLES hardware backend unavailable, falling back to software", exception);
+            }
+            return false;
+        } finally {
+            if (current) {
+                context.release();
+            }
+        }
+    }
+
+    private boolean ensureDrawable() {
+        int width = Math.max(1, host.surface().width());
+        int height = Math.max(1, host.surface().height());
+        if (available && drawable != null && drawableWidth == width && drawableHeight == height) {
+            return true;
+        }
+        if (drawable != null) {
+            drawable.destroy();
+            drawable = null;
+        }
+        try {
+            GLProfile profile = GLProfile.getMaxFixedFunc(true);
+            GLCapabilities capabilities = new GLCapabilities(profile);
+            capabilities.setOnscreen(false);
+            capabilities.setPBuffer(true);
+            capabilities.setDoubleBuffered(false);
+            capabilities.setAlphaBits(8);
+            capabilities.setDepthBits(24);
+            GLDrawableFactory factory = GLDrawableFactory.getFactory(profile);
+            drawable = factory.createOffscreenAutoDrawable(null, capabilities, null, width, height);
+            drawable.display();
+            drawableWidth = width;
+            drawableHeight = height;
+            available = true;
+            surfaceDirty = true;
+            readbackPending = false;
+            lastHardwareSnapshot = null;
+            return true;
+        } catch (RuntimeException exception) {
+            drawable = null;
+            drawableWidth = width;
+            drawableHeight = height;
+            available = false;
+            if (!failureLogged) {
+                failureLogged = true;
+                OpenDoJaLog.warn(OglRenderer.class, "Failed to initialize OpenGLES hardware backend", exception);
+            }
+            return false;
+        }
+    }
+
+    private PreparedArrayState prepareArrayState(int first, int primitiveCount, OglIndexSource indexSource) {
+        OglPointer vertexPointer = ogl.vertexPointer;
+        if (vertexPointer == null || vertexPointer.type() != GraphicsOGL.GL_FLOAT) {
+            return null;
+        }
+        boolean emulateMatrixPalette = ogl.usesMatrixPalette();
+        int vertexCount = indexSource == null ? primitiveCount : resolveVertexCount(primitiveCount, indexSource);
+        if (vertexCount <= 0) {
+            return null;
+        }
+        int vertexFloatCount = vertexCount * 4;
+        float[] vertexValues = ensureFloatArray(vertexScratch, vertexFloatCount);
+        vertexScratch = vertexValues;
+        int normalFloatCount = vertexCount * 3;
+        float[] normalValues = (ogl.lightingEnabled() || ogl.normalArrayEnabled)
+                ? ensureFloatArray(normalScratch, normalFloatCount) : null;
+        if (normalValues != null) {
+            normalScratch = normalValues;
+        }
+        int texCoordFloatCount = vertexCount * 2;
+        float[] texCoordValues = (ogl.texCoordArrayEnabled && ogl.texCoordPointer != null)
+                ? ensureFloatArray(texCoordScratch, texCoordFloatCount) : null;
+        if (texCoordValues != null) {
+            texCoordScratch = texCoordValues;
+        }
+        int colorByteCount = vertexCount * 4;
+        byte[] colorValues = (ogl.colorArrayEnabled && ogl.colorPointer != null)
+                ? ensureByteArray(colorScratch, colorByteCount) : null;
+        if (colorValues != null) {
+            colorScratch = colorValues;
+        }
+        ClipVector clip = emulateMatrixPalette ? new ClipVector() : null;
+        ClipVector eye = emulateMatrixPalette ? new ClipVector() : null;
+        ClipVector normal = (emulateMatrixPalette && normalValues != null) ? new ClipVector() : null;
+        int sourceBase = indexSource == null ? first : 0;
+        for (int i = 0; i < vertexCount; i++) {
+            int sourceVertexIndex = sourceBase + i;
+            populateHardwareVertex(vertexValues, i, sourceVertexIndex, emulateMatrixPalette, clip, eye);
+            if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
+                return null;
+            }
+            if (texCoordValues != null) {
+                populateHardwareTexCoord(texCoordValues, i, sourceVertexIndex);
+                if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
+                    return null;
+                }
+            }
+            if (colorValues != null) {
+                populateHardwareColor(colorValues, i, sourceVertexIndex);
+                if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
+                    return null;
+                }
+            }
+            if (normalValues != null) {
+                populateHardwareNormal(normalValues, i, sourceVertexIndex, emulateMatrixPalette, normal);
+                if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
+                    return null;
+                }
+            }
+        }
+        short[] indexValues = null;
+        if (indexSource != null) {
+            indexValues = ensureShortArray(indexScratch, primitiveCount);
+            indexScratch = indexValues;
+            for (int i = 0; i < primitiveCount; i++) {
+                indexValues[i] = (short) indexSource.indexAt(i);
+            }
+        }
+        return new PreparedArrayState(
+                toReusableFloatBuffer(vertexValues, vertexFloatCount, BufferType.VERTEX),
+                normalValues == null ? null : toReusableFloatBuffer(normalValues, normalFloatCount, BufferType.NORMAL),
+                texCoordValues == null ? null : toReusableFloatBuffer(texCoordValues, texCoordFloatCount, BufferType.TEX_COORD),
+                colorValues == null ? null : toReusableByteBuffer(colorValues, colorByteCount, BufferType.COLOR),
+                indexValues == null ? null : toReusableShortBuffer(indexValues, primitiveCount),
+                0,
+                primitiveCount,
+                emulateMatrixPalette
+        );
+    }
+
+    private void populateHardwareVertex(float[] destination, int vertexSlot, int sourceVertexIndex,
+                                        boolean emulateMatrixPalette, ClipVector clip, ClipVector eye) {
+        int positionSize = Math.max(1, ogl.vertexPointer.size());
+        float x = readFloatComponent(ogl.vertexPointer, sourceVertexIndex, 0);
+        float y = positionSize > 1 ? readFloatComponent(ogl.vertexPointer, sourceVertexIndex, 1) : 0f;
+        float z = positionSize > 2 ? readFloatComponent(ogl.vertexPointer, sourceVertexIndex, 2) : 0f;
+        float w = positionSize > 3 ? readFloatComponent(ogl.vertexPointer, sourceVertexIndex, 3) : 1f;
+        int destinationOffset = vertexSlot * 4;
+        if (emulateMatrixPalette) {
+            transformVertex(clip, eye, x, y, z, sourceVertexIndex, false);
+            destination[destinationOffset] = eye.x;
+            destination[destinationOffset + 1] = eye.y;
+            destination[destinationOffset + 2] = eye.z;
+            destination[destinationOffset + 3] = eye.w;
+            return;
+        }
+        destination[destinationOffset] = x;
+        destination[destinationOffset + 1] = y;
+        destination[destinationOffset + 2] = z;
+        destination[destinationOffset + 3] = w;
+    }
+
+    private void populateHardwareTexCoord(float[] destination, int vertexSlot, int sourceVertexIndex) {
+        OglPointer texCoordPointer = ogl.texCoordPointer;
+        if (texCoordPointer == null || texCoordPointer.type() != GraphicsOGL.GL_FLOAT) {
+            return;
+        }
+        int size = Math.max(1, texCoordPointer.size());
+        int destinationOffset = vertexSlot * 2;
+        destination[destinationOffset] = readFloatComponent(texCoordPointer, sourceVertexIndex, 0);
+        destination[destinationOffset + 1] = size > 1 ? readFloatComponent(texCoordPointer, sourceVertexIndex, 1) : 0f;
+    }
+
+    private void populateHardwareColor(byte[] destination, int vertexSlot, int sourceVertexIndex) {
+        OglPointer colorPointer = ogl.colorPointer;
+        if (colorPointer == null || colorPointer.type() != GraphicsOGL.GL_UNSIGNED_BYTE) {
+            return;
+        }
+        int size = Math.max(1, colorPointer.size());
+        int destinationOffset = vertexSlot * 4;
+        int red = readUnsignedByteComponent(colorPointer, sourceVertexIndex, 0);
+        int green = size > 1 ? readUnsignedByteComponent(colorPointer, sourceVertexIndex, 1) : red;
+        int blue = size > 2 ? readUnsignedByteComponent(colorPointer, sourceVertexIndex, 2) : red;
+        int alpha = size > 3 ? readUnsignedByteComponent(colorPointer, sourceVertexIndex, 3) : 255;
+        destination[destinationOffset] = (byte) red;
+        destination[destinationOffset + 1] = (byte) green;
+        destination[destinationOffset + 2] = (byte) blue;
+        destination[destinationOffset + 3] = (byte) alpha;
+    }
+
+    private void populateHardwareNormal(float[] destination, int vertexSlot, int sourceVertexIndex,
+                                        boolean emulateMatrixPalette, ClipVector normal) {
+        int destinationOffset = vertexSlot * 3;
+        if (emulateMatrixPalette) {
+            float nx = ogl.normalArrayEnabled && ogl.normalPointer != null
+                    ? readNormalComponent(ogl.normalPointer, sourceVertexIndex, 0)
+                    : ogl.currentNormal[0];
+            float ny = ogl.normalArrayEnabled && ogl.normalPointer != null
+                    ? readNormalComponent(ogl.normalPointer, sourceVertexIndex, 1)
+                    : ogl.currentNormal[1];
+            float nz = ogl.normalArrayEnabled && ogl.normalPointer != null
+                    ? readNormalComponent(ogl.normalPointer, sourceVertexIndex, 2)
+                    : ogl.currentNormal[2];
+            if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
+                return;
+            }
+            transformNormal(normal, nx, ny, nz, sourceVertexIndex);
+            destination[destinationOffset] = normal.x;
+            destination[destinationOffset + 1] = normal.y;
+            destination[destinationOffset + 2] = normal.z;
+            return;
+        }
+        destination[destinationOffset] = ogl.normalArrayEnabled && ogl.normalPointer != null
+                ? readNormalComponent(ogl.normalPointer, sourceVertexIndex, 0)
+                : ogl.currentNormal[0];
+        destination[destinationOffset + 1] = ogl.normalArrayEnabled && ogl.normalPointer != null
+                ? readNormalComponent(ogl.normalPointer, sourceVertexIndex, 1)
+                : ogl.currentNormal[1];
+        destination[destinationOffset + 2] = ogl.normalArrayEnabled && ogl.normalPointer != null
+                ? readNormalComponent(ogl.normalPointer, sourceVertexIndex, 2)
+                : ogl.currentNormal[2];
+    }
+
+    private int resolveVertexCount(int primitiveCount, OglIndexSource indexSource) {
+        int maxIndex = -1;
+        for (int i = 0; i < primitiveCount; i++) {
+            maxIndex = Math.max(maxIndex, indexSource.indexAt(i));
+        }
+        return maxIndex + 1;
+    }
+
+    private int toHardwarePrimitiveMode(int mode) {
+        return switch (mode) {
+            case GraphicsOGL.GL_TRIANGLES -> GraphicsOGL.GL_TRIANGLES;
+            case GraphicsOGL.GL_TRIANGLE_STRIP -> GraphicsOGL.GL_TRIANGLE_STRIP;
+            case GraphicsOGL.GL_LINE_LOOP -> GraphicsOGL.GL_LINE_LOOP;
+            default -> -1;
+        };
+    }
+
+    private void prepareFramebuffer(GL2 gl) {
+        if (!surfaceDirty) {
+            return;
+        }
+        syncSoftwareSurface(gl);
+        surfaceDirty = false;
+    }
+
+    private void syncSoftwareSurface(GL2 gl) {
+        DesktopSurface surface = host.surface();
+        int width = surface.width();
+        int height = surface.height();
+        java.nio.ByteBuffer surfacePixels = toBgraByteBuffer(surface.image(), true, surfaceUploadBuffer);
+        surfaceUploadBuffer = surfacePixels;
+        if (surfaceTextureId == 0) {
+            int[] textureIds = new int[1];
+            gl.glGenTextures(1, textureIds, 0);
+            surfaceTextureId = textureIds[0];
+        }
+        gl.glBindTexture(GraphicsOGL.GL_TEXTURE_2D, surfaceTextureId);
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_MIN_FILTER, GraphicsOGL.GL_NEAREST);
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_MAG_FILTER, GraphicsOGL.GL_NEAREST);
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_WRAP_S, GraphicsOGL.GL_CLAMP_TO_EDGE);
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_WRAP_T, GraphicsOGL.GL_CLAMP_TO_EDGE);
+        gl.glPixelStorei(GraphicsOGL.GL_UNPACK_ALIGNMENT, 1);
+        if (surfaceTextureWidth != width || surfaceTextureHeight != height) {
+            gl.glTexImage2D(GraphicsOGL.GL_TEXTURE_2D, 0, GraphicsOGL.GL_RGBA, width, height, 0,
+                    GL2.GL_BGRA, GraphicsOGL.GL_UNSIGNED_BYTE, surfacePixels);
+            surfaceTextureWidth = width;
+            surfaceTextureHeight = height;
+        } else {
+            gl.glTexSubImage2D(GraphicsOGL.GL_TEXTURE_2D, 0, 0, 0, width, height,
+                    GL2.GL_BGRA, GraphicsOGL.GL_UNSIGNED_BYTE, surfacePixels);
+        }
+        gl.glDisable(GraphicsOGL.GL_SCISSOR_TEST);
+        gl.glViewport(0, 0, width, height);
+        gl.glMatrixMode(GraphicsOGL.GL_PROJECTION);
+        gl.glLoadIdentity();
+        gl.glMatrixMode(GraphicsOGL.GL_MODELVIEW);
+        gl.glLoadIdentity();
+        gl.glMatrixMode(GraphicsOGL.GL_TEXTURE);
+        gl.glLoadIdentity();
+        gl.glDisable(GraphicsOGL.GL_BLEND);
+        gl.glDisable(GraphicsOGL.GL_ALPHA_TEST);
+        gl.glDisable(GraphicsOGL.GL_LIGHTING);
+        gl.glDisable(GraphicsOGL.GL_CULL_FACE);
+        gl.glDisable(GraphicsOGL.GL_DEPTH_TEST);
+        gl.glDepthMask(false);
+        gl.glEnable(GraphicsOGL.GL_TEXTURE_2D);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_TEXTURE_ENV_MODE, GraphicsOGL.GL_REPLACE);
+        gl.glColor4f(1f, 1f, 1f, 1f);
+        gl.glBegin(GraphicsOGL.GL_TRIANGLE_STRIP);
+        gl.glTexCoord2f(0f, 0f);
+        gl.glVertex2f(-1f, -1f);
+        gl.glTexCoord2f(1f, 0f);
+        gl.glVertex2f(1f, -1f);
+        gl.glTexCoord2f(0f, 1f);
+        gl.glVertex2f(-1f, 1f);
+        gl.glTexCoord2f(1f, 1f);
+        gl.glVertex2f(1f, 1f);
+        gl.glEnd();
+    }
+
+    private void applyClipState(GL2 gl) {
+        Rectangle clip = host.delegate().getClipBounds();
+        if (clip == null) {
+            gl.glDisable(GraphicsOGL.GL_SCISSOR_TEST);
+            return;
+        }
+        Rectangle clipped = clip.intersection(new Rectangle(0, 0, host.surface().width(), host.surface().height()));
+        if (clipped.isEmpty()) {
+            gl.glEnable(GraphicsOGL.GL_SCISSOR_TEST);
+            gl.glScissor(0, 0, 0, 0);
+            return;
+        }
+        gl.glEnable(GraphicsOGL.GL_SCISSOR_TEST);
+        gl.glScissor(clipped.x, host.surface().height() - (clipped.y + clipped.height), clipped.width, clipped.height);
+    }
+
+    private void applyViewportState(GL2 gl) {
+        gl.glViewport(0, 0, Math.max(1, host.surface().width()), Math.max(1, host.surface().height()));
+    }
+
+    private void applyRenderState(GL2 gl, boolean emulateMatrixPalette) {
+        float[] modelViewMatrix = emulateMatrixPalette ? OglState.identityMatrix() : currentHardwareModelViewMatrix();
+        float[] projectionMatrix = hardwareProjectionMatrix(
+                emulateMatrixPalette ? ogl.projectionMatrix : currentHardwareProjectionMatrix());
+
+        gl.glMatrixMode(GraphicsOGL.GL_PROJECTION);
+        gl.glLoadMatrixf(projectionMatrix, 0);
+        gl.glMatrixMode(GraphicsOGL.GL_MODELVIEW);
+        gl.glLoadIdentity();
+        if (ogl.depthEnabled()) {
+            gl.glEnable(GraphicsOGL.GL_DEPTH_TEST);
+            gl.glDepthFunc(toHardwareDepthFunc(ogl.depthFunc));
+        } else {
+            gl.glDisable(GraphicsOGL.GL_DEPTH_TEST);
+        }
+        gl.glDepthMask(ogl.depthMask);
+        gl.glDepthRange(1.0 - ogl.depthRangeNear, 1.0 - ogl.depthRangeFar);
+        if (ogl.blendEnabled()) {
+            gl.glEnable(GraphicsOGL.GL_BLEND);
+            gl.glBlendFunc(ogl.blendSrcFactor, ogl.blendDstFactor);
+        } else {
+            gl.glDisable(GraphicsOGL.GL_BLEND);
+        }
+        if (ogl.alphaTestEnabled) {
+            gl.glEnable(GraphicsOGL.GL_ALPHA_TEST);
+            gl.glAlphaFunc(ogl.alphaFunc, ogl.alphaRef);
+        } else {
+            gl.glDisable(GraphicsOGL.GL_ALPHA_TEST);
+        }
+        if (ogl.cullFaceEnabled) {
+            gl.glEnable(GraphicsOGL.GL_CULL_FACE);
+            gl.glFrontFace(ogl.frontFace);
+            gl.glCullFace(ogl.cullFace);
+        } else {
+            gl.glDisable(GraphicsOGL.GL_CULL_FACE);
+        }
+        if (ogl.normalizeEnabled) {
+            gl.glEnable(GraphicsOGL.GL_NORMALIZE);
+        } else {
+            gl.glDisable(GraphicsOGL.GL_NORMALIZE);
+        }
+        if (ogl.rescaleNormalEnabled) {
+            gl.glEnable(GraphicsOGL.GL_RESCALE_NORMAL);
+        } else {
+            gl.glDisable(GraphicsOGL.GL_RESCALE_NORMAL);
+        }
+        gl.glShadeModel(ogl.shadeModel);
+        float[] currentColor = unpackColor(ogl.color);
+        gl.glColor4f(currentColor[0], currentColor[1], currentColor[2], currentColor[3]);
+        gl.glNormal3f(ogl.currentNormal[0], ogl.currentNormal[1], ogl.currentNormal[2]);
+        if (ogl.colorMaterialEnabled) {
+            gl.glEnable(GraphicsOGL.GL_COLOR_MATERIAL);
+            gl.glColorMaterial(GraphicsOGL.GL_FRONT_AND_BACK, GraphicsOGL.GL_AMBIENT_AND_DIFFUSE);
+        } else {
+            gl.glDisable(GraphicsOGL.GL_COLOR_MATERIAL);
+        }
+        gl.glMaterialfv(GraphicsOGL.GL_FRONT_AND_BACK, GraphicsOGL.GL_AMBIENT, ogl.materialAmbient, 0);
+        gl.glMaterialfv(GraphicsOGL.GL_FRONT_AND_BACK, GraphicsOGL.GL_DIFFUSE, ogl.materialDiffuse, 0);
+        gl.glMaterialfv(GraphicsOGL.GL_FRONT_AND_BACK, GraphicsOGL.GL_SPECULAR, ogl.materialSpecular, 0);
+        gl.glMaterialfv(GraphicsOGL.GL_FRONT_AND_BACK, GraphicsOGL.GL_EMISSION, ogl.materialEmission, 0);
+        gl.glMaterialf(GraphicsOGL.GL_FRONT_AND_BACK, GraphicsOGL.GL_SHININESS, ogl.materialShininess);
+        gl.glLightModelfv(GraphicsOGL.GL_LIGHT_MODEL_AMBIENT, ogl.lightModelAmbient, 0);
+        gl.glLightModeli(GraphicsOGL.GL_LIGHT_MODEL_TWO_SIDE, ogl.lightModelTwoSide ? GL.GL_TRUE : GL.GL_FALSE);
+        for (int i = 0; i < ogl.lights.length; i++) {
+            int lightEnum = GraphicsOGL.GL_LIGHT0 + i;
+            OglLight light = ogl.lights[i];
+            if (ogl.lightEnabled[i]) {
+                gl.glEnable(lightEnum);
+            } else {
+                gl.glDisable(lightEnum);
+            }
+            gl.glLightfv(lightEnum, GraphicsOGL.GL_AMBIENT, light.ambient, 0);
+            gl.glLightfv(lightEnum, GraphicsOGL.GL_DIFFUSE, light.diffuse, 0);
+            gl.glLightfv(lightEnum, GraphicsOGL.GL_SPECULAR, light.specular, 0);
+            gl.glLightfv(lightEnum, GraphicsOGL.GL_POSITION, light.position, 0);
+            gl.glLightfv(lightEnum, GraphicsOGL.GL_SPOT_DIRECTION, light.spotDirection, 0);
+            gl.glLightf(lightEnum, GraphicsOGL.GL_SPOT_EXPONENT, light.spotExponent);
+            gl.glLightf(lightEnum, GraphicsOGL.GL_SPOT_CUTOFF, light.spotCutoff);
+            gl.glLightf(lightEnum, GraphicsOGL.GL_CONSTANT_ATTENUATION, light.constantAttenuation);
+            gl.glLightf(lightEnum, GraphicsOGL.GL_LINEAR_ATTENUATION, light.linearAttenuation);
+            gl.glLightf(lightEnum, GraphicsOGL.GL_QUADRATIC_ATTENUATION, light.quadraticAttenuation);
+        }
+        if (ogl.lightingEnabled()) {
+            gl.glEnable(GraphicsOGL.GL_LIGHTING);
+        } else {
+            gl.glDisable(GraphicsOGL.GL_LIGHTING);
+        }
+        gl.glMatrixMode(GraphicsOGL.GL_MODELVIEW);
+        gl.glLoadMatrixf(modelViewMatrix, 0);
+    }
+
+    private float[] hardwareProjectionMatrix(float[] baseProjectionMatrix) {
+        int surfaceWidth = Math.max(1, host.surface().width());
+        int surfaceHeight = Math.max(1, host.surface().height());
+        int viewportWidth = Math.max(1, ogl.viewportWidth);
+        int viewportHeight = Math.max(1, ogl.viewportHeight);
+        if (ogl.viewportX == 0 && ogl.viewportY == 0
+                && viewportWidth == surfaceWidth && viewportHeight == surfaceHeight) {
+            return baseProjectionMatrix;
+        }
+        float scaleX = viewportWidth / (float) surfaceWidth;
+        float scaleY = viewportHeight / (float) surfaceHeight;
+        float translateX = ((2f * ogl.viewportX) + viewportWidth) / (float) surfaceWidth - 1f;
+        float translateY = ((2f * ogl.viewportY) + viewportHeight) / (float) surfaceHeight - 1f;
+        setIdentityMatrix(viewportTransformScratch);
+        viewportTransformScratch[0] = scaleX;
+        viewportTransformScratch[5] = scaleY;
+        viewportTransformScratch[12] = translateX;
+        viewportTransformScratch[13] = translateY;
+        multiplyColumnMajor(viewportProjectionScratch, viewportTransformScratch, baseProjectionMatrix);
+        return viewportProjectionScratch;
+    }
+
+    private float[] currentHardwareModelViewMatrix() {
+        if (ogl.usesExtensionMatrices()) {
+            float[] matrix = extensionWorldMatrix();
+            return matrix == null ? OglState.identityMatrix() : matrix;
+        }
+        return ogl.modelViewMatrix;
+    }
+
+    private float[] currentHardwareProjectionMatrix() {
+        if (ogl.usesExtensionMatrices()) {
+            float[] matrix = extensionCameraMatrix();
+            return matrix == null ? OglState.identityMatrix() : matrix;
+        }
+        return ogl.projectionMatrix;
+    }
+
+    private void applyTextureState(GL2 gl) {
+        if (!ogl.textureEnabled()) {
+            gl.glDisable(GraphicsOGL.GL_TEXTURE_2D);
+            return;
+        }
+        OglTexture texture = ogl.boundTexture();
+        if (texture == null) {
+            gl.glDisable(GraphicsOGL.GL_TEXTURE_2D);
+            return;
+        }
+        gl.glEnable(GraphicsOGL.GL_TEXTURE_2D);
+        HardwareTexture hardwareTexture = textureCache.computeIfAbsent(ogl.boundTextureId,
+                ignored -> new HardwareTexture(0, -1, -1, -1, -1));
+        int textureId = hardwareTexture.textureId();
+        if (textureId == 0) {
+            int[] textureIds = new int[1];
+            gl.glGenTextures(1, textureIds, 0);
+            textureId = textureIds[0];
+            hardwareTexture = new HardwareTexture(textureId, -1, -1, -1, -1);
+            textureCache.put(ogl.boundTextureId, hardwareTexture);
+        }
+        gl.glBindTexture(GraphicsOGL.GL_TEXTURE_2D, textureId);
+        gl.glPixelStorei(GraphicsOGL.GL_UNPACK_ALIGNMENT, 1);
+        if (hardwareTexture.uploadedRevision() != texture.uploadRevision()) {
+            TextureUpload textureUpload = prepareTextureUpload(texture, false);
+            if (hardwareTexture.matches(texture.uploadRevision(), texture.width, texture.height, textureUpload.format())) {
+                gl.glTexSubImage2D(GraphicsOGL.GL_TEXTURE_2D, 0, 0, 0, texture.width, texture.height,
+                        textureUpload.format(), GraphicsOGL.GL_UNSIGNED_BYTE, textureUpload.buffer());
+            } else {
+                gl.glTexImage2D(GraphicsOGL.GL_TEXTURE_2D, 0, textureUpload.format(), texture.width, texture.height, 0,
+                        textureUpload.format(), GraphicsOGL.GL_UNSIGNED_BYTE, textureUpload.buffer());
+            }
+            hardwareTexture = new HardwareTexture(textureId, texture.uploadRevision(),
+                    texture.width, texture.height, textureUpload.format());
+            textureCache.put(ogl.boundTextureId, hardwareTexture);
+        }
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_MIN_FILTER, sanitizeHardwareMinFilter(texture.minFilter));
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_MAG_FILTER, sanitizeHardwareMagFilter(texture.magFilter));
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_WRAP_S, texture.wrapS);
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_WRAP_T, texture.wrapT);
+        gl.glMatrixMode(GraphicsOGL.GL_TEXTURE);
+        gl.glLoadMatrixf(ogl.textureMatrix, 0);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_TEXTURE_ENV_MODE, ogl.textureEnvMode);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_COMBINE_RGB, ogl.combineRgb);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_COMBINE_ALPHA, ogl.combineAlpha);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC0_RGB, ogl.srcRgb[0]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC1_RGB, ogl.srcRgb[1]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC2_RGB, ogl.srcRgb[2]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC0_ALPHA, ogl.srcAlpha[0]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC1_ALPHA, ogl.srcAlpha[1]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC2_ALPHA, ogl.srcAlpha[2]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND0_RGB, ogl.operandRgb[0]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND1_RGB, ogl.operandRgb[1]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND2_RGB, ogl.operandRgb[2]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND0_ALPHA, ogl.operandAlpha[0]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND1_ALPHA, ogl.operandAlpha[1]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND2_ALPHA, ogl.operandAlpha[2]);
+        gl.glTexEnvfv(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_TEXTURE_ENV_COLOR, unpackColor(ogl.textureEnvColor), 0);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_RGB_SCALE, ogl.rgbScale);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_ALPHA_SCALE, ogl.alphaScale);
+        gl.glMatrixMode(GraphicsOGL.GL_MODELVIEW);
+    }
+
+    private void bindArrayState(GL2 gl, PreparedArrayState arrayState) {
+        gl.glClientActiveTexture(GraphicsOGL.GL_TEXTURE0);
+        gl.glEnableClientState(GraphicsOGL.GL_VERTEX_ARRAY);
+        gl.glVertexPointer(4, GraphicsOGL.GL_FLOAT, 0, arrayState.vertexBuffer());
+        if (arrayState.normalBuffer() != null && ogl.lightingEnabled()) {
+            gl.glEnableClientState(GraphicsOGL.GL_NORMAL_ARRAY);
+            gl.glNormalPointer(GraphicsOGL.GL_FLOAT, 0, arrayState.normalBuffer());
+        } else {
+            gl.glDisableClientState(GraphicsOGL.GL_NORMAL_ARRAY);
+        }
+        if (arrayState.colorBuffer() != null) {
+            gl.glEnableClientState(GraphicsOGL.GL_COLOR_ARRAY);
+            gl.glColorPointer(4, GraphicsOGL.GL_UNSIGNED_BYTE, 0, arrayState.colorBuffer());
+        } else {
+            gl.glDisableClientState(GraphicsOGL.GL_COLOR_ARRAY);
+        }
+        if (arrayState.texCoordBuffer() != null && ogl.textureEnabled()) {
+            gl.glEnableClientState(GraphicsOGL.GL_TEXTURE_COORD_ARRAY);
+            gl.glTexCoordPointer(2, GraphicsOGL.GL_FLOAT, 0, arrayState.texCoordBuffer());
+        } else {
+            gl.glDisableClientState(GraphicsOGL.GL_TEXTURE_COORD_ARRAY);
+        }
+    }
+
+    private void unbindArrayState(GL2 gl) {
+        gl.glDisableClientState(GraphicsOGL.GL_VERTEX_ARRAY);
+        gl.glDisableClientState(GraphicsOGL.GL_NORMAL_ARRAY);
+        gl.glDisableClientState(GraphicsOGL.GL_COLOR_ARRAY);
+        gl.glDisableClientState(GraphicsOGL.GL_TEXTURE_COORD_ARRAY);
+    }
+
+    private void readBackColorBuffer(GL2 gl) {
+        DesktopSurface surface = host.surface();
+        int width = surface.width();
+        int height = surface.height();
+        int byteCount = Math.max(1, width * height * 4);
+        if (readbackBuffer == null || readbackBuffer.capacity() < byteCount) {
+            readbackBuffer = java.nio.ByteBuffer.allocateDirect(byteCount).order(ByteOrder.nativeOrder());
+        }
+        readbackBuffer.clear();
+        gl.glReadPixels(0, 0, width, height, GL2.GL_BGRA, GraphicsOGL.GL_UNSIGNED_BYTE, readbackBuffer);
+        int[] destination = ((DataBufferInt) surface.image().getRaster().getDataBuffer()).getData();
+        java.nio.IntBuffer sourcePixels = readbackBuffer.asIntBuffer();
+        for (int y = 0; y < height; y++) {
+            int destinationRow = y * width;
+            int sourceRow = (height - 1 - y) * width;
+            sourcePixels.position(sourceRow);
+            sourcePixels.get(destination, destinationRow, width);
+        }
+    }
+
+    private int reapplyOutsideLockOverlay(int[] previousHardwareSnapshot, int[] overlaySnapshot) {
+        if (previousHardwareSnapshot == null || overlaySnapshot == null || outsideLockOverlayBounds == null
+                || outsideLockOverlayBounds.isEmpty()) {
+            return 0;
+        }
+        int[] destination = ((DataBufferInt) host.surface().image().getRaster().getDataBuffer()).getData();
+        int applied = 0;
+        int width = host.surface().width();
+        int left = Math.max(0, outsideLockOverlayBounds.x);
+        int top = Math.max(0, outsideLockOverlayBounds.y);
+        int right = Math.min(width, outsideLockOverlayBounds.x + outsideLockOverlayBounds.width);
+        int bottom = Math.min(host.surface().height(), outsideLockOverlayBounds.y + outsideLockOverlayBounds.height);
+        for (int y = top; y < bottom; y++) {
+            int row = y * width;
+            for (int x = left; x < right; x++) {
+                int i = row + x;
+                int overlayPixel = overlaySnapshot[i];
+                if (overlayPixel == previousHardwareSnapshot[i]) {
+                    continue;
+                }
+                destination[i] = overlayPixel;
+                applied++;
+            }
+        }
+        return applied;
+    }
+
+    private int sanitizeHardwareMinFilter(int filter) {
+        return switch (filter) {
+            case GraphicsOGL.GL_LINEAR,
+                    GraphicsOGL.GL_LINEAR_MIPMAP_NEAREST,
+                    GraphicsOGL.GL_LINEAR_MIPMAP_LINEAR -> GraphicsOGL.GL_LINEAR;
+            default -> GraphicsOGL.GL_NEAREST;
+        };
+    }
+
+    private int sanitizeHardwareMagFilter(int filter) {
+        return filter == GraphicsOGL.GL_LINEAR ? GraphicsOGL.GL_LINEAR : GraphicsOGL.GL_NEAREST;
+    }
+
+    private int toHardwareDepthFunc(int depthFunc) {
+        return switch (depthFunc) {
+            case GraphicsOGL.GL_LESS -> GraphicsOGL.GL_GREATER;
+            case GraphicsOGL.GL_LEQUAL -> GraphicsOGL.GL_GEQUAL;
+            case GraphicsOGL.GL_GREATER -> GraphicsOGL.GL_LESS;
+            case GraphicsOGL.GL_GEQUAL -> GraphicsOGL.GL_LEQUAL;
+            default -> depthFunc;
+        };
+    }
+
+    private TextureUpload prepareTextureUpload(OglTexture texture, boolean flipVertically) {
+        TextureUpload upload = toTextureUpload(texture, flipVertically, textureUploadBuffer);
+        textureUploadBuffer = upload.buffer();
+        return upload;
+    }
+
+    private float[] ensureFloatArray(float[] current, int length) {
+        return current.length >= length ? current : new float[length];
+    }
+
+    private byte[] ensureByteArray(byte[] current, int length) {
+        return current.length >= length ? current : new byte[length];
+    }
+
+    private short[] ensureShortArray(short[] current, int length) {
+        return current.length >= length ? current : new short[length];
+    }
+
+    private java.nio.FloatBuffer toReusableFloatBuffer(float[] values, int count, BufferType type) {
+        int byteCount = count * Float.BYTES;
+        java.nio.ByteBuffer storage = ensureBuffer(type, byteCount);
+        storage.clear();
+        storage.limit(byteCount);
+        java.nio.FloatBuffer buffer = storage.asFloatBuffer();
+        buffer.clear();
+        buffer.put(values, 0, count);
+        buffer.flip();
+        return buffer;
+    }
+
+    private java.nio.ByteBuffer toReusableByteBuffer(byte[] values, int count, BufferType type) {
+        java.nio.ByteBuffer storage = ensureBuffer(type, count);
+        storage.clear();
+        storage.limit(count);
+        storage.put(values, 0, count);
+        storage.flip();
+        return storage;
+    }
+
+    private java.nio.ShortBuffer toReusableShortBuffer(short[] values, int count) {
+        int byteCount = count * Short.BYTES;
+        java.nio.ByteBuffer storage = ensureBuffer(BufferType.INDEX, byteCount);
+        storage.clear();
+        storage.limit(byteCount);
+        java.nio.ShortBuffer buffer = storage.asShortBuffer();
+        buffer.clear();
+        buffer.put(values, 0, count);
+        buffer.flip();
+        return buffer;
+    }
+
+    private java.nio.ByteBuffer ensureBuffer(BufferType type, int byteCount) {
+        java.nio.ByteBuffer storage = switch (type) {
+            case VERTEX -> vertexBufferBytes;
+            case NORMAL -> normalBufferBytes;
+            case TEX_COORD -> texCoordBufferBytes;
+            case COLOR -> colorBufferBytes;
+            case INDEX -> indexBufferBytes;
+        };
+        if (storage == null || storage.capacity() < byteCount) {
+            storage = java.nio.ByteBuffer.allocateDirect(byteCount).order(ByteOrder.nativeOrder());
+            switch (type) {
+                case VERTEX -> vertexBufferBytes = storage;
+                case NORMAL -> normalBufferBytes = storage;
+                case TEX_COORD -> texCoordBufferBytes = storage;
+                case COLOR -> colorBufferBytes = storage;
+                case INDEX -> indexBufferBytes = storage;
+            }
+        }
+        return storage;
+    }
+}
+
+private record PreparedArrayState(java.nio.FloatBuffer vertexBuffer,
+                                  java.nio.FloatBuffer normalBuffer,
+                                  java.nio.FloatBuffer texCoordBuffer,
+                                  java.nio.ByteBuffer colorBuffer,
+                                  java.nio.ShortBuffer indexBuffer,
+                                  int drawFirst,
+                                  int drawCount,
+                                  boolean emulateMatrixPalette) {
+}
+
+private enum BufferType {
+    VERTEX,
+    NORMAL,
+    TEX_COORD,
+    COLOR,
+    INDEX
+}
+
+private record HardwareTexture(int textureId, int uploadedRevision, int width, int height, int format) {
+    boolean matches(int revision, int width, int height, int format) {
+        return uploadedRevision == revision && this.width == width && this.height == height && this.format == format;
+    }
+}
+
+private record TextureUpload(int format, java.nio.ByteBuffer buffer) {
+}
+
+private static java.nio.ByteBuffer toDirectByteBuffer(byte[] values) {
+    java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocateDirect(values.length).order(ByteOrder.nativeOrder());
+    buffer.put(values);
+    buffer.flip();
+    return buffer;
+}
+
+private static java.nio.ShortBuffer toDirectShortBuffer(short[] values) {
+    java.nio.ShortBuffer buffer = java.nio.ByteBuffer.allocateDirect(values.length * Short.BYTES)
+            .order(ByteOrder.nativeOrder())
+            .asShortBuffer();
+    buffer.put(values);
+    buffer.flip();
+    return buffer;
+}
+
+private static java.nio.FloatBuffer toDirectFloatBuffer(float[] values) {
+    java.nio.FloatBuffer buffer = java.nio.ByteBuffer.allocateDirect(values.length * Float.BYTES)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer();
+    buffer.put(values);
+    buffer.flip();
+    return buffer;
+}
+
+private static java.nio.ByteBuffer toBgraByteBuffer(BufferedImage image, boolean flipVertically,
+                                                    java.nio.ByteBuffer reusableBuffer) {
+    int width = image.getWidth();
+    int height = image.getHeight();
+    int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+    int byteCount = width * height * 4;
+    java.nio.ByteBuffer buffer = reusableBuffer != null && reusableBuffer.capacity() >= byteCount
+            ? reusableBuffer
+            : java.nio.ByteBuffer.allocateDirect(byteCount).order(ByteOrder.nativeOrder());
+    buffer.clear();
+    java.nio.IntBuffer ints = buffer.asIntBuffer();
+    for (int y = 0; y < height; y++) {
+        int sourceY = flipVertically ? (height - 1 - y) : y;
+        int rowOffset = sourceY * width;
+        ints.put(pixels, rowOffset, width);
+    }
+    buffer.position(byteCount);
+    buffer.flip();
+    return buffer;
+}
+
+private static int[] copySurfacePixels(BufferedImage image) {
+    int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+    return Arrays.copyOf(pixels, pixels.length);
+}
+
+private static TextureUpload toTextureUpload(OglTexture texture, boolean flipVertically,
+                                             java.nio.ByteBuffer reusableBuffer) {
+    int width = Math.max(1, texture.width);
+    int height = Math.max(1, texture.height);
+    int format = texture.baseFormat();
+    int bytesPerPixel = switch (format) {
+        case GraphicsOGL.GL_ALPHA, GraphicsOGL.GL_LUMINANCE -> 1;
+        case GraphicsOGL.GL_LUMINANCE_ALPHA -> 2;
+        case GraphicsOGL.GL_RGB -> 3;
+        default -> 4;
+    };
+    int byteCount = width * height * bytesPerPixel;
+    java.nio.ByteBuffer buffer = reusableBuffer != null && reusableBuffer.capacity() >= byteCount
+            ? reusableBuffer
+            : java.nio.ByteBuffer.allocateDirect(byteCount).order(ByteOrder.nativeOrder());
+    buffer.clear();
+    for (int y = 0; y < height; y++) {
+        int sourceY = flipVertically ? (height - 1 - y) : y;
+        int rowOffset = sourceY * width;
+        for (int x = 0; x < width; x++) {
+            int packed = texture.pixels[rowOffset + x];
+            int alpha = (packed >>> 24) & 0xFF;
+            int red = (packed >>> 16) & 0xFF;
+            int green = (packed >>> 8) & 0xFF;
+            int blue = packed & 0xFF;
+            switch (format) {
+                case GraphicsOGL.GL_ALPHA -> buffer.put((byte) alpha);
+                case GraphicsOGL.GL_LUMINANCE -> buffer.put((byte) red);
+                case GraphicsOGL.GL_LUMINANCE_ALPHA -> {
+                    buffer.put((byte) red);
+                    buffer.put((byte) alpha);
+                }
+                case GraphicsOGL.GL_RGB -> {
+                    buffer.put((byte) red);
+                    buffer.put((byte) green);
+                    buffer.put((byte) blue);
+                }
+                default -> {
+                    buffer.put((byte) red);
+                    buffer.put((byte) green);
+                    buffer.put((byte) blue);
+                    buffer.put((byte) alpha);
+                }
+            }
+        }
+    }
+    buffer.flip();
+    return new TextureUpload(format, buffer);
+}
+
+private static void setIdentityMatrix(float[] matrix) {
+    Arrays.fill(matrix, 0f);
+    matrix[0] = 1f;
+    matrix[5] = 1f;
+    matrix[10] = 1f;
+    matrix[15] = 1f;
+}
+
+private static void multiplyColumnMajor(float[] out, float[] left, float[] right) {
+    for (int column = 0; column < 4; column++) {
+        int columnOffset = column * 4;
+        for (int row = 0; row < 4; row++) {
+            out[columnOffset + row] =
+                    (left[row] * right[columnOffset]) +
+                    (left[4 + row] * right[columnOffset + 1]) +
+                    (left[8 + row] * right[columnOffset + 2]) +
+                    (left[12 + row] * right[columnOffset + 3]);
+        }
+    }
+}
+
 private static final class RasterVertex {
     float clipX;
     float clipY;
@@ -2645,6 +3784,7 @@ private static final class OglTexture {
     private int magFilter = GraphicsOGL.GL_NEAREST;
     private int wrapS = GraphicsOGL.GL_REPEAT;
     private int wrapT = GraphicsOGL.GL_REPEAT;
+    private int uploadRevision;
 
     void setParameter(int pname, int value) {
         switch (pname) {
@@ -2694,6 +3834,7 @@ private static final class OglTexture {
                 this.pixels[i + 1] = palette[packed & 0x0F];
             }
         }
+        uploadRevision++;
         return true;
     }
 
@@ -2726,6 +3867,7 @@ private static final class OglTexture {
                 }
             }
             this.pixels = decoded;
+            uploadRevision++;
             return true;
         }
         if (source instanceof com.nttdocomo.ui.ogl.ByteBuffer byteBuffer) {
@@ -2744,9 +3886,14 @@ private static final class OglTexture {
                 decoded[i] = decodeBytePixel(raw, i * bytesPerPixel, format, type);
             }
             this.pixels = decoded;
+            uploadRevision++;
             return true;
         }
         return false;
+    }
+
+    int uploadRevision() {
+        return uploadRevision;
     }
 
     int sample(float u, float v) {
@@ -2985,8 +4132,8 @@ private static final class OglLight {
 
 private static final class OglState {
     private final OglRenderer renderer;
-    private final Map<Integer, OglTexture> textures = new HashMap<>();
-    private final Map<Integer, OglBufferObject> buffers = new HashMap<>();
+    private final Map<Integer, OglTexture> textures;
+    private final Map<Integer, OglBufferObject> buffers;
     private final Set<Integer> enabledCaps = new HashSet<>();
     private final Set<Integer> enabledClientStates = new HashSet<>();
     private final boolean[] lightEnabled = new boolean[8];
@@ -3005,8 +4152,6 @@ private static final class OglState {
     private boolean normalArrayEnabled;
     private boolean matrixIndexArrayEnabled;
     private boolean weightArrayEnabled;
-    private int nextTextureId = 1;
-    private int nextBufferId = 1;
     private int lastError = GraphicsOGL.GL_NO_ERROR;
     private int matrixMode = GraphicsOGL.GL_MODELVIEW;
     private int textureEnvMode = GraphicsOGL.GL_MODULATE;
@@ -3085,6 +4230,8 @@ private static final class OglState {
 
     private OglState(OglRenderer renderer) {
         this.renderer = renderer;
+        this.textures = SHARED_GL_OBJECT_STORE.textures;
+        this.buffers = SHARED_GL_OBJECT_STORE.buffers;
         for (int i = 0; i < paletteMatrices.length; i++) {
             paletteMatrices[i] = identityMatrix();
         }
