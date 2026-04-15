@@ -1795,6 +1795,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         // Finish any deferred blended primitive batches before ending the shared depth frame.
         flushPending3DPasses();
         pendingOptRenderedContent = false;
+        // Hardware presentation reads the GL framebuffer back into the software surface. That
+        // does not make the surface "software dirty"; only later Java2D writes should trigger a
+        // re-upload on the next GL pass, especially when the hardware path uses supersampling.
         oglRenderer.flushHardwarePresentation();
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null && runtime.surfaceLock().isHeldByCurrentThread()) {
