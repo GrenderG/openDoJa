@@ -35,7 +35,14 @@ public final class Phone {
      */
     public static final String UIM_VERSION = "uim-version";
 
-    private Phone() {
+    /**
+     * Creates a {@code Phone} instance.
+     *
+     * <p>The original DoJa API exposes a public no-arg constructor, and some
+     * titles instantiate the class before using only its static methods. Keep
+     * the constructor public for binary compatibility.</p>
+     */
+    public Phone() {
     }
 
     /**

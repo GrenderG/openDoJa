@@ -167,8 +167,8 @@ final class KeybindSettingsController {
             header.add(hintLabel, BorderLayout.CENTER);
             header.add(headerButtons, BorderLayout.EAST);
 
-            JButton okButton = new JButton("Apply");
-            okButton.addActionListener(event -> {
+            JButton applyButton = new JButton("Apply");
+            applyButton.addActionListener(event -> {
                 confirmedConfiguration = workingConfiguration;
                 dispose();
             });
@@ -177,7 +177,7 @@ final class KeybindSettingsController {
             cancelButton.addActionListener(event -> dispose());
 
             JPanel footerButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-            footerButtons.add(okButton);
+            footerButtons.add(applyButton);
             footerButtons.add(cancelButton);
 
             JPanel footer = new JPanel(new BorderLayout(0, 0));
