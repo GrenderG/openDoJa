@@ -1796,7 +1796,6 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         flushPending3DPasses();
         pendingOptRenderedContent = false;
         oglRenderer.flushHardwarePresentation();
-        oglRenderer.onSoftwareSurfaceMutation();
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null && runtime.surfaceLock().isHeldByCurrentThread()) {
             // DoJa documents `Graphics3D.flush()` as applying pending 3D results, not as a

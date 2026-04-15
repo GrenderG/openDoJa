@@ -98,6 +98,8 @@ public final class OpenDoJaLaunchArgs {
     /** OpenGL ES backend mode: software or hardware. */
     public static final String OPEN_GLES_RENDERER = "opendoja.openGlesRenderer";
     public static final String SHOW_OPEN_GLES_FPS = "opendoja.showOpenGlesFps";
+    /** Internal supersample scale used by the hardware OpenGL ES renderer. */
+    public static final String OPEN_GLES_SUPERSAMPLE_SCALE = "opendoja.openGlesSupersampleScale";
     /** Enables explicit AudioPresenter lifecycle tracing. */
     /** Enables hardware/software OpenGLES sync tracing. */
     public static final String TRACE_OPEN_GLES_SYNC = "opendoja.traceOpenGlesSync";
@@ -293,6 +295,7 @@ public final class OpenDoJaLaunchArgs {
             FUETREK_MIX_PROFILE,
             OPEN_GLES_RENDERER,
             SHOW_OPEN_GLES_FPS,
+            OPEN_GLES_SUPERSAMPLE_SCALE,
             TRACE_OPEN_GLES_SYNC,
             GPS_ACCURACY,
             GPS_ALTITUDE,
@@ -393,6 +396,10 @@ public final class OpenDoJaLaunchArgs {
         return OpenGlesRendererMode.fromId(get(OPEN_GLES_RENDERER));
     }
 
+    public static int openGlesSupersampleScale() {
+        return normalizeOpenGlesSupersampleScale(getInt(OPEN_GLES_SUPERSAMPLE_SCALE));
+    }
+
     public static boolean isEnabled(String property) {
         return getBoolean(property);
     }
@@ -467,6 +474,10 @@ public final class OpenDoJaLaunchArgs {
         return candidate == null ? "" : candidate.trim();
     }
 
+    public static int normalizeOpenGlesSupersampleScale(int candidate) {
+        return Math.clamp(candidate, 1, 5);
+    }
+
     public static String formatProperties() {
         StringJoiner joiner = new StringJoiner("\n", "Custom -Dopendoja.* properties:\n", "");
         for (String property : PROPERTIES) {
@@ -521,6 +532,7 @@ public final class OpenDoJaLaunchArgs {
         defaults.put(FUETREK_MIX_PROFILE, () -> "0");
         defaults.put(OPEN_GLES_RENDERER, () -> OpenGlesRendererMode.SOFTWARE.id());
         defaults.put(SHOW_OPEN_GLES_FPS, () -> "false");
+        defaults.put(OPEN_GLES_SUPERSAMPLE_SCALE, () -> "1");
         defaults.put(TRACE_OPEN_GLES_SYNC, () -> "false");
         defaults.put(GPS_ACCURACY, () -> Integer.toString(com.nttdocomo.device.location.Location.ACCURACY_NORMAL));
         defaults.put(GPS_ALTITUDE, () -> Integer.toString(com.nttdocomo.device.location.Location.ALTITUDE_UNKNOWN));

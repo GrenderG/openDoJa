@@ -3,6 +3,7 @@ package opendoja.host.ogl;
 import com.jogamp.opengl.*;
 import com.nttdocomo.ui.ogl.GraphicsOGL;
 import opendoja.host.DesktopSurface;
+import opendoja.host.OpenDoJaLaunchArgs;
 import opendoja.host.OpenDoJaLog;
 
 import java.awt.*;
@@ -34,13 +35,14 @@ final class OglHardwareBackend {
     private float[] texCoordScratch = new float[0];
     private byte[] colorScratch = new byte[0];
     private short[] indexScratch = new short[0];
-    private final float[] viewportProjectionScratch = new float[16];
-    private final float[] viewportTransformScratch = new float[16];
     private java.nio.ByteBuffer vertexBufferBytes;
     private java.nio.ByteBuffer normalBufferBytes;
     private java.nio.ByteBuffer texCoordBufferBytes;
     private java.nio.ByteBuffer colorBufferBytes;
     private java.nio.ByteBuffer indexBufferBytes;
+    private int resolveTextureId;
+    private int resolveTextureWidth = -1;
+    private int resolveTextureHeight = -1;
     private int[] lastHardwareSnapshot;
     private int[] outsideLockOverlaySnapshot;
     private Rectangle outsideLockOverlayBounds;
@@ -178,7 +180,7 @@ final class OglHardwareBackend {
             return;
         }
         withContext(gl -> {
-            int[] textureIds = new int[textureCache.size() + (surfaceTextureId == 0 ? 0 : 1)];
+            int[] textureIds = new int[textureCache.size() + (surfaceTextureId == 0 ? 0 : 1) + (resolveTextureId == 0 ? 0 : 1)];
             int offset = 0;
             for (HardwareTexture texture : textureCache.values()) {
                 if (texture.textureId() != 0) {
@@ -187,6 +189,9 @@ final class OglHardwareBackend {
             }
             if (surfaceTextureId != 0) {
                 textureIds[offset++] = surfaceTextureId;
+            }
+            if (resolveTextureId != 0) {
+                textureIds[offset++] = resolveTextureId;
             }
             if (offset > 0) {
                 gl.glDeleteTextures(offset, textureIds, 0);
@@ -208,6 +213,9 @@ final class OglHardwareBackend {
         textureUploadBuffer = null;
         drawableWidth = -1;
         drawableHeight = -1;
+        resolveTextureId = 0;
+        resolveTextureWidth = -1;
+        resolveTextureHeight = -1;
         available = false;
         surfaceDirty = true;
         readbackPending = false;
@@ -243,8 +251,8 @@ final class OglHardwareBackend {
     }
 
     private boolean ensureDrawable() {
-        int width = Math.max(1, owner.host().surface().width());
-        int height = Math.max(1, owner.host().surface().height());
+        int width = renderWidth();
+        int height = renderHeight();
         if (available && drawable != null && drawableWidth == width && drawableHeight == height) {
             return true;
         }
@@ -501,7 +509,7 @@ final class OglHardwareBackend {
                     GL2.GL_BGRA, GraphicsOGL.GL_UNSIGNED_BYTE, surfacePixels);
         }
         gl.glDisable(GraphicsOGL.GL_SCISSOR_TEST);
-        gl.glViewport(0, 0, width, height);
+        gl.glViewport(0, 0, renderWidth(), renderHeight());
         gl.glMatrixMode(GraphicsOGL.GL_PROJECTION);
         gl.glLoadIdentity();
         gl.glMatrixMode(GraphicsOGL.GL_MODELVIEW);
@@ -547,12 +555,23 @@ final class OglHardwareBackend {
             gl.glScissor(0, 0, 0, 0);
             return;
         }
+        int scale = supersampleScale();
         gl.glEnable(GraphicsOGL.GL_SCISSOR_TEST);
-        gl.glScissor(clipped.x, owner.host().surface().height() - (clipped.y + clipped.height), clipped.width, clipped.height);
+        gl.glScissor(
+                clipped.x * scale,
+                renderHeight() - ((clipped.y + clipped.height) * scale),
+                clipped.width * scale,
+                clipped.height * scale);
     }
 
     private void applyViewportState(GL2 gl) {
-        gl.glViewport(0, 0, Math.max(1, owner.host().surface().width()), Math.max(1, owner.host().surface().height()));
+        OglRenderer.OglState ogl = owner.oglState();
+        int scale = supersampleScale();
+        gl.glViewport(
+                ogl.viewportX * scale,
+                ogl.viewportY * scale,
+                Math.max(1, ogl.viewportWidth * scale),
+                Math.max(1, ogl.viewportHeight * scale));
     }
 
     private void applyRenderState(GL2 gl, boolean emulateMatrixPalette) {
@@ -648,26 +667,7 @@ final class OglHardwareBackend {
     }
 
     private float[] hardwareProjectionMatrix(float[] baseProjectionMatrix) {
-        OglRenderer.OglState ogl = owner.oglState();
-        int surfaceWidth = Math.max(1, owner.host().surface().width());
-        int surfaceHeight = Math.max(1, owner.host().surface().height());
-        int viewportWidth = Math.max(1, ogl.viewportWidth);
-        int viewportHeight = Math.max(1, ogl.viewportHeight);
-        if (ogl.viewportX == 0 && ogl.viewportY == 0
-                && viewportWidth == surfaceWidth && viewportHeight == surfaceHeight) {
-            return baseProjectionMatrix;
-        }
-        float scaleX = viewportWidth / (float) surfaceWidth;
-        float scaleY = viewportHeight / (float) surfaceHeight;
-        float translateX = ((2f * ogl.viewportX) + viewportWidth) / (float) surfaceWidth - 1f;
-        float translateY = ((2f * ogl.viewportY) + viewportHeight) / (float) surfaceHeight - 1f;
-        setIdentityMatrix(viewportTransformScratch);
-        viewportTransformScratch[0] = scaleX;
-        viewportTransformScratch[5] = scaleY;
-        viewportTransformScratch[12] = translateX;
-        viewportTransformScratch[13] = translateY;
-        multiplyColumnMajor(viewportProjectionScratch, viewportTransformScratch, baseProjectionMatrix);
-        return viewportProjectionScratch;
+        return baseProjectionMatrix;
     }
 
     private float[] currentHardwareModelViewMatrix() {
@@ -786,6 +786,10 @@ final class OglHardwareBackend {
         DesktopSurface surface = owner.host().surface();
         int width = surface.width();
         int height = surface.height();
+        int scale = supersampleScale();
+        if (scale > 1) {
+            resolveSupersampledReadback(gl, width, height, scale);
+        }
         int byteCount = Math.max(1, width * height * 4);
         if (readbackBuffer == null || readbackBuffer.capacity() < byteCount) {
             readbackBuffer = java.nio.ByteBuffer.allocateDirect(byteCount).order(ByteOrder.nativeOrder());
@@ -800,6 +804,72 @@ final class OglHardwareBackend {
             sourcePixels.position(sourceRow);
             sourcePixels.get(destination, destinationRow, width);
         }
+    }
+
+    private void resolveSupersampledReadback(GL2 gl, int width, int height, int scale) {
+        int renderWidth = width * scale;
+        int renderHeight = height * scale;
+        if (resolveTextureId == 0) {
+            int[] textureIds = new int[1];
+            gl.glGenTextures(1, textureIds, 0);
+            resolveTextureId = textureIds[0];
+        }
+        gl.glBindTexture(GraphicsOGL.GL_TEXTURE_2D, resolveTextureId);
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_MIN_FILTER, GraphicsOGL.GL_NEAREST);
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_MAG_FILTER, GraphicsOGL.GL_NEAREST);
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_WRAP_S, GraphicsOGL.GL_CLAMP_TO_EDGE);
+        gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_WRAP_T, GraphicsOGL.GL_CLAMP_TO_EDGE);
+        if (resolveTextureWidth != renderWidth || resolveTextureHeight != renderHeight) {
+            gl.glCopyTexImage2D(GraphicsOGL.GL_TEXTURE_2D, 0, GraphicsOGL.GL_RGBA, 0, 0, renderWidth, renderHeight, 0);
+            resolveTextureWidth = renderWidth;
+            resolveTextureHeight = renderHeight;
+        } else {
+            gl.glCopyTexSubImage2D(GraphicsOGL.GL_TEXTURE_2D, 0, 0, 0, 0, 0, renderWidth, renderHeight);
+        }
+        gl.glDisable(GraphicsOGL.GL_SCISSOR_TEST);
+        gl.glViewport(0, 0, width, height);
+        gl.glMatrixMode(GraphicsOGL.GL_PROJECTION);
+        gl.glLoadIdentity();
+        gl.glMatrixMode(GraphicsOGL.GL_MODELVIEW);
+        gl.glLoadIdentity();
+        gl.glDisable(GraphicsOGL.GL_ALPHA_TEST);
+        gl.glDisable(GraphicsOGL.GL_LIGHTING);
+        gl.glDisable(GraphicsOGL.GL_CULL_FACE);
+        gl.glDisable(GraphicsOGL.GL_DEPTH_TEST);
+        gl.glDepthMask(false);
+        gl.glEnable(GraphicsOGL.GL_TEXTURE_2D);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_TEXTURE_ENV_MODE, GraphicsOGL.GL_MODULATE);
+        float sampleWeight = 1f / (scale * scale);
+        for (int sy = 0; sy < scale; sy++) {
+            for (int sx = 0; sx < scale; sx++) {
+                float translateS = ((sx + 0.5f) / renderWidth) - (0.5f / width);
+                float translateT = ((sy + 0.5f) / renderHeight) - (0.5f / height);
+                gl.glMatrixMode(GraphicsOGL.GL_TEXTURE);
+                gl.glLoadIdentity();
+                gl.glTranslatef(translateS, translateT, 0f);
+                gl.glColor4f(sampleWeight, sampleWeight, sampleWeight, sampleWeight);
+                if (sx == 0 && sy == 0) {
+                    gl.glDisable(GraphicsOGL.GL_BLEND);
+                } else {
+                    gl.glEnable(GraphicsOGL.GL_BLEND);
+                    gl.glBlendFunc(GraphicsOGL.GL_ONE, GraphicsOGL.GL_ONE);
+                }
+                gl.glBegin(GraphicsOGL.GL_TRIANGLE_STRIP);
+                gl.glTexCoord2f(0f, 0f);
+                gl.glVertex2f(-1f, -1f);
+                gl.glTexCoord2f(1f, 0f);
+                gl.glVertex2f(1f, -1f);
+                gl.glTexCoord2f(0f, 1f);
+                gl.glVertex2f(-1f, 1f);
+                gl.glTexCoord2f(1f, 1f);
+                gl.glVertex2f(1f, 1f);
+                gl.glEnd();
+            }
+        }
+        gl.glMatrixMode(GraphicsOGL.GL_TEXTURE);
+        gl.glLoadIdentity();
+        gl.glMatrixMode(GraphicsOGL.GL_MODELVIEW);
+        gl.glDisable(GraphicsOGL.GL_BLEND);
     }
 
     private int reapplyOutsideLockOverlay(int[] previousHardwareSnapshot, int[] overlaySnapshot) {
@@ -1000,25 +1070,16 @@ final class OglHardwareBackend {
         return new TextureUpload(format, buffer);
     }
 
-    private static void setIdentityMatrix(float[] matrix) {
-        Arrays.fill(matrix, 0f);
-        matrix[0] = 1f;
-        matrix[5] = 1f;
-        matrix[10] = 1f;
-        matrix[15] = 1f;
+    private int supersampleScale() {
+        return OpenDoJaLaunchArgs.openGlesSupersampleScale();
     }
 
-    private static void multiplyColumnMajor(float[] out, float[] left, float[] right) {
-        for (int column = 0; column < 4; column++) {
-            int columnOffset = column * 4;
-            for (int row = 0; row < 4; row++) {
-                out[columnOffset + row] =
-                        (left[row] * right[columnOffset]) +
-                        (left[4 + row] * right[columnOffset + 1]) +
-                        (left[8 + row] * right[columnOffset + 2]) +
-                        (left[12 + row] * right[columnOffset + 3]);
-            }
-        }
+    private int renderWidth() {
+        return Math.max(1, owner.host().surface().width() * supersampleScale());
+    }
+
+    private int renderHeight() {
+        return Math.max(1, owner.host().surface().height() * supersampleScale());
     }
 
     private interface HardwareGlCall {

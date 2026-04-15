@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.UnaryOperator;
 
 final class OpenDoJaLauncherFrame extends JFrame {
     private final JamLaunchService jamLaunchService;
@@ -400,20 +401,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
             JRadioButtonMenuItem item = new JRadioButtonMenuItem(new AbstractAction(fontType.label) {
                 @Override
                 public void actionPerformed(ActionEvent event) {
-                    LauncherSettings current = jamLaunchService.loadSettings();
-                    jamLaunchService.saveSettings(new LauncherSettings(
-                            current.hostScale(),
-                            current.synthId(),
-                            current.terminalId(),
-                            current.userId(),
-                            fontType.id,
-                            current.httpOverrideDomain(),
-                            current.fileEncodingOverride(),
-                            current.microeditionPlatformOverride(),
-                            current.openGlesRendererMode(),
-                            current.showOpenGlesFps(),
-                            current.disableBytecodeVerification(),
-                            current.disableOsDpiScaling()));
+                    saveSettings(current -> current.withFontType(fontType.id));
                 }
             });
             item.setSelected(settings.fontType().equals(fontType.id));
@@ -431,20 +419,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
             JRadioButtonMenuItem item = new JRadioButtonMenuItem(new AbstractAction(formatSynthLabel(synth)) {
                 @Override
                 public void actionPerformed(ActionEvent event) {
-                    LauncherSettings current = jamLaunchService.loadSettings();
-                    jamLaunchService.saveSettings(new LauncherSettings(
-                            current.hostScale(),
-                            synth.id,
-                            current.terminalId(),
-                            current.userId(),
-                            current.fontType(),
-                            current.httpOverrideDomain(),
-                            current.fileEncodingOverride(),
-                            current.microeditionPlatformOverride(),
-                            current.openGlesRendererMode(),
-                            current.showOpenGlesFps(),
-                            current.disableBytecodeVerification(),
-                            current.disableOsDpiScaling()));
+                    saveSettings(current -> current.withSynthId(synth.id));
                 }
             });
             item.setSelected(settings.synthId().equals(synth.id));
@@ -463,85 +438,41 @@ final class OpenDoJaLauncherFrame extends JFrame {
         for (OpenGlesRendererMode mode : OpenGlesRendererMode.values()) {
             JRadioButtonMenuItem item = new JRadioButtonMenuItem(mode.label());
             item.setSelected(settings.openGlesRendererMode() == mode);
-            item.addActionListener(event -> {
-                LauncherSettings current = jamLaunchService.loadSettings();
-                jamLaunchService.saveSettings(new LauncherSettings(
-                        current.hostScale(),
-                        current.synthId(),
-                        current.terminalId(),
-                        current.userId(),
-                        current.fontType(),
-                        current.httpOverrideDomain(),
-                        current.fileEncodingOverride(),
-                        current.microeditionPlatformOverride(),
-                        mode,
-                        current.showOpenGlesFps(),
-                        current.disableBytecodeVerification(),
-                        current.disableOsDpiScaling()));
-            });
+            item.addActionListener(event -> saveSettings(current -> current.withOpenGlesRendererMode(mode)));
             oglRendererGroup.add(item);
             oglRendererMenu.add(item);
         }
         experimentalMenu.add(oglRendererMenu);
 
+        JMenu oglSupersamplingMenu = new JMenu("OpenGLES Supersampling");
+        ButtonGroup oglSupersamplingGroup = new ButtonGroup();
+        int[] supersampleScales = {1, 2, 3, 4, 5};
+        for (int scale : supersampleScales) {
+            String label = scale == 1 ? "1x (Native)" : scale + "x";
+            JRadioButtonMenuItem item = new JRadioButtonMenuItem(label);
+            item.setSelected(settings.openGlesSupersampleScale() == scale);
+            item.addActionListener(event -> saveSettings(current -> current.withOpenGlesSupersampleScale(scale)));
+            oglSupersamplingGroup.add(item);
+            oglSupersamplingMenu.add(item);
+        }
+        experimentalMenu.add(oglSupersamplingMenu);
+
         JCheckBoxMenuItem showOpenGlesFpsItem = new JCheckBoxMenuItem("Show OpenGLES FPS");
         showOpenGlesFpsItem.setSelected(settings.showOpenGlesFps());
-        showOpenGlesFpsItem.addActionListener(event -> {
-            LauncherSettings current = jamLaunchService.loadSettings();
-            jamLaunchService.saveSettings(new LauncherSettings(
-                    current.hostScale(),
-                    current.synthId(),
-                    current.terminalId(),
-                    current.userId(),
-                    current.fontType(),
-                    current.httpOverrideDomain(),
-                    current.fileEncodingOverride(),
-                    current.microeditionPlatformOverride(),
-                    current.openGlesRendererMode(),
-                    showOpenGlesFpsItem.isSelected(),
-                    current.disableBytecodeVerification(),
-                    current.disableOsDpiScaling()));
-        });
+        showOpenGlesFpsItem.addActionListener(event -> saveSettings(
+                current -> current.withShowOpenGlesFps(showOpenGlesFpsItem.isSelected())));
         experimentalMenu.add(showOpenGlesFpsItem);
 
         JCheckBoxMenuItem disableBytecodeVerificationItem = new JCheckBoxMenuItem("Disable Bytecode Verification");
         disableBytecodeVerificationItem.setSelected(settings.disableBytecodeVerification());
-        disableBytecodeVerificationItem.addActionListener(event -> {
-            LauncherSettings current = jamLaunchService.loadSettings();
-            jamLaunchService.saveSettings(new LauncherSettings(
-                    current.hostScale(),
-                    current.synthId(),
-                    current.terminalId(),
-                    current.userId(),
-                    current.fontType(),
-                    current.httpOverrideDomain(),
-                    current.fileEncodingOverride(),
-                    current.microeditionPlatformOverride(),
-                    current.openGlesRendererMode(),
-                    current.showOpenGlesFps(),
-                    disableBytecodeVerificationItem.isSelected(),
-                    current.disableOsDpiScaling()));
-        });
+        disableBytecodeVerificationItem.addActionListener(event -> saveSettings(
+                current -> current.withDisableBytecodeVerification(disableBytecodeVerificationItem.isSelected())));
         experimentalMenu.add(disableBytecodeVerificationItem);
 
         JCheckBoxMenuItem disableOsDpiScalingItem = new JCheckBoxMenuItem("Disable OS DPI Scaling");
         disableOsDpiScalingItem.setSelected(settings.disableOsDpiScaling());
-        disableOsDpiScalingItem.addActionListener(event -> {
-            LauncherSettings current = jamLaunchService.loadSettings();
-            jamLaunchService.saveSettings(new LauncherSettings(
-                    current.hostScale(),
-                    current.synthId(),
-                    current.terminalId(),
-                    current.userId(),
-                    current.fontType(),
-                    current.httpOverrideDomain(),
-                    current.fileEncodingOverride(),
-                    current.microeditionPlatformOverride(),
-                    current.openGlesRendererMode(),
-                    current.showOpenGlesFps(),
-                    current.disableBytecodeVerification(),
-                    disableOsDpiScalingItem.isSelected()));
-        });
+        disableOsDpiScalingItem.addActionListener(event -> saveSettings(
+                current -> current.withDisableOsDpiScaling(disableOsDpiScalingItem.isSelected())));
         experimentalMenu.add(disableOsDpiScalingItem);
 
         return experimentalMenu;
@@ -553,19 +484,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         if (updated == null) {
             return;
         }
-        jamLaunchService.saveSettings(new LauncherSettings(
-                current.hostScale(),
-                current.synthId(),
-                updated,
-                current.userId(),
-                current.fontType(),
-                current.httpOverrideDomain(),
-                current.fileEncodingOverride(),
-                current.microeditionPlatformOverride(),
-                current.openGlesRendererMode(),
-                current.showOpenGlesFps(),
-                current.disableBytecodeVerification(),
-                current.disableOsDpiScaling()));
+        jamLaunchService.saveSettings(current.withTerminalId(updated));
     }
 
     private void updateUserId() {
@@ -574,19 +493,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         if (updated == null) {
             return;
         }
-        jamLaunchService.saveSettings(new LauncherSettings(
-                current.hostScale(),
-                current.synthId(),
-                current.terminalId(),
-                updated,
-                current.fontType(),
-                current.httpOverrideDomain(),
-                current.fileEncodingOverride(),
-                current.microeditionPlatformOverride(),
-                current.openGlesRendererMode(),
-                current.showOpenGlesFps(),
-                current.disableBytecodeVerification(),
-                current.disableOsDpiScaling()));
+        jamLaunchService.saveSettings(current.withUserId(updated));
     }
 
     private void updateHttpOverrideDomain() {
@@ -595,19 +502,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         if (updated == null) {
             return;
         }
-        jamLaunchService.saveSettings(new LauncherSettings(
-                current.hostScale(),
-                current.synthId(),
-                current.terminalId(),
-                current.userId(),
-                current.fontType(),
-                updated,
-                current.fileEncodingOverride(),
-                current.microeditionPlatformOverride(),
-                current.openGlesRendererMode(),
-                current.showOpenGlesFps(),
-                current.disableBytecodeVerification(),
-                current.disableOsDpiScaling()));
+        jamLaunchService.saveSettings(current.withHttpOverrideDomain(updated));
     }
 
     private void updateFileEncodingOverride() {
@@ -616,19 +511,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         if (updated == null) {
             return;
         }
-        jamLaunchService.saveSettings(new LauncherSettings(
-                current.hostScale(),
-                current.synthId(),
-                current.terminalId(),
-                current.userId(),
-                current.fontType(),
-                current.httpOverrideDomain(),
-                updated,
-                current.microeditionPlatformOverride(),
-                current.openGlesRendererMode(),
-                current.showOpenGlesFps(),
-                current.disableBytecodeVerification(),
-                current.disableOsDpiScaling()));
+        jamLaunchService.saveSettings(current.withFileEncodingOverride(updated));
     }
 
     private void updateMicroeditionPlatformOverride() {
@@ -637,19 +520,12 @@ final class OpenDoJaLauncherFrame extends JFrame {
         if (updated == null) {
             return;
         }
-        jamLaunchService.saveSettings(new LauncherSettings(
-                current.hostScale(),
-                current.synthId(),
-                current.terminalId(),
-                current.userId(),
-                current.fontType(),
-                current.httpOverrideDomain(),
-                current.fileEncodingOverride(),
-                updated,
-                current.openGlesRendererMode(),
-                current.showOpenGlesFps(),
-                current.disableBytecodeVerification(),
-                current.disableOsDpiScaling()));
+        jamLaunchService.saveSettings(current.withMicroeditionPlatformOverride(updated));
+    }
+
+    private void saveSettings(UnaryOperator<LauncherSettings> updater) {
+        LauncherSettings current = jamLaunchService.loadSettings();
+        jamLaunchService.saveSettings(updater.apply(current));
     }
 
     private static String formatSynthLabel(MLDSynth synth) {
