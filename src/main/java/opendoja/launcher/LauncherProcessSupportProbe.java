@@ -13,6 +13,7 @@ import opendoja.host.LaunchConfig;
 import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.OpenDoJaLaunchArgs;
 import opendoja.host.OpenGlesRendererMode;
+import opendoja.host.input.ControllerBindingDescriptor;
 
 import java.awt.event.KeyEvent;
 import java.net.URI;
@@ -128,7 +129,8 @@ public final class LauncherProcessSupportProbe {
 
     private static void verifyLauncherSettingsForwardActiveKeybindProfile() throws Exception {
         HostKeybindProfile alternateProfile = HostKeybindProfile.defaults()
-                .withBinding(HostControlAction.SELECT, 0, HostInputBinding.keyboard(KeyEvent.VK_Z))
+                .withBinding(HostControlAction.SELECT, 0,
+                        HostInputBinding.controller("", ControllerBindingDescriptor.button("A")))
                 .withoutBinding(HostControlAction.SELECT, 1);
         HostKeybindConfiguration keybindConfiguration = new HostKeybindConfiguration(
                 List.of(HostKeybindProfile.defaults(), alternateProfile),

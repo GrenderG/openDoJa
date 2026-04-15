@@ -1,5 +1,7 @@
 package opendoja.host;
 
+import opendoja.host.input.ControllerBindingDescriptor;
+
 import java.awt.event.KeyEvent;
 import java.util.Locale;
 
@@ -13,6 +15,13 @@ public record HostInputBinding(SourceType sourceType, String sourceId, String co
         sourceType = sourceType == null ? SourceType.KEYBOARD : sourceType;
         sourceId = normalizeToken(sourceId, true);
         controlId = normalizeToken(controlId, false);
+        if (sourceType == SourceType.CONTROLLER) {
+            ControllerBindingDescriptor descriptor = ControllerBindingDescriptor.parse(controlId);
+            if (descriptor == null) {
+                throw new IllegalArgumentException("Unsupported controller binding: " + controlId);
+            }
+            controlId = descriptor.controlId();
+        }
     }
 
     public static HostInputBinding keyboard(int awtKeyCode) {
@@ -20,6 +29,21 @@ public record HostInputBinding(SourceType sourceType, String sourceId, String co
             throw new IllegalArgumentException("Unsupported keyboard key code: " + awtKeyCode);
         }
         return new HostInputBinding(SourceType.KEYBOARD, "", Integer.toString(awtKeyCode));
+    }
+
+    public static HostInputBinding controller(String sourceId, String controlId) {
+        ControllerBindingDescriptor descriptor = ControllerBindingDescriptor.parse(controlId);
+        if (descriptor == null) {
+            throw new IllegalArgumentException("Unsupported controller binding: " + controlId);
+        }
+        return new HostInputBinding(SourceType.CONTROLLER, sourceId, descriptor.controlId());
+    }
+
+    public static HostInputBinding controller(String sourceId, ControllerBindingDescriptor descriptor) {
+        if (descriptor == null) {
+            throw new IllegalArgumentException("Controller binding descriptor must not be null");
+        }
+        return controller(sourceId, descriptor.controlId());
     }
 
     public static HostInputBinding parse(String serialized) {
@@ -40,6 +64,9 @@ public record HostInputBinding(SourceType sourceType, String sourceId, String co
             if (sourceType == SourceType.KEYBOARD && (keyboardKeyCode == null || !isBindableKeyboardKeyCode(keyboardKeyCode))) {
                 return null;
             }
+            if (sourceType == SourceType.CONTROLLER && ControllerBindingDescriptor.parse(binding.controlId) == null) {
+                return null;
+            }
             return binding;
         } catch (IllegalArgumentException exception) {
             return null;
@@ -48,6 +75,10 @@ public record HostInputBinding(SourceType sourceType, String sourceId, String co
 
     public boolean isKeyboard() {
         return sourceType == SourceType.KEYBOARD;
+    }
+
+    public boolean isController() {
+        return sourceType == SourceType.CONTROLLER;
     }
 
     public Integer keyboardKeyCode() {
@@ -65,6 +96,15 @@ public record HostInputBinding(SourceType sourceType, String sourceId, String co
         if (isKeyboard()) {
             Integer keyCode = keyboardKeyCode();
             return keyCode == null ? "Unknown key" : KeyEvent.getKeyText(keyCode);
+        }
+        if (isController()) {
+            ControllerBindingDescriptor descriptor = ControllerBindingDescriptor.parse(controlId);
+            if (descriptor != null) {
+                if (sourceId.isBlank()) {
+                    return sourceType.displayName() + " " + descriptor.displayLabel();
+                }
+                return sourceType.displayName() + " " + descriptor.displayLabel() + " [" + sourceId + "]";
+            }
         }
         if (sourceId.isBlank()) {
             return sourceType.displayName() + " " + controlId;

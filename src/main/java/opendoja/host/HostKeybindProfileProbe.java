@@ -1,5 +1,7 @@
 package opendoja.host;
 
+import opendoja.host.input.ControllerBindingDescriptor;
+
 import java.awt.event.KeyEvent;
 import java.util.List;
 
@@ -10,6 +12,7 @@ public final class HostKeybindProfileProbe {
     public static void main(String[] args) {
         verifyDefaultsPreserveLegacyBindings();
         verifySerializationRoundTrip();
+        verifyControllerBindingRoundTrip();
         verifyLaunchPropertyOverride();
         verifyConfigurationNamingAndDeletionFallback();
         System.out.println("Host keybind profile probe OK");
@@ -54,6 +57,30 @@ public final class HostKeybindProfileProbe {
                 System.setProperty(OpenDoJaLaunchArgs.INPUT_BINDINGS, previous);
             }
         }
+    }
+
+    private static void verifyControllerBindingRoundTrip() {
+        HostInputBinding controllerBinding = HostInputBinding.controller(
+                "",
+                ControllerBindingDescriptor.axis("LEFT_THUMB_X", ControllerBindingDescriptor.Direction.NEGATIVE));
+        HostKeybindProfile updated = HostKeybindProfile.defaults()
+                .withBinding(HostControlAction.MOVE_LEFT, 0, controllerBinding)
+                .withoutBinding(HostControlAction.MOVE_LEFT, 1);
+        HostKeybindProfile roundTripped = HostKeybindProfile.deserialize(updated.serialize());
+        check(roundTripped != null, "controller binding profile should deserialize");
+        check(controllerBinding.equals(roundTripped.bindingAt(HostControlAction.MOVE_LEFT, 0)),
+                "controller binding should survive round-trip");
+        check(roundTripped.controllerActionsByBinding().get(controllerBinding) == HostControlAction.MOVE_LEFT,
+                "controller binding lookup should resolve the owning action");
+
+        HostInputBinding migratedStandardTriggerBinding = HostInputBinding.parse("controller::axis.LEFT_AXIS_Z.neg");
+        check(migratedStandardTriggerBinding != null, "standard input4j trigger-axis binding should still parse");
+        check("button.LEFT_TRIGGER".equals(migratedStandardTriggerBinding.controlId()),
+                "standard input4j trigger-axis binding should canonicalize to a trigger control");
+        HostInputBinding rightThumbBinding = HostInputBinding.parse("controller::axis.RIGHT_THUMB_X.neg");
+        check(rightThumbBinding != null, "right stick X binding should still parse");
+        check("axis.RIGHT_THUMB_X.neg".equals(rightThumbBinding.controlId()),
+                "right stick X binding must not be misclassified as a trigger");
     }
 
     private static void verifyConfigurationNamingAndDeletionFallback() {

@@ -5,6 +5,9 @@ import com.nttdocomo.ui.*;
 import com.nttdocomo.ui.Canvas;
 import com.nttdocomo.ui.Frame;
 import com.nttdocomo.ui.Graphics;
+import opendoja.host.input.ControllerInputEvent;
+import opendoja.host.input.ControllerInputListener;
+import opendoja.host.input.ControllerInputManager;
 
 import javax.swing.*;
 import java.awt.*;
@@ -975,6 +978,7 @@ public final class DoJaRuntime {
             if (!window.isVisible()) {
                 window.setVisible(true);
             }
+            hostPanel.ensureControllerInput(window);
             updateFullScreenTopHint(window, true);
             targetDevice.setFullScreenWindow(window);
             window.validate();
@@ -1152,6 +1156,7 @@ public final class DoJaRuntime {
         }
         if (!shutdown.get()) {
             window.setVisible(true);
+            hostPanel.ensureControllerInput(window);
             hostPanel.requestFocusInWindow();
         }
     }
@@ -1283,7 +1288,8 @@ public final class DoJaRuntime {
         private final DoJaRuntime runtime;
         private final DesktopKeyInputAdapter keyInputAdapter;
         private final DesktopKeyInputAdapter softKeyInputAdapter;
-        private final Map<Integer, HostControlAction> keyboardActions;
+        private final HostInputRouter inputRouter;
+        private volatile ControllerInputManager controllerInputManager;
 
         private HostPanel(DoJaRuntime runtime) {
             this.runtime = runtime;
@@ -1291,7 +1297,7 @@ public final class DoJaRuntime {
                     KEY_REPEAT_RELEASE_DEBOUNCE_MS);
             this.softKeyInputAdapter = new DesktopKeyInputAdapter(this::scheduleRelease, runtime::dispatchHostSoftKey,
                     KEY_REPEAT_RELEASE_DEBOUNCE_MS);
-            this.keyboardActions = HostKeybindProfile.fromLaunchArgs().keyboardActionsByKeyCode();
+            this.inputRouter = new HostInputRouter(HostKeybindProfile.fromLaunchArgs());
             refreshPreferredSize();
             setBackground(Color.BLACK);
             setOpaque(true);
@@ -1316,29 +1322,29 @@ public final class DoJaRuntime {
                 }
 
                 private void dispatchKey(KeyEvent event) {
-                    HostControlAction action = keyboardActions.get(event.getKeyCode());
+                    HostControlAction action = inputRouter.keyboardAction(event.getKeyCode());
                     if (action == null) {
                         return;
                     }
-                    if (action.dispatchKind() == HostControlAction.DispatchKind.HOST_SOFT_KEY) {
-                        int softKey = action.dispatchCode();
-                        if (event.getID() == KeyEvent.KEY_PRESSED) {
-                            softKeyInputAdapter.keyPressed(softKey);
-                        } else if (event.getID() == KeyEvent.KEY_RELEASED) {
-                            softKeyInputAdapter.keyReleased(softKey);
-                        }
-                        event.consume();
-                        return;
-                    }
-                    int dojaKey = action.dispatchCode();
-                    if (event.getID() == KeyEvent.KEY_PRESSED) {
-                        keyInputAdapter.keyPressed(dojaKey);
-                    } else if (event.getID() == KeyEvent.KEY_RELEASED) {
-                        keyInputAdapter.keyReleased(dojaKey);
-                    }
+                    dispatchMappedAction(action, event.getID() == KeyEvent.KEY_PRESSED);
                     event.consume();
                 }
             });
+        }
+
+        private void ensureControllerInput(JFrame ownerWindow) {
+            if (controllerInputManager != null || GraphicsEnvironment.isHeadless()) {
+                return;
+            }
+            ControllerInputManager manager = new ControllerInputManager(ownerWindow);
+            manager.addListener(new ControllerInputListener() {
+                @Override
+                public void onInput(ControllerInputEvent event) {
+                    SwingUtilities.invokeLater(() -> dispatchControllerEvent(event));
+                }
+            });
+            runtime.registerShutdownResource(manager);
+            controllerInputManager = manager;
         }
 
         private DesktopKeyInputAdapter.PendingRelease scheduleRelease(int delayMillis, Runnable task) {
@@ -1346,6 +1352,39 @@ public final class DoJaRuntime {
             timer.setRepeats(false);
             timer.start();
             return timer::stop;
+        }
+
+        private void dispatchControllerEvent(ControllerInputEvent event) {
+            if (event == null || !isShowing()) {
+                return;
+            }
+            Window window = SwingUtilities.getWindowAncestor(this);
+            if (window != null && !window.isFocused()) {
+                return;
+            }
+            HostControlAction action = inputRouter.controllerAction(event);
+            if (action == null) {
+                return;
+            }
+            dispatchMappedAction(action, event.active());
+        }
+
+        private void dispatchMappedAction(HostControlAction action, boolean pressed) {
+            if (action.dispatchKind() == HostControlAction.DispatchKind.HOST_SOFT_KEY) {
+                int softKey = action.dispatchCode();
+                if (pressed) {
+                    softKeyInputAdapter.keyPressed(softKey);
+                } else {
+                    softKeyInputAdapter.keyReleased(softKey);
+                }
+                return;
+            }
+            int dojaKey = action.dispatchCode();
+            if (pressed) {
+                keyInputAdapter.keyPressed(dojaKey);
+            } else {
+                keyInputAdapter.keyReleased(dojaKey);
+            }
         }
 
         private void installHostScalePopup() {

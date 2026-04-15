@@ -136,6 +136,22 @@ public final class HostKeybindProfile {
         return Map.copyOf(bindings);
     }
 
+    public Map<HostInputBinding, HostControlAction> controllerActionsByBinding() {
+        HashMap<HostInputBinding, HostControlAction> bindings = new HashMap<>();
+        for (HostControlAction action : HostControlAction.values()) {
+            HostInputBinding[] slots = bindingSlotsByAction.get(action);
+            if (slots == null) {
+                continue;
+            }
+            for (HostInputBinding binding : slots) {
+                if (binding != null && binding.isController()) {
+                    bindings.put(binding, action);
+                }
+            }
+        }
+        return Map.copyOf(bindings);
+    }
+
     public String serialize() {
         StringJoiner joiner = new StringJoiner(";");
         for (HostControlAction action : HostControlAction.values()) {

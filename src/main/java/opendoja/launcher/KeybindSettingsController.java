@@ -4,6 +4,11 @@ import opendoja.host.HostControlAction;
 import opendoja.host.HostInputBinding;
 import opendoja.host.HostKeybindConfiguration;
 import opendoja.host.HostKeybindProfile;
+import opendoja.host.input.ControllerBindingDescriptor;
+import opendoja.host.input.ControllerDeviceInfo;
+import opendoja.host.input.ControllerInputEvent;
+import opendoja.host.input.ControllerInputListener;
+import opendoja.host.input.ControllerInputManager;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -12,9 +17,15 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 final class KeybindSettingsController {
+    private static final long CONTROLLER_CAPTURE_DEBOUNCE_NANOS = 250_000_000L;
+    private static final int CONTROLLER_CAPTURE_POLL_INTERVAL_MS = 40;
+    private static final float CONTROLLER_CAPTURE_AXIS_THRESHOLD = 0.55f;
+
     HostKeybindConfiguration editKeybinds(Component parent, HostKeybindConfiguration currentConfiguration) {
         Window owner = parent == null ? null : SwingUtilities.getWindowAncestor(parent);
         KeybindDialog dialog = new KeybindDialog(owner,
@@ -52,8 +63,76 @@ final class KeybindSettingsController {
         Window owner = parent == null ? null : SwingUtilities.getWindowAncestor(parent);
         JDialog dialog = new JDialog(owner, "Set " + slotLabel, Dialog.ModalityType.APPLICATION_MODAL);
         AtomicReference<HostInputBinding> captured = new AtomicReference<>();
+        AtomicBoolean controllerCaptureArmed = new AtomicBoolean(false);
+        AtomicReference<ControllerInputEvent> pendingControllerCandidate = new AtomicReference<>();
         JButton cancelButton = new JButton("Cancel");
         cancelButton.setFocusable(false);
+        JLabel controllerStatusLabel = new JLabel("Scanning for controllers...");
+        controllerStatusLabel.setFocusable(false);
+
+        Frame controllerOwner = resolveOwnerFrame(owner);
+        ControllerInputManager controllerInputManager = new ControllerInputManager(controllerOwner);
+        Timer debounceSnapshotTimer = new Timer((int) (CONTROLLER_CAPTURE_DEBOUNCE_NANOS / 1_000_000L), event -> {
+            controllerCaptureArmed.set(true);
+            // Keep the strongest input that arrived during the debounce window so an analog stick
+            // that was already moving when capture opened does not need to be moved a second time.
+            ControllerInputEvent pendingCandidate = pendingControllerCandidate.getAndSet(null);
+            if (pendingCandidate != null && acceptableControllerCapture(pendingCandidate)) {
+                captured.compareAndSet(null, pendingCandidate.genericBinding());
+                if (captured.get() != null) {
+                    dialog.dispose();
+                    return;
+                }
+            }
+            HostInputBinding activeBinding = activeControllerBinding(controllerInputManager);
+            if (activeBinding != null) {
+                captured.set(activeBinding);
+                dialog.dispose();
+            }
+        });
+        debounceSnapshotTimer.setRepeats(false);
+        Timer activePollTimer = new Timer(CONTROLLER_CAPTURE_POLL_INTERVAL_MS, event -> {
+            if (captured.get() != null) {
+                return;
+            }
+            if (!controllerCaptureArmed.get()) {
+                return;
+            }
+            HostInputBinding activeBinding = activeControllerBinding(controllerInputManager);
+            if (activeBinding != null) {
+                captured.set(activeBinding);
+                dialog.dispose();
+            }
+        });
+        activePollTimer.setRepeats(true);
+        debounceSnapshotTimer.start();
+        activePollTimer.start();
+        controllerInputManager.addListener(new ControllerInputListener() {
+            @Override
+            public void onDevicesChanged(List<ControllerDeviceInfo> devices) {
+                SwingUtilities.invokeLater(() -> controllerStatusLabel.setText(controllerStatusText(devices)));
+            }
+
+            @Override
+            public void onInput(ControllerInputEvent event) {
+                if (!event.active()) {
+                    return;
+                }
+                if (!acceptableControllerCapture(event)) {
+                    return;
+                }
+                if (!controllerCaptureArmed.get()) {
+                    pendingControllerCandidate.accumulateAndGet(event, KeybindSettingsController::strongerEvent);
+                    return;
+                }
+                SwingUtilities.invokeLater(() -> {
+                    captured.compareAndSet(null, event.genericBinding());
+                    if (captured.get() != null) {
+                        dialog.dispose();
+                    }
+                });
+            }
+        });
 
         JPanel captureSurface = new JPanel(new BorderLayout());
         captureSurface.setFocusable(true);
@@ -85,16 +164,27 @@ final class KeybindSettingsController {
         });
 
         JLabel instructions = new JLabel(
-                "<html>Press a keyboard key for " + slotLabel + ".<br>Modifier-only keys are ignored.</html>");
+                "<html>Press a keyboard key or move/press a controller input for " + slotLabel
+                        + ".<br>Modifier-only keys are ignored. Existing analog noise is filtered.</html>");
         instructions.setBorder(BorderFactory.createEmptyBorder(0, 0, 12, 0));
         instructions.setFocusable(false);
 
-        JLabel captureHint = new JLabel("Input is captured immediately while this dialog is focused.");
+        JPanel centerPanel = new JPanel(new BorderLayout(0, 8));
+
+        JLabel captureHint = new JLabel("Keyboard and controller input is captured immediately while this dialog is focused.");
         captureHint.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(UIManager.getColor("Separator.foreground")),
                 BorderFactory.createEmptyBorder(10, 10, 10, 10)));
         captureHint.setFocusable(false);
-        captureSurface.add(captureHint, BorderLayout.CENTER);
+        centerPanel.add(captureHint, BorderLayout.NORTH);
+
+        controllerStatusLabel.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 0));
+        centerPanel.add(controllerStatusLabel, BorderLayout.CENTER);
+
+        if (isLinux()) {
+            centerPanel.add(buildLinuxControllerNote(), BorderLayout.SOUTH);
+        }
+        captureSurface.add(centerPanel, BorderLayout.CENTER);
 
         cancelButton.addActionListener(event -> dialog.dispose());
 
@@ -112,7 +202,99 @@ final class KeybindSettingsController {
         dialog.pack();
         dialog.setLocationRelativeTo(owner);
         dialog.setVisible(true);
+        debounceSnapshotTimer.stop();
+        activePollTimer.stop();
+        controllerInputManager.close();
         return captured.get();
+    }
+
+    private static ControllerInputEvent strongerEvent(ControllerInputEvent left, ControllerInputEvent right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return right.value() > left.value() ? right : left;
+    }
+
+    private static HostInputBinding activeControllerBinding(ControllerInputManager controllerInputManager) {
+        List<ControllerInputEvent> activeInputs = controllerInputManager.activeInputs();
+        ControllerInputEvent bestEvent = null;
+        for (ControllerInputEvent activeInput : activeInputs) {
+            if (!acceptableControllerCapture(activeInput)) {
+                continue;
+            }
+            if (bestEvent == null || activeInput.value() > bestEvent.value()) {
+                bestEvent = activeInput;
+            }
+        }
+        return bestEvent == null ? null : bestEvent.genericBinding();
+    }
+
+    private static boolean acceptableControllerCapture(ControllerInputEvent event) {
+        if (event == null || !event.active()) {
+            return false;
+        }
+        if (event.bindingDescriptor().kind() == ControllerBindingDescriptor.Kind.AXIS) {
+            return event.value() >= CONTROLLER_CAPTURE_AXIS_THRESHOLD;
+        }
+        return true;
+    }
+
+    private static JComponent buildLinuxControllerNote() {
+        JPanel panel = new JPanel(new BorderLayout(0, 4));
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder("Linux Controller Access"),
+                BorderFactory.createEmptyBorder(4, 4, 4, 4)));
+
+        JLabel noteLabel = new JLabel("<html>Controller input on Linux may require additional permissions. "
+                + "Make sure your user is part of the input group.</html>");
+        noteLabel.setFocusable(false);
+        panel.add(noteLabel, BorderLayout.NORTH);
+
+        JTextArea commandArea = new JTextArea("sudo usermod -aG input $USER");
+        commandArea.setEditable(false);
+        commandArea.setLineWrap(false);
+        commandArea.setWrapStyleWord(false);
+        commandArea.setFocusable(true);
+        commandArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, commandArea.getFont().getSize()));
+        commandArea.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(UIManager.getColor("Separator.foreground")),
+                BorderFactory.createEmptyBorder(6, 6, 6, 6)));
+        panel.add(commandArea, BorderLayout.CENTER);
+
+        JLabel reminderLabel = new JLabel("Log out and back in for the changes to take effect.");
+        reminderLabel.setFocusable(false);
+        panel.add(reminderLabel, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private static Frame resolveOwnerFrame(Window owner) {
+        Window current = owner;
+        while (current != null && !(current instanceof Frame)) {
+            current = current.getOwner();
+        }
+        return current instanceof Frame frame ? frame : null;
+    }
+
+    private static String controllerStatusText(List<ControllerDeviceInfo> devices) {
+        if (devices == null || devices.isEmpty()) {
+            return "No supported controllers detected. Keyboard capture remains available.";
+        }
+        String joined = devices.stream()
+                .map(ControllerDeviceInfo::displayName)
+                .limit(2)
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("Controller");
+        if (devices.size() > 2) {
+            joined += " +" + (devices.size() - 2) + " more";
+        }
+        return "Controllers: " + joined;
+    }
+
+    private static boolean isLinux() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("linux");
     }
 
     private static final class KeybindDialog extends JDialog {
