@@ -22,6 +22,7 @@ final class LauncherPreferencesStore {
     private static final String MICROEDITION_PLATFORM_OVERRIDE_KEY = "microeditionPlatformOverride";
     private static final String OPEN_GLES_RENDERER_KEY = "openGlesRenderer";
     private static final String SHOW_OPEN_GLES_FPS_KEY = "showOpenGlesFps";
+    private static final String OPEN_GLES_SUPERSAMPLE_SCALE_KEY = "openGlesSupersampleScale";
     private static final String DISABLE_BYTECODE_VERIFICATION_KEY = "disableBytecodeVerification";
     private static final String DISABLE_OS_DPI_SCALING_KEY = "disableOsDpiScaling";
     private static final String UPDATE_NOTIFICATIONS_PROMPTED_KEY = "updateNotificationsPrompted";
@@ -46,6 +47,8 @@ final class LauncherPreferencesStore {
                 preferences.get(OPEN_GLES_RENDERER_KEY, OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.OPEN_GLES_RENDERER)));
         boolean storedShowOpenGlesFps = preferences.getBoolean(SHOW_OPEN_GLES_FPS_KEY,
                 OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS));
+        int storedOpenGlesSupersampleScale = preferences.getInt(OPEN_GLES_SUPERSAMPLE_SCALE_KEY,
+                OpenDoJaLaunchArgs.openGlesSupersampleScale());
         boolean storedDisableBytecodeVerification = preferences.getBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, false);
         boolean storedDisableOsDpiScaling = preferences.getBoolean(DISABLE_OS_DPI_SCALING_KEY, false);
         return new LauncherSettings(
@@ -60,7 +63,8 @@ final class LauncherPreferencesStore {
                 OpenGlesRendererMode.fromId(OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.OPEN_GLES_RENDERER, storedOpenGlesRendererMode.id())),
                 OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS, storedShowOpenGlesFps),
                 storedDisableBytecodeVerification,
-                storedDisableOsDpiScaling);
+                storedDisableOsDpiScaling,
+                OpenDoJaLaunchArgs.getInt(OpenDoJaLaunchArgs.OPEN_GLES_SUPERSAMPLE_SCALE, storedOpenGlesSupersampleScale));
     }
 
     void saveSettings(LauncherSettings settings) {
@@ -74,6 +78,7 @@ final class LauncherPreferencesStore {
         preferences.put(MICROEDITION_PLATFORM_OVERRIDE_KEY, settings.microeditionPlatformOverride());
         preferences.put(OPEN_GLES_RENDERER_KEY, settings.openGlesRendererMode().id());
         preferences.putBoolean(SHOW_OPEN_GLES_FPS_KEY, settings.showOpenGlesFps());
+        preferences.putInt(OPEN_GLES_SUPERSAMPLE_SCALE_KEY, settings.openGlesSupersampleScale());
         preferences.putBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, settings.disableBytecodeVerification());
         preferences.putBoolean(DISABLE_OS_DPI_SCALING_KEY, settings.disableOsDpiScaling());
     }
