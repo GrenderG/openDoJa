@@ -91,6 +91,8 @@ final class LauncherProcessSupport {
                 Boolean.toString(settings.showOpenGlesFps()));
         appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.OPEN_GLES_SUPERSAMPLE_SCALE,
                 Integer.toString(settings.openGlesSupersampleScale()));
+        appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.INPUT_BINDINGS,
+                settings.keybindConfiguration().activeProfile().serialize());
         if (settings.disableOsDpiScaling()) {
             // Oracle's Java 2D troubleshooting docs recommend uiScale.enabled=false to disable
             // high-DPI scaling, while noting dpiaware=false no longer affects JDK 9+ on Windows.

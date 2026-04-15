@@ -120,14 +120,15 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 updateMicroeditionPlatformOverride();
             }
         }));
-
-        JMenu helpMenu = new JMenu("Help");
-        helpMenu.add(new JMenuItem(new AbstractAction("Keybinds") {
+        settingsMenu.addSeparator();
+        settingsMenu.add(new JMenuItem(new AbstractAction("Keybinds...") {
             @Override
             public void actionPerformed(ActionEvent event) {
-                settingsController.showKeybinds(OpenDoJaLauncherFrame.this);
+                updateKeybinds();
             }
         }));
+
+        JMenu helpMenu = new JMenu("Help");
         helpMenu.add(new JMenuItem(checkUpdatesAction));
         helpMenu.addSeparator();
         helpMenu.add(new JMenuItem(new AbstractAction("About") {
@@ -495,6 +496,15 @@ final class OpenDoJaLauncherFrame extends JFrame {
             return;
         }
         jamLaunchService.saveSettings(current.withMicroeditionPlatformOverride(updated));
+    }
+
+    private void updateKeybinds() {
+        LauncherSettings current = jamLaunchService.loadSettings();
+        var updatedConfiguration = settingsController.editKeybinds(this, current.keybindConfiguration());
+        if (updatedConfiguration == null) {
+            return;
+        }
+        jamLaunchService.saveSettings(current.withKeybindConfiguration(updatedConfiguration));
     }
 
     private void saveSettings(UnaryOperator<LauncherSettings> updater) {

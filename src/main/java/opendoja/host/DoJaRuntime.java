@@ -36,6 +36,8 @@ public final class DoJaRuntime {
     // A short release debounce collapses desktop auto-repeat release/press pairs into a stable hold.
     private static final int KEY_REPEAT_RELEASE_DEBOUNCE_MS =
             java.lang.Math.max(0, opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS));
+    private static final Map<Integer, HostControlAction> DEFAULT_KEYBOARD_ACTIONS =
+            HostKeybindProfile.defaults().keyboardActionsByKeyCode();
     private static volatile DoJaRuntime current;
 
     private final LaunchConfig config;
@@ -1262,45 +1264,26 @@ public final class DoJaRuntime {
     }
 
     private int mapKeyCode(int awtKeyCode) {
-        return switch (awtKeyCode) {
-            case KeyEvent.VK_0, KeyEvent.VK_NUMPAD0 -> Display.KEY_0;
-            case KeyEvent.VK_1, KeyEvent.VK_NUMPAD1 -> Display.KEY_1;
-            case KeyEvent.VK_2, KeyEvent.VK_NUMPAD2 -> Display.KEY_2;
-            case KeyEvent.VK_3, KeyEvent.VK_NUMPAD3 -> Display.KEY_3;
-            case KeyEvent.VK_4, KeyEvent.VK_NUMPAD4 -> Display.KEY_4;
-            case KeyEvent.VK_5, KeyEvent.VK_NUMPAD5 -> Display.KEY_5;
-            case KeyEvent.VK_6, KeyEvent.VK_NUMPAD6 -> Display.KEY_6;
-            case KeyEvent.VK_7, KeyEvent.VK_NUMPAD7 -> Display.KEY_7;
-            case KeyEvent.VK_8, KeyEvent.VK_NUMPAD8 -> Display.KEY_8;
-            case KeyEvent.VK_9, KeyEvent.VK_NUMPAD9 -> Display.KEY_9;
-            case KeyEvent.VK_ASTERISK, KeyEvent.VK_MULTIPLY -> Display.KEY_ASTERISK;
-            case KeyEvent.VK_NUMBER_SIGN, KeyEvent.VK_DIVIDE -> Display.KEY_POUND;
-            case KeyEvent.VK_LEFT -> Display.KEY_LEFT;
-            case KeyEvent.VK_UP -> Display.KEY_UP;
-            case KeyEvent.VK_RIGHT -> Display.KEY_RIGHT;
-            case KeyEvent.VK_DOWN -> Display.KEY_DOWN;
-            case KeyEvent.VK_ENTER, KeyEvent.VK_SPACE -> Display.KEY_SELECT;
-            case KeyEvent.VK_ESCAPE, KeyEvent.VK_BACK_SPACE -> Display.KEY_CLEAR;
-            case KeyEvent.VK_F1 -> Display.KEY_SOFT1;
-            case KeyEvent.VK_F2 -> Display.KEY_SOFT2;
-            case KeyEvent.VK_M -> Display.KEY_MENU;
-            case KeyEvent.VK_C -> Display.KEY_CAMERA;
-            default -> -1;
-        };
+        HostControlAction action = DEFAULT_KEYBOARD_ACTIONS.get(awtKeyCode);
+        if (action == null || action.dispatchKind() != HostControlAction.DispatchKind.DOJA_KEY) {
+            return -1;
+        }
+        return action.dispatchCode();
     }
 
     private static int mapHostSoftKey(int awtKeyCode) {
-        return switch (awtKeyCode) {
-            case KeyEvent.VK_A -> Frame.SOFT_KEY_1;
-            case KeyEvent.VK_S -> Frame.SOFT_KEY_2;
-            default -> -1;
-        };
+        HostControlAction action = DEFAULT_KEYBOARD_ACTIONS.get(awtKeyCode);
+        if (action == null || action.dispatchKind() != HostControlAction.DispatchKind.HOST_SOFT_KEY) {
+            return -1;
+        }
+        return action.dispatchCode();
     }
 
     private static final class HostPanel extends JPanel {
         private final DoJaRuntime runtime;
         private final DesktopKeyInputAdapter keyInputAdapter;
         private final DesktopKeyInputAdapter softKeyInputAdapter;
+        private final Map<Integer, HostControlAction> keyboardActions;
 
         private HostPanel(DoJaRuntime runtime) {
             this.runtime = runtime;
@@ -1308,6 +1291,7 @@ public final class DoJaRuntime {
                     KEY_REPEAT_RELEASE_DEBOUNCE_MS);
             this.softKeyInputAdapter = new DesktopKeyInputAdapter(this::scheduleRelease, runtime::dispatchHostSoftKey,
                     KEY_REPEAT_RELEASE_DEBOUNCE_MS);
+            this.keyboardActions = HostKeybindProfile.fromLaunchArgs().keyboardActionsByKeyCode();
             refreshPreferredSize();
             setBackground(Color.BLACK);
             setOpaque(true);
@@ -1332,8 +1316,12 @@ public final class DoJaRuntime {
                 }
 
                 private void dispatchKey(KeyEvent event) {
-                    int softKey = mapHostSoftKey(event.getKeyCode());
-                    if (softKey >= 0) {
+                    HostControlAction action = keyboardActions.get(event.getKeyCode());
+                    if (action == null) {
+                        return;
+                    }
+                    if (action.dispatchKind() == HostControlAction.DispatchKind.HOST_SOFT_KEY) {
+                        int softKey = action.dispatchCode();
                         if (event.getID() == KeyEvent.KEY_PRESSED) {
                             softKeyInputAdapter.keyPressed(softKey);
                         } else if (event.getID() == KeyEvent.KEY_RELEASED) {
@@ -1342,10 +1330,7 @@ public final class DoJaRuntime {
                         event.consume();
                         return;
                     }
-                    int dojaKey = runtime.mapKeyCode(event.getKeyCode());
-                    if (dojaKey < 0) {
-                        return;
-                    }
+                    int dojaKey = action.dispatchCode();
                     if (event.getID() == KeyEvent.KEY_PRESSED) {
                         keyInputAdapter.keyPressed(dojaKey);
                     } else if (event.getID() == KeyEvent.KEY_RELEASED) {

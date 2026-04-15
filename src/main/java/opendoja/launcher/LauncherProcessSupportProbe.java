@@ -3,6 +3,10 @@ package opendoja.launcher;
 import com.nttdocomo.ui.IApplication;
 import com.nttdocomo.ui.Image;
 import opendoja.audio.mld.MLDSynth;
+import opendoja.host.HostControlAction;
+import opendoja.host.HostInputBinding;
+import opendoja.host.HostKeybindConfiguration;
+import opendoja.host.HostKeybindProfile;
 import opendoja.host.DoJaEncoding;
 import opendoja.host.HostScale;
 import opendoja.host.LaunchConfig;
@@ -10,6 +14,7 @@ import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.OpenDoJaLaunchArgs;
 import opendoja.host.OpenGlesRendererMode;
 
+import java.awt.event.KeyEvent;
 import java.net.URI;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +40,7 @@ public final class LauncherProcessSupportProbe {
         verifySpawnedJamSeesExpectedFileEncoding(expectedEncoding);
         verifyLauncherSettingsOverrideEncoding();
         verifyLauncherSettingsForwardFullscreenHostScale();
+        verifyLauncherSettingsForwardActiveKeybindProfile();
         verifySpawnedHardwareLaunchAvoidsNativeAccessWarning();
         System.out.println("Launcher process support probe OK");
     }
@@ -58,24 +64,7 @@ public final class LauncherProcessSupportProbe {
     }
 
     private static void verifySpawnedJamSeesExpectedFileEncoding(LauncherSettings settings, String expectedEncoding) throws Exception {
-        Path root = Files.createTempDirectory("launcher-process-support");
-        Path output = root.resolve("encoding.properties");
-        GameLaunchSelection selection = new GameLaunchSelection(
-                writeJam(root.resolve("EncodingProbe.jam"), output),
-                currentArtifactPath());
-
-        Process process = new LauncherProcessSupport().startInBackground(selection, settings);
-        if (!process.waitFor(20, TimeUnit.SECONDS)) {
-            process.destroyForcibly();
-            throw new IllegalStateException("spawned JAM probe timed out");
-        }
-        check(process.exitValue() == 0, "spawned JAM probe should exit cleanly");
-        check(Files.exists(output), "spawned JAM probe should write " + output);
-
-        Properties properties = new Properties();
-        try (var reader = Files.newBufferedReader(output, StandardCharsets.UTF_8)) {
-            properties.load(reader);
-        }
+        Properties properties = readSpawnedProbeProperties(settings);
         String actualFileEncoding = properties.getProperty("file.encoding");
         String actualDefaultCharset = properties.getProperty("defaultCharset");
         String canonicalExpected = Charset.forName(expectedEncoding).name();
@@ -137,6 +126,28 @@ public final class LauncherProcessSupportProbe {
                 "launch command should forward fullscreen host scale as " + expectedArgument + " but was " + command);
     }
 
+    private static void verifyLauncherSettingsForwardActiveKeybindProfile() throws Exception {
+        HostKeybindProfile alternateProfile = HostKeybindProfile.defaults()
+                .withBinding(HostControlAction.SELECT, 0, HostInputBinding.keyboard(KeyEvent.VK_Z))
+                .withoutBinding(HostControlAction.SELECT, 1);
+        HostKeybindConfiguration keybindConfiguration = new HostKeybindConfiguration(
+                List.of(HostKeybindProfile.defaults(), alternateProfile),
+                List.of(HostKeybindConfiguration.DEFAULT_PROFILE_NAME, "Arcade"),
+                1);
+        LauncherSettings settings = LauncherSettings.defaults().withKeybindConfiguration(keybindConfiguration);
+        GameLaunchSelection selection = new GameLaunchSelection(
+                java.nio.file.Path.of("probe.jam"),
+                java.nio.file.Path.of("probe.jar"));
+        List<String> command = new LauncherProcessSupport().buildLaunchCommand(selection, settings);
+        String expectedArgument = "-D" + OpenDoJaLaunchArgs.INPUT_BINDINGS + "=" + alternateProfile.serialize();
+        check(command.contains(expectedArgument),
+                "launch command should forward the active keybind profile as " + expectedArgument + " but was " + command);
+
+        Properties properties = readSpawnedProbeProperties(settings);
+        check(alternateProfile.serialize().equals(properties.getProperty("inputBindings")),
+                "spawned JAM should see the active keybind profile");
+    }
+
     private static void verifySpawnedHardwareLaunchAvoidsNativeAccessWarning() throws Exception {
         Path root = Files.createTempDirectory("launcher-native-access");
         GameLaunchSelection selection = new GameLaunchSelection(
@@ -181,6 +192,28 @@ public final class LauncherProcessSupportProbe {
         return jam;
     }
 
+    private static Properties readSpawnedProbeProperties(LauncherSettings settings) throws Exception {
+        Path root = Files.createTempDirectory("launcher-process-support");
+        Path output = root.resolve("encoding.properties");
+        GameLaunchSelection selection = new GameLaunchSelection(
+                writeJam(root.resolve("EncodingProbe.jam"), output),
+                currentArtifactPath());
+
+        Process process = new LauncherProcessSupport().startInBackground(selection, settings);
+        if (!process.waitFor(20, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new IllegalStateException("spawned JAM probe timed out");
+        }
+        check(process.exitValue() == 0, "spawned JAM probe should exit cleanly");
+        check(Files.exists(output), "spawned JAM probe should write " + output);
+
+        Properties properties = new Properties();
+        try (var reader = Files.newBufferedReader(output, StandardCharsets.UTF_8)) {
+            properties.load(reader);
+        }
+        return properties;
+    }
+
     private static LauncherSettings defaultHardwareSettings() {
         return new LauncherSettings(
                 HostScale.DEFAULT_ID,
@@ -219,6 +252,7 @@ public final class LauncherProcessSupportProbe {
             Properties properties = new Properties();
             properties.setProperty("file.encoding", System.getProperty("file.encoding", "<unset>"));
             properties.setProperty("defaultCharset", Charset.defaultCharset().name());
+            properties.setProperty("inputBindings", System.getProperty(OpenDoJaLaunchArgs.INPUT_BINDINGS, "<unset>"));
             try (var writer = Files.newBufferedWriter(Path.of(URI.create(outputUri)), StandardCharsets.UTF_8)) {
                 properties.store(writer, null);
             } catch (Exception e) {

@@ -1,5 +1,7 @@
 package opendoja.launcher;
 
+import opendoja.host.HostKeybindConfiguration;
+import opendoja.host.HostKeybindProfile;
 import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.OpenDoJaLaunchArgs;
 import opendoja.host.OpenGlesRendererMode;
@@ -11,7 +13,7 @@ import java.util.List;
 import java.util.prefs.Preferences;
 
 final class LauncherPreferencesStore {
-    private static final int MAX_RECENTS = 10;
+    private static final int MAX_RECENTS = 12;
     private static final String HOST_SCALE_KEY = "hostScale";
     private static final String SYNTH_ID_KEY = "synthId";
     private static final String TERMINAL_ID_KEY = "terminalId";
@@ -25,6 +27,10 @@ final class LauncherPreferencesStore {
     private static final String OPEN_GLES_SUPERSAMPLE_SCALE_KEY = "openGlesSupersampleScale";
     private static final String DISABLE_BYTECODE_VERIFICATION_KEY = "disableBytecodeVerification";
     private static final String DISABLE_OS_DPI_SCALING_KEY = "disableOsDpiScaling";
+    private static final String KEYBIND_PROFILE_COUNT_KEY = "keybindProfileCount";
+    private static final String KEYBIND_ACTIVE_PROFILE_INDEX_KEY = "keybindActiveProfileIndex";
+    private static final String KEYBIND_PROFILE_KEY_PREFIX = "keybindProfile.";
+    private static final String KEYBIND_PROFILE_NAME_KEY_PREFIX = "keybindProfileName.";
     private static final String UPDATE_NOTIFICATIONS_PROMPTED_KEY = "updateNotificationsPrompted";
     private static final String UPDATE_NOTIFICATIONS_ENABLED_KEY = "updateNotificationsEnabled";
     private static final String LAST_DIRECTORY_KEY = "lastDirectory";
@@ -51,6 +57,14 @@ final class LauncherPreferencesStore {
                 OpenDoJaLaunchArgs.openGlesSupersampleScale());
         boolean storedDisableBytecodeVerification = preferences.getBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, false);
         boolean storedDisableOsDpiScaling = preferences.getBoolean(DISABLE_OS_DPI_SCALING_KEY, false);
+        HostKeybindConfiguration storedKeybindConfiguration = loadKeybindConfiguration();
+        HostKeybindProfile overriddenKeybindProfile = HostKeybindProfile.deserialize(
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.INPUT_BINDINGS, ""));
+        if (overriddenKeybindProfile != null) {
+            storedKeybindConfiguration = storedKeybindConfiguration.withProfile(
+                    storedKeybindConfiguration.activeProfileIndex(),
+                    overriddenKeybindProfile);
+        }
         return new LauncherSettings(
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.HOST_SCALE, storedHostScale),
                 OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.MLD_SYNTH, storedSynthId),
@@ -64,7 +78,8 @@ final class LauncherPreferencesStore {
                 OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS, storedShowOpenGlesFps),
                 storedDisableBytecodeVerification,
                 storedDisableOsDpiScaling,
-                OpenDoJaLaunchArgs.getInt(OpenDoJaLaunchArgs.OPEN_GLES_SUPERSAMPLE_SCALE, storedOpenGlesSupersampleScale));
+                OpenDoJaLaunchArgs.getInt(OpenDoJaLaunchArgs.OPEN_GLES_SUPERSAMPLE_SCALE, storedOpenGlesSupersampleScale),
+                storedKeybindConfiguration);
     }
 
     void saveSettings(LauncherSettings settings) {
@@ -81,6 +96,7 @@ final class LauncherPreferencesStore {
         preferences.putInt(OPEN_GLES_SUPERSAMPLE_SCALE_KEY, settings.openGlesSupersampleScale());
         preferences.putBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, settings.disableBytecodeVerification());
         preferences.putBoolean(DISABLE_OS_DPI_SCALING_KEY, settings.disableOsDpiScaling());
+        saveKeybindConfiguration(settings.keybindConfiguration());
     }
 
     boolean shouldPromptForUpdateNotifications() {
@@ -156,6 +172,38 @@ final class LauncherPreferencesStore {
         }
         for (int i = 0; i < filtered.size() && i < MAX_RECENTS; i++) {
             preferences.put(RECENT_JAM_KEY_PREFIX + i, filtered.get(i).toString());
+        }
+    }
+
+    private HostKeybindConfiguration loadKeybindConfiguration() {
+        int storedProfileCount = Math.clamp(
+                preferences.getInt(KEYBIND_PROFILE_COUNT_KEY, HostKeybindConfiguration.MIN_PROFILES),
+                HostKeybindConfiguration.MIN_PROFILES,
+                HostKeybindConfiguration.MAX_PROFILES);
+        ArrayList<HostKeybindProfile> profiles = new ArrayList<>(storedProfileCount);
+        ArrayList<String> profileNames = new ArrayList<>(storedProfileCount);
+        for (int index = 0; index < storedProfileCount; index++) {
+            HostKeybindProfile profile = HostKeybindProfile.deserialize(
+                    preferences.get(KEYBIND_PROFILE_KEY_PREFIX + index, ""));
+            profiles.add(profile == null ? HostKeybindProfile.defaults() : profile);
+            profileNames.add(preferences.get(KEYBIND_PROFILE_NAME_KEY_PREFIX + index, null));
+        }
+        return new HostKeybindConfiguration(
+                profiles,
+                profileNames,
+                preferences.getInt(KEYBIND_ACTIVE_PROFILE_INDEX_KEY, 0));
+    }
+
+    private void saveKeybindConfiguration(HostKeybindConfiguration configuration) {
+        preferences.putInt(KEYBIND_PROFILE_COUNT_KEY, configuration.profiles().size());
+        preferences.putInt(KEYBIND_ACTIVE_PROFILE_INDEX_KEY, configuration.activeProfileIndex());
+        for (int index = 0; index < configuration.profiles().size(); index++) {
+            preferences.put(KEYBIND_PROFILE_KEY_PREFIX + index, configuration.profiles().get(index).serialize());
+            preferences.put(KEYBIND_PROFILE_NAME_KEY_PREFIX + index, configuration.profileNames().get(index));
+        }
+        for (int index = configuration.profiles().size(); index < HostKeybindConfiguration.MAX_PROFILES; index++) {
+            preferences.remove(KEYBIND_PROFILE_KEY_PREFIX + index);
+            preferences.remove(KEYBIND_PROFILE_NAME_KEY_PREFIX + index);
         }
     }
 }

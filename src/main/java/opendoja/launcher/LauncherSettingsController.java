@@ -1,6 +1,7 @@
 package opendoja.launcher;
 
 import opendoja.audio.mld.MLDSynth;
+import opendoja.host.HostKeybindConfiguration;
 import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.OpenDoJaLaunchArgs;
 
@@ -14,8 +15,8 @@ import java.util.Locale;
 final class LauncherSettingsController {
     private final KeybindSettingsController keybindSettingsController = new KeybindSettingsController();
 
-    void showKeybinds(Component parent) {
-        keybindSettingsController.showDialog(parent);
+    HostKeybindConfiguration editKeybinds(Component parent, HostKeybindConfiguration currentConfiguration) {
+        return keybindSettingsController.editKeybinds(parent, currentConfiguration);
     }
 
     List<MLDSynth> availableSynths() {
