@@ -273,8 +273,8 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                 playing = false;
                 activeSoundKind = MediaManager.PreparedSound.Kind.UNKNOWN;
                 clearActivePlaybackToken(playbackToken);
-                notifyListener(AUDIO_PLAYING, 0);
-                notifyListener(AUDIO_COMPLETE, 0);
+                notifyListenerAsync(AUDIO_PLAYING, 0);
+                notifyListenerAsync(AUDIO_COMPLETE, 0);
                 return;
             }
             activeSoundKind = prepared.kind();
@@ -319,7 +319,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                 sampledPlayer.start(prepared, loopCount, time, playbackToken);
             }
             playing = true;
-            notifyListener(AUDIO_PLAYING, 0);
+            notifyListenerAsync(AUDIO_PLAYING, 0);
             scheduleSyncEvents(prepared, time);
         } catch (UIException e) {
             playing = false;
