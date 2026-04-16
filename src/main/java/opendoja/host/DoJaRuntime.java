@@ -306,6 +306,12 @@ public final class DoJaRuntime {
             throw new IllegalStateException("No application attached to runtime");
         }
         app.start();
+        if (app instanceof MApplication standbyApplication && !standbyApplication.isActive()) {
+            // Standby titles commonly call deactivate() during start() and then wait for the
+            // initial host mode-change callback before leaving their splash/inactive state.
+            standbyApplication.setActiveForHost(true);
+            standbyApplication.processSystemEvent(MApplication.MODE_CHANGED_EVENT, 0);
+        }
     }
 
     public void shutdown() {

@@ -100,6 +100,18 @@ public abstract class MApplication extends IApplication {
     }
 
     /**
+     * Host-only lifecycle hook, not part of the original DoJa API.
+     * OpenDoJa uses this to reflect host-driven mode changes back into standby
+     * applications that move themselves inactive during startup.
+     *
+     * @param active {@code true} if the host is activating the application, or
+     *               {@code false} if the host is deactivating it
+     */
+    public final void setActiveForHost(boolean active) {
+        this.active = active;
+    }
+
+    /**
      * Gets the current application state.
      *
      * @return {@code true} if the application is active, or {@code false} if
