@@ -17,6 +17,7 @@ public final class JamProfileResolutionInferenceProbe {
         verifyUniqueLegacyResolutionInfersDoJa20();
         verifyPackageUrlIdentityBeatsResolutionInference();
         verifyAmbiguousLegacyResolutionPrefersNewestBeforeFolderFallback();
+        verifyFolderHintLegacyTargetFallsBackToDocumentedDrawAreaProfile();
         verifyDoJa30SizedResolutionIsIgnored();
 
         System.out.println("Jam profile resolution inference probe OK");
@@ -58,6 +59,20 @@ public final class JamProfileResolutionInferenceProbe {
                 "resolution inference should not inject ProfileVer when PackageURL already exposes device identity");
         check("DoJa-1.0".equals(DoJaProfile.fromParametersOrDocumentedDeviceIdentity(config.parameters()).toString()),
                 "PackageURL device identity should resolve the profile before folder-name fallback");
+    }
+
+    private static void verifyFolderHintLegacyTargetFallsBackToDocumentedDrawAreaProfile() throws Exception {
+        Path root = Files.createTempDirectory("jam-profile-resolution-folder");
+        Path jam = writeJam(Files.createDirectories(root.resolve("N2051 Version")).resolve("FolderHint.jam"),
+                "");
+
+        LaunchConfig config = JamLauncher.buildLaunchConfig(jam, false);
+        check("N2051".equals(config.parameters().get("TargetDevice")),
+                "folder-name fallback should infer the legacy handset identity");
+        check("DoJa-2.2".equals(config.parameters().get("ProfileVer")),
+                "legacy handset hints without explicit ProfileVer should fall back through the documented draw area");
+        check("DoJa-2.2".equals(DoJaProfile.fromParametersOrDocumentedDeviceIdentity(config.parameters()).toString()),
+                "documented draw-area fallback should make the effective runtime profile concrete");
     }
 
     private static void verifyDoJa30SizedResolutionIsIgnored() throws Exception {

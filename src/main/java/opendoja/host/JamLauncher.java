@@ -55,12 +55,12 @@ public final class JamLauncher {
             builder.scratchpadRoot(null)
                     .scratchpadPackedFile(null);
         }
-        applyOptionalDrawArea(builder, properties.getProperty("DrawArea"), properties.getProperty("TargetDevice"));
+        Map<String, String> effectiveParameters = JamMetadataResolver.resolveEffectiveParameters(jamPath, properties);
+        applyOptionalDrawArea(builder, properties.getProperty("DrawArea"), effectiveParameters.get("TargetDevice"));
         String appParam = properties.getProperty("AppParam");
         if (appParam != null && !appParam.isBlank()) {
             builder.args(appParam.trim().split("\\s+"));
         }
-        Map<String, String> effectiveParameters = JamMetadataResolver.resolveEffectiveParameters(jamPath, properties);
         for (Map.Entry<String, String> entry : effectiveParameters.entrySet()) {
             builder.parameter(entry.getKey(), entry.getValue());
         }

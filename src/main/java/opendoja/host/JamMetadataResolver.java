@@ -41,14 +41,15 @@ public final class JamMetadataResolver {
             parameters.put(name, properties.getProperty(name));
         }
 
+        String inferredTargetDevice = inferTargetDevice(jamPath, properties);
+
         // Apply the same metadata fallbacks used for normal JAM launches so every caller
         // sees one consistent ProfileVer/TargetDevice view of the JAM.
-        String inferredProfileVersion = inferProfileVersion(properties);
+        String inferredProfileVersion = inferProfileVersion(properties, inferredTargetDevice);
         if (inferredProfileVersion != null) {
             parameters.put("ProfileVer", inferredProfileVersion);
         }
 
-        String inferredTargetDevice = inferTargetDevice(jamPath, properties);
         if (inferredTargetDevice != null && !parameters.containsKey("TargetDevice")) {
             parameters.put("TargetDevice", inferredTargetDevice);
         }
@@ -150,15 +151,23 @@ public final class JamMetadataResolver {
         return firstDeviceHint(jamPath.toString());
     }
 
-    private static String inferProfileVersion(Properties properties) {
+    private static String inferProfileVersion(Properties properties, String inferredTargetDevice) {
         String configured = properties.getProperty("ProfileVer");
         if (configured != null && !configured.isBlank()) {
             return null;
         }
-        if (metadataDeviceIdentity(properties) != null) {
+        String metadataDeviceIdentity = metadataDeviceIdentity(properties);
+        if (DoJaProfile.fromDocumentedDeviceIdentity(metadataDeviceIdentity).isKnown()) {
             return null;
         }
         int[] drawArea = parseDrawArea(properties.getProperty("DrawArea"));
+        if (drawArea == null) {
+            String fallbackTargetDevice = metadataDeviceIdentity;
+            if (fallbackTargetDevice == null || fallbackTargetDevice.isBlank()) {
+                fallbackTargetDevice = inferredTargetDevice;
+            }
+            drawArea = DoJaProfile.documentedDrawAreaForTargetDevice(fallbackTargetDevice);
+        }
         if (drawArea == null) {
             return null;
         }

@@ -14,6 +14,7 @@ public final class JamDrawAreaInferenceProbe {
 
     public static void main(String[] args) throws Exception {
         verifyDocumentedTargetDeviceInfersDrawArea();
+        verifyFolderHintTargetDeviceInfersDrawArea();
         verifyExplicitDrawAreaStillWins();
         verifyUndocumentedTargetDeviceKeepsDefaultViewport();
 
@@ -28,6 +29,17 @@ public final class JamDrawAreaInferenceProbe {
         LaunchConfig config = JamLauncher.buildLaunchConfig(jam, false);
         check(config.width() == 176 && config.height() == 198,
                 "documented TargetDevice should infer draw area from the archived NTT DoCoMo handset table");
+    }
+
+    private static void verifyFolderHintTargetDeviceInfersDrawArea() throws Exception {
+        Path root = Files.createTempDirectory("jam-draw-area-folder-target");
+        Path jam = writeJam(Files.createDirectories(root.resolve("N2051 Version")).resolve("FolderHint.jam"), "");
+
+        LaunchConfig config = JamLauncher.buildLaunchConfig(jam, false);
+        check("N2051".equals(config.parameters().get("TargetDevice")),
+                "folder-name fallback should still infer TargetDevice when the JAM omits it");
+        check(config.width() == 176 && config.height() == 198,
+                "folder-name TargetDevice inference should feed documented draw-area fallback");
     }
 
     private static void verifyExplicitDrawAreaStillWins() throws Exception {
