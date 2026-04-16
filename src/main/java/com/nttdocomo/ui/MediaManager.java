@@ -8,6 +8,8 @@ import opendoja.host.DoJaRuntime;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
+import javax.imageio.metadata.IIOMetadata;
+import javax.imageio.metadata.IIOMetadataNode;
 import javax.imageio.stream.ImageInputStream;
 import javax.microedition.io.Connector;
 import javax.sound.midi.MidiSystem;
@@ -15,6 +17,9 @@ import javax.sound.midi.Sequence;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
+import java.awt.AlphaComposite;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,6 +29,9 @@ import java.util.*;
  * Defines the factory and batch-use operations for DoJa media resources.
  */
 public final class MediaManager {
+    private static final String GIF_STREAM_METADATA_FORMAT = "javax_imageio_gif_stream_1.0";
+    private static final String GIF_IMAGE_METADATA_FORMAT = "javax_imageio_gif_image_1.0";
+
     private MediaManager() {
     }
 
@@ -288,33 +296,156 @@ public final class MediaManager {
             ImageReader reader = readers.next();
             try {
                 reader.setInput(in, false, false);
-                List<DesktopImage> frames = new ArrayList<>();
-                for (int index = 0; ; index++) {
-                    java.awt.image.BufferedImage bufferedImage;
-                    try {
-                        bufferedImage = reader.read(index);
-                    } catch (IndexOutOfBoundsException e) {
-                        break;
+                IIOMetadata streamMetadata = reader.getStreamMetadata();
+                // The standard GIF ImageIO metadata exposes per-image offsets inside a larger
+                // logical screen. Preserve that canvas when decoding so frame padding is not lost.
+                if (streamMetadata != null) {
+                    String[] metadataFormats = streamMetadata.getMetadataFormatNames();
+                    if (metadataFormats != null) {
+                        for (String metadataFormat : metadataFormats) {
+                            if (GIF_STREAM_METADATA_FORMAT.equals(metadataFormat)) {
+                                return decodeGifMediaImage(reader, streamMetadata);
+                            }
+                        }
                     }
-                    if (bufferedImage == null) {
-                        break;
-                    }
-                    frames.add(new DesktopImage(bufferedImage));
                 }
-                if (frames.isEmpty()) {
-                    return null;
-                }
-                // Animated GIF-backed MediaImage objects need stable per-frame access for
-                // Graphics2.drawNthImage(...), while still images keep the original single-image path.
-                if (frames.size() == 1) {
-                    return new BasicMediaImage(frames.get(0));
-                }
-                return new AnimatedMediaImage(frames.toArray(DesktopImage[]::new));
+                return decodeSimpleMediaImage(reader);
             } finally {
                 reader.dispose();
             }
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    private static MediaImage decodeSimpleMediaImage(ImageReader reader) throws IOException {
+        List<DesktopImage> frames = new ArrayList<>();
+        for (int index = 0; ; index++) {
+            BufferedImage bufferedImage;
+            try {
+                bufferedImage = reader.read(index);
+            } catch (IndexOutOfBoundsException e) {
+                break;
+            }
+            if (bufferedImage == null) {
+                break;
+            }
+            frames.add(new DesktopImage(bufferedImage));
+        }
+        return mediaImageFromFrames(frames);
+    }
+
+    private static MediaImage decodeGifMediaImage(ImageReader reader, IIOMetadata streamMetadata) throws IOException {
+        IIOMetadataNode streamRoot = (IIOMetadataNode) streamMetadata.getAsTree(GIF_STREAM_METADATA_FORMAT);
+        IIOMetadataNode logicalScreen = child(streamRoot, "LogicalScreenDescriptor");
+        int logicalWidth = intAttribute(logicalScreen, "logicalScreenWidth");
+        int logicalHeight = intAttribute(logicalScreen, "logicalScreenHeight");
+        List<DesktopImage> frames = new ArrayList<>();
+        // Compose each decoded frame into the full GIF logical screen so imageLeftPosition /
+        // imageTopPosition padding is preserved for still images and animated sequences alike.
+        BufferedImage composite = new BufferedImage(logicalWidth, logicalHeight, BufferedImage.TYPE_INT_ARGB);
+        for (int index = 0; ; index++) {
+            BufferedImage frameImage;
+            try {
+                frameImage = reader.read(index);
+            } catch (IndexOutOfBoundsException e) {
+                break;
+            }
+            if (frameImage == null) {
+                break;
+            }
+            IIOMetadataNode imageRoot = (IIOMetadataNode) reader.getImageMetadata(index).getAsTree(GIF_IMAGE_METADATA_FORMAT);
+            IIOMetadataNode imageDescriptor = child(imageRoot, "ImageDescriptor");
+            IIOMetadataNode control = child(imageRoot, "GraphicControlExtension");
+            int left = intAttribute(imageDescriptor, "imageLeftPosition");
+            int top = intAttribute(imageDescriptor, "imageTopPosition");
+            String disposalMethod = stringAttribute(control, "disposalMethod");
+            BufferedImage previousComposite = "restoreToPrevious".equals(disposalMethod) ? copyImage(composite) : null;
+            Graphics2D graphics = composite.createGraphics();
+            try {
+                graphics.setComposite(AlphaComposite.SrcOver);
+                graphics.drawImage(frameImage, left, top, null);
+            } finally {
+                graphics.dispose();
+            }
+            frames.add(new DesktopImage(copyImage(composite)));
+            switch (disposalMethod) {
+                case "restoreToBackgroundColor" -> clearGifFrameRegion(composite, left, top, frameImage.getWidth(), frameImage.getHeight());
+                case "restoreToPrevious" -> {
+                    if (previousComposite != null) {
+                        composite = previousComposite;
+                    }
+                }
+                default -> {
+                }
+            }
+        }
+        return mediaImageFromFrames(frames);
+    }
+
+    private static MediaImage mediaImageFromFrames(List<DesktopImage> frames) {
+        if (frames.isEmpty()) {
+            return null;
+        }
+        if (frames.size() == 1) {
+            return new BasicMediaImage(frames.get(0));
+        }
+        return new AnimatedMediaImage(frames.toArray(DesktopImage[]::new));
+    }
+
+    private static IIOMetadataNode child(IIOMetadataNode root, String name) {
+        if (root == null || name == null) {
+            return null;
+        }
+        for (org.w3c.dom.Node child = root.getFirstChild(); child != null; child = child.getNextSibling()) {
+            if (child instanceof IIOMetadataNode metadataNode && name.equals(metadataNode.getNodeName())) {
+                return metadataNode;
+            }
+        }
+        return null;
+    }
+
+    private static int intAttribute(IIOMetadataNode node, String attribute) {
+        if (node == null || attribute == null) {
+            return 0;
+        }
+        String value = node.getAttribute(attribute);
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private static String stringAttribute(IIOMetadataNode node, String attribute) {
+        if (node == null || attribute == null) {
+            return "";
+        }
+        String value = node.getAttribute(attribute);
+        return value == null ? "" : value;
+    }
+
+    private static BufferedImage copyImage(BufferedImage image) {
+        BufferedImage copy = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = copy.createGraphics();
+        try {
+            graphics.drawImage(image, 0, 0, null);
+        } finally {
+            graphics.dispose();
+        }
+        return copy;
+    }
+
+    private static void clearGifFrameRegion(BufferedImage composite, int left, int top, int width, int height) {
+        Graphics2D graphics = composite.createGraphics();
+        try {
+            graphics.setComposite(AlphaComposite.Clear);
+            graphics.fillRect(left, top, width, height);
+        } finally {
+            graphics.dispose();
         }
     }
 
