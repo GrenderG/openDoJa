@@ -67,5 +67,5 @@ Include:
 For the bundled local workflow used during development, see `scripts/`.
 
 ## Third-party Dependencies
-- [JOGL](https://github.com/sgothel/jogl)
+- [jogl](https://github.com/sgothel/jogl)
 - [input4j](https://github.com/gurkenlabs/input4j)
