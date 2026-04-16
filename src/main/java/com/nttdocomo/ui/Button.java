@@ -1,6 +1,7 @@
 package com.nttdocomo.ui;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 
 /**
  * Defines a button.
@@ -35,7 +36,7 @@ public final class Button extends Component implements Interactable {
      *              empty string
      */
     public Button(XString label) {
-        this(label == null ? null : label.toString());
+        this(_XStringSupport.valueOrNull(label));
     }
 
     /**
@@ -54,7 +55,7 @@ public final class Button extends Component implements Interactable {
      *              empty string
      */
     public void setLabel(XString label) {
-        setLabel(label == null ? null : label.toString());
+        setLabel(_XStringSupport.valueOrNull(label));
     }
 
     /**

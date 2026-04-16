@@ -1,6 +1,7 @@
 package com.nttdocomo.ui;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 
 /**
  * Defines a component that displays text.
@@ -56,7 +57,7 @@ public final class Label extends Component {
      *             if {@code null}, the empty string ({@code ""}) is set
      */
     public Label(XString text) {
-        this(text == null ? null : text.toString());
+        this(_XStringSupport.valueOrNull(text));
     }
 
     /**
@@ -85,7 +86,7 @@ public final class Label extends Component {
      * @throws IllegalArgumentException if {@code alignment} is invalid
      */
     public Label(XString text, int alignment) {
-        this(text == null ? null : text.toString(), alignment);
+        this(_XStringSupport.valueOrNull(text), alignment);
     }
 
     /**
@@ -111,7 +112,7 @@ public final class Label extends Component {
      *             if {@code null}, the empty string ({@code ""}) is set
      */
     public void setText(XString text) {
-        setText(text == null ? null : text.toString());
+        setText(_XStringSupport.valueOrNull(text));
     }
 
     /**

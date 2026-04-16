@@ -130,6 +130,8 @@ public final class OpenDoJaLaunchArgs {
     public static final String IME_AUTOMATION_RESPONSE = "opendoja.imeAutomationResponse";
     /** Delay in milliseconds before the automated IME response is delivered. */
     public static final String IME_AUTOMATION_DELAY_MS = "opendoja.imeAutomationDelayMs";
+    /** Automated zero-based PhoneBook selection index used by host-side probes. */
+    public static final String PHONEBOOK_SELECTION_INDEX = "opendoja.phonebookSelectionIndex";
     /** Hostname to force for outbound HTTP requests. */
     public static final String HTTP_OVERRIDE_DOMAIN = "opendoja.httpOverrideDomain";
     /** Override value returned for microedition.platform during launch. */
@@ -317,6 +319,7 @@ public final class OpenDoJaLaunchArgs {
             HOST_SCALE,
             IME_AUTOMATION_RESPONSE,
             IME_AUTOMATION_DELAY_MS,
+            PHONEBOOK_SELECTION_INDEX,
             HTTP_OVERRIDE_DOMAIN,
             MICROEDITION_PLATFORM_OVERRIDE,
             TERMINAL_ID,
@@ -557,6 +560,7 @@ public final class OpenDoJaLaunchArgs {
         defaults.put(HOST_SCALE, () -> "1");
         defaults.put(IME_AUTOMATION_RESPONSE, () -> "");
         defaults.put(IME_AUTOMATION_DELAY_MS, () -> "0");
+        defaults.put(PHONEBOOK_SELECTION_INDEX, () -> "");
         defaults.put(HTTP_OVERRIDE_DOMAIN, () -> "");
         defaults.put(MICROEDITION_PLATFORM_OVERRIDE, () -> "");
         defaults.put(TERMINAL_ID, OpenDoJaIdentity::defaultTerminalId);

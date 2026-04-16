@@ -1,6 +1,7 @@
 package com.nttdocomo.ui;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 import com.nttdocomo.ui.ogl.DirectBuffer;
 import opendoja.g3d.DojaGraphics3DRenderer;
 import opendoja.g3d.OptJ3DRenderer;
@@ -1116,7 +1117,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
      * Draws string.
      */
     public void drawString(XString text, int x, int y) {
-        drawString(text == null ? null : text.toString(), x, y);
+        drawString(_XStringSupport.valueOrNull(text), x, y);
     }
 
     /**
@@ -1126,7 +1127,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         if (text == null) {
             return;
         }
-        String value = text.toString();
+        String value = _XStringSupport.value(text, "text");
         int start = Math.max(0, offset);
         int end = Math.min(value.length(), start + Math.max(0, length));
         drawString(value.substring(start, end), x, y);

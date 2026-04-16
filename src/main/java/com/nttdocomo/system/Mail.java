@@ -1,6 +1,7 @@
 package com.nttdocomo.system;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -68,7 +69,7 @@ public final class Mail implements MailConstants {
      * @return the sender address
      */
     public XString getFrom(int part) {
-        return _SystemSupport.xAddressPart(from.toString(), part);
+        return _SystemSupport.xAddressPart(_XStringSupport.value(from, "from"), part);
     }
 
     /**

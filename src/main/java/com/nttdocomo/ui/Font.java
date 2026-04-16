@@ -1,6 +1,7 @@
 package com.nttdocomo.ui;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 import opendoja.host.DoJaProfile;
 import opendoja.host.LaunchConfig;
 import opendoja.host.OpenDoJaLaunchArgs;
@@ -504,10 +505,7 @@ public class Font {
     }
 
     static String requireXString(XString text, String name) {
-        if (text == null) {
-            throw new NullPointerException(name);
-        }
-        return text.toString();
+        return _XStringSupport.value(text, name);
     }
 
     static String slice(String text, int offset, int length) {

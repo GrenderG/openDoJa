@@ -1,6 +1,7 @@
 package com.nttdocomo.util;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 import opendoja.host.DoJaRuntime;
 import opendoja.host.OpenDoJaIdentity;
 import opendoja.host.system.DoJaExternalActionSupport;
@@ -69,7 +70,7 @@ public final class Phone {
         if (destination == null) {
             throw new NullPointerException("destination");
         }
-        DoJaExternalActionSupport.call(destination.toString());
+        DoJaExternalActionSupport.call(_XStringSupport.value(destination, "destination"));
     }
 
     /**

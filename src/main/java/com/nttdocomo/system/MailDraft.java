@@ -1,6 +1,7 @@
 package com.nttdocomo.system;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -122,7 +123,7 @@ public class MailDraft implements MailConstants {
      */
     public void setRecipient(XString address) {
         if (address != null) {
-            _SystemSupport.validateMailAddress(address.toString());
+            _SystemSupport.validateMailAddress(_XStringSupport.value(address, "address"));
         }
         this.xRecipient = address;
         this.recipients = null;

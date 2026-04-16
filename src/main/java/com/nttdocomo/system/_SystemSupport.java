@@ -7,6 +7,7 @@ import com.nttdocomo.ui.*;
 import com.nttdocomo.util.ScheduleDate;
 import opendoja.host.DoJaEncoding;
 import opendoja.host.DoJaRuntime;
+import opendoja.host.system.HostSelectionDialogs;
 import opendoja.host.system.DoJaSystemRegistry;
 
 import java.io.IOException;
@@ -82,9 +83,36 @@ final class _SystemSupport {
     static {
         createDefaultFolder(DataBoxFolder.FOLDER_MY_PICTURE, "openDoJa");
         createDefaultFolder(DataBoxFolder.FOLDER_I_MOTION, "openDoJa");
+        createDefaultPhoneBook();
     }
 
     private _SystemSupport() {
+    }
+
+    private static void createDefaultPhoneBook() {
+        synchronized (LOCK) {
+            if (!phoneBooks.isEmpty()) {
+                return;
+            }
+            int groupId = phoneBookGroupIds.getAndIncrement();
+            phoneBookGroups.put(groupId, new PhoneBookGroupEntry(groupId, "Stub Contacts"));
+            createDefaultPhoneBookEntry("Contact 1", "CONTACT 1", "09000000001",
+                    "contact1@example.com", groupId, 35.681236d, 139.767125d);
+            createDefaultPhoneBookEntry("Contact 2", "CONTACT 2", "09000000002",
+                    "contact2@example.com", groupId, 35.689487d, 139.691711d);
+            createDefaultPhoneBookEntry("Contact 3", "CONTACT 3", "09000000003",
+                    "contact3@example.com", groupId, 35.658581d, 139.745433d);
+        }
+    }
+
+    private static void createDefaultPhoneBookEntry(String name, String kana, String phoneNumber, String mailAddress,
+                                                    int groupId, double latitude, double longitude) {
+        Location location = new Location(new Degree(latitude), new Degree(longitude));
+        int id = phoneBookIds.getAndIncrement();
+        phoneBooks.put(id, new PhoneBookEntry(id, name, new String[2], kana, new String[2],
+                new String[]{phoneNumber}, new String[]{mailAddress}, groupId, copyLocation(location)));
+        int recordId = locationRecordIds.getAndIncrement();
+        locationRecords.put(recordId, new LocationRecord(recordId, location));
     }
 
     static void ensureRuntimeActive() {
@@ -1003,8 +1031,22 @@ final class _SystemSupport {
     static PhoneBook selectPhoneBook() {
         ensureAccessUserInfo();
         ensureRuntimeActive();
+        List<HostSelectionDialogs.SelectionOption> options;
         synchronized (LOCK) {
-            return phoneBooks.isEmpty() ? null : new PhoneBook(phoneBooks.get(lastKey(phoneBooks)));
+            if (phoneBooks.isEmpty()) {
+                return null;
+            }
+            options = phoneBooks.values().stream()
+                    .map(entry -> new HostSelectionDialogs.SelectionOption(entry.id, phoneBookLabel(entry)))
+                    .toList();
+        }
+        Integer selectedId = HostSelectionDialogs.selectPhoneBookId(options);
+        if (selectedId == null) {
+            return null;
+        }
+        synchronized (LOCK) {
+            PhoneBookEntry selected = phoneBooks.get(selectedId);
+            return selected == null ? null : new PhoneBook(selected);
         }
     }
 
@@ -1323,6 +1365,30 @@ final class _SystemSupport {
         int id = phoneBookGroupIds.getAndIncrement();
         phoneBookGroups.put(id, new PhoneBookGroupEntry(id, groupName));
         return id;
+    }
+
+    private static String phoneBookLabel(PhoneBookEntry entry) {
+        String name = combineName(entry.singleName, entry.nameParts[PhoneBookConstants.FAMILY_NAME],
+                entry.nameParts[PhoneBookConstants.GIVEN_NAME]);
+        String mail = firstNonEmpty(entry.mailAddresses);
+        String phone = firstNonEmpty(entry.phoneNumbers);
+        String secondary = !mail.isEmpty() ? mail : phone;
+        if (name.isEmpty()) {
+            return secondary.isEmpty() ? "Unnamed Contact" : secondary;
+        }
+        return secondary.isEmpty() ? name : name + " <" + secondary + ">";
+    }
+
+    private static String firstNonEmpty(String[] values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private static String[] compactStrings(String[] values) {

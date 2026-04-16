@@ -1,6 +1,7 @@
 package opendoja.probes;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 import com.nttdocomo.ui.*;
 import com.nttdocomo.util.Phone;
 
@@ -73,7 +74,7 @@ public final class HighLevelUiProbe {
         if (textBox.getText() != null) {
             throw new IllegalStateException("XString text box returned a normal string");
         }
-        if (textBox.getXText() == null || !"abc".equals(textBox.getXText().toString())) {
+        if (textBox.getXText() == null || !"abc".equals(_XStringSupport.value(textBox.getXText(), "text"))) {
             throw new IllegalStateException("XString text box lost its XString text");
         }
         try {
@@ -105,7 +106,7 @@ public final class HighLevelUiProbe {
         if (choice.getItem(0) != null) {
             throw new IllegalStateException("XString list item returned a normal string");
         }
-        if (choice.getXItem(0) == null || !"x".equals(choice.getXItem(0).toString())) {
+        if (choice.getXItem(0) == null || !"x".equals(_XStringSupport.value(choice.getXItem(0), "item"))) {
             throw new IllegalStateException("List box lost its XString item");
         }
         choice.select(0);

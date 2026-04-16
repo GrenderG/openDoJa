@@ -1,6 +1,7 @@
 package com.nttdocomo.ui;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 
 /**
  * Defines a ticker.
@@ -53,7 +54,7 @@ public final class Ticker extends Component {
      * @param xText the displayed {@link XString}
      */
     public void setText(XString xText) {
-        setText(xText == null ? null : xText.toString());
+        setText(_XStringSupport.valueOrNull(xText));
     }
 
     /**

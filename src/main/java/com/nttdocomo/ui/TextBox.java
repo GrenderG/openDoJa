@@ -2,6 +2,7 @@ package com.nttdocomo.ui;
 
 import com.nttdocomo.lang.IllegalStateException;
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 
 /**
  * Defines a text box.
@@ -57,7 +58,7 @@ public final class TextBox extends Component implements Interactable {
         this.rows = rows;
         this.displayMode = displayMode;
         this.inputMode = defaultInputMode(displayMode);
-        this.text = text == null ? "" : text.toString();
+        this.text = _XStringSupport.valueOrEmpty(text);
         this.xText = text;
         this.xTextMode = true;
         this.editable = false;
@@ -117,8 +118,9 @@ public final class TextBox extends Component implements Interactable {
      *         size limit
      */
     public void setText(XString text) {
-        ensureWithinInputSize(text == null ? "" : text.toString());
-        this.text = text == null ? "" : text.toString();
+        String value = _XStringSupport.valueOrEmpty(text);
+        ensureWithinInputSize(value);
+        this.text = value;
         this.xText = text;
         this.xTextMode = true;
         this.editable = false;

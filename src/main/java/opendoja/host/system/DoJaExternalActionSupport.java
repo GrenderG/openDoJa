@@ -1,6 +1,7 @@
 package opendoja.host.system;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 import com.nttdocomo.ui.IApplication;
 import opendoja.host.DoJaEncoding;
 import opendoja.host.OpenDoJaLog;
@@ -54,7 +55,7 @@ public final class DoJaExternalActionSupport {
         if (!com.nttdocomo.util.Phone.TEL_AV.equals(telType)) {
             throw new IllegalArgumentException("telType");
         }
-        String number = phoneNumber.toString();
+        String number = _XStringSupport.value(phoneNumber, "phoneNumber");
         validatePhoneNumber(number);
         lastCall = new CallRequest(telType, number);
         OpenDoJaLog.info(DoJaExternalActionSupport.class, () ->

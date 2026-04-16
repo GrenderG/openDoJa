@@ -1,6 +1,7 @@
 package com.nttdocomo.ui;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 
 /**
  * Defines an anchor button.
@@ -86,7 +87,7 @@ public final class AnchorButton extends Component implements Interactable {
      * @param xText the {@link XString} text string
      */
     public void setText(XString xText) {
-        setText(xText == null ? null : xText.toString());
+        setText(_XStringSupport.valueOrNull(xText));
     }
 
     /**

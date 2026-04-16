@@ -1,6 +1,7 @@
 package com.nttdocomo.system;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -47,7 +48,7 @@ public final class MessageSent extends Message {
      * @return the recipient address, or {@code null}
      */
     public XString getXRecipient(int part) {
-        return xRecipient == null ? null : _SystemSupport.xAddressPart(xRecipient.toString(), part);
+        return xRecipient == null ? null : _SystemSupport.xAddressPart(_XStringSupport.value(xRecipient, "xRecipient"), part);
     }
 
     /**
@@ -62,7 +63,7 @@ public final class MessageSent extends Message {
         }
         String[] addresses = new String[xRecipients.length];
         for (int i = 0; i < xRecipients.length; i++) {
-            addresses[i] = xRecipients[i] == null ? null : xRecipients[i].toString();
+            addresses[i] = _XStringSupport.valueOrNull(xRecipients[i]);
         }
         return _SystemSupport.xAddressParts(addresses, part, false);
     }

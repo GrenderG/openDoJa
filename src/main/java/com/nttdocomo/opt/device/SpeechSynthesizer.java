@@ -1,6 +1,7 @@
 package com.nttdocomo.opt.device;
 
 import com.nttdocomo.lang.XString;
+import com.nttdocomo.lang._XStringSupport;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -120,7 +121,7 @@ public class SpeechSynthesizer {
      *         {@code words} exceeds the maximum value
      */
     public void speak(XString words) {
-        speak(words == null ? null : words.toString());
+        speak(_XStringSupport.valueOrNull(words));
     }
 
     /**
