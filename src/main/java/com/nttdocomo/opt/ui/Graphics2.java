@@ -328,6 +328,14 @@ public class Graphics2 extends Graphics {
         return (int) java.lang.Math.min(Integer.MAX_VALUE, syncCount);
     }
 
+    @Override
+    protected void resetCanvasFrameState() {
+        coordinateMode = CM_NORMAL;
+        renderOperator = OP_REPL;
+        srcRatio = 255;
+        dstRatio = 255;
+    }
+
     private int actualCoordinateX(int x) {
         if (coordinateMode == CM_NORMAL) {
             return x + getOriginX();

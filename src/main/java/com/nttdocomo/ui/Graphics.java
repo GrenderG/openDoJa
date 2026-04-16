@@ -1007,6 +1007,12 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
             runtime.drainApplicationCallbacks();
             runtime.surfaceLock().lock();
         }
+        if (surface.hasRepaintHook() && (runtime == null || runtime.surfaceLock().getHoldCount() == 1)) {
+            setOrigin(0, 0);
+            clearClip();
+            setFlipMode(FLIP_NONE);
+            resetCanvasFrameState();
+        }
     }
 
     /**
@@ -1061,17 +1067,23 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         }
         BufferedImage presentedFrame = null;
         boolean outermostUnlock = runtime == null || runtime.surfaceLock().getHoldCount() == 1;
+        boolean nestedCanvasUnlock = !flush && !outermostUnlock && surface.hasRepaintHook();
         boolean pacedPresentation = flush;
         // opt `renderPrimitives(...)` framebuffer blends participate in the same staged 3D pass
         // as later opaque draws. Replay them only at the pass boundary so opaque geometry fills
         // z first, then the blended pass can depth-test against that result.
-        if (flush || outermostUnlock) {
+        if (flush || outermostUnlock || nestedCanvasUnlock) {
             flushPending3DPasses();
         }
         if (flush) {
             traceOpenGlesSync("unlock present flush=true outermost=" + outermostUnlock);
             oglRenderer.flushHardwarePresentation();
             presentedFrame = copyImage(surface.image());
+        } else if (nestedCanvasUnlock) {
+            traceOpenGlesSync("unlock present flush=false outermost=false");
+            oglRenderer.flushHardwarePresentation();
+            presentedFrame = copyImage(surface.image());
+            pacedPresentation = false;
         } else if (outermostUnlock && surface.hasRepaintHook()) {
             // Some games draw directly to Canvas.getGraphics() and finish the frame with unlock(false)
             // rather than unlock(true). Canvas surfaces still need to present at the end of that
@@ -1584,6 +1596,9 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
             return;
         }
         OpenDoJaLog.debug(Graphics.class, message);
+    }
+
+    protected void resetCanvasFrameState() {
     }
 
     protected boolean usesOptRenderMode() {
