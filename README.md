@@ -2,6 +2,10 @@
 
 `openDoJa` is a desktop-focused clean-room reimplementation of the DoJa 5.1 runtime and related APIs, aimed at running i-appli Java games on modern computers.
 
+<p align="center">
+  <img src=".github/showcase.png" alt="showcase" />
+</p>
+
 ## Build
 
 ```bash
