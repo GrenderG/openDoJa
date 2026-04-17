@@ -1,13 +1,13 @@
-package opendoja.launcher;
+package opendoja.probes;
 
 import com.nttdocomo.ui.IApplication;
 import com.nttdocomo.ui.Image;
 import opendoja.audio.mld.MLDSynth;
+import opendoja.host.DoJaEncoding;
 import opendoja.host.HostControlAction;
 import opendoja.host.HostInputBinding;
 import opendoja.host.HostKeybindConfiguration;
 import opendoja.host.HostKeybindProfile;
-import opendoja.host.DoJaEncoding;
 import opendoja.host.HostScale;
 import opendoja.host.LaunchConfig;
 import opendoja.host.OpenDoJaIdentity;
@@ -15,7 +15,9 @@ import opendoja.host.OpenDoJaLaunchArgs;
 import opendoja.host.OpenGlesRendererMode;
 import opendoja.host.input.ControllerBindingDescriptor;
 
-import java.awt.event.KeyEvent;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +29,9 @@ import java.util.concurrent.TimeUnit;
 
 public final class LauncherProcessSupportProbe {
     private static final String OUTPUT_PARAMETER = "EncodingProbeOutput";
+    private static final String GAME_LAUNCH_SELECTION_CLASS_NAME = "opendoja.launcher.GameLaunchSelection";
+    private static final String LAUNCHER_PROCESS_SUPPORT_CLASS_NAME = "opendoja.launcher.LauncherProcessSupport";
+    private static final String LAUNCHER_SETTINGS_CLASS_NAME = "opendoja.launcher.LauncherSettings";
 
     private LauncherProcessSupportProbe() {
     }
@@ -48,12 +53,11 @@ public final class LauncherProcessSupportProbe {
     }
 
     private static void verifyBuildLaunchCommandAddsExpectedFileEncoding(String expectedEncoding) throws Exception {
-        GameLaunchSelection selection = new GameLaunchSelection(
-                java.nio.file.Path.of("probe.jam"),
-                java.nio.file.Path.of("probe.jar"));
-        List<String> command = new LauncherProcessSupport().buildLaunchCommand(selection);
-        check(command.contains(LauncherProcessSupport.ENABLE_NATIVE_ACCESS_ARGUMENT),
-                "launch command should contain " + LauncherProcessSupport.ENABLE_NATIVE_ACCESS_ARGUMENT + " but was " + command);
+        Object selection = newGameLaunchSelection(Path.of("probe.jam"), Path.of("probe.jar"));
+        List<String> command = buildLaunchCommand(selection);
+        String nativeAccessArgument = enableNativeAccessArgument();
+        check(command.contains(nativeAccessArgument),
+                "launch command should contain " + nativeAccessArgument + " but was " + command);
         String expectedArgument = "-Dfile.encoding=" + expectedEncoding;
         check(command.contains(expectedArgument),
                 "launch command should contain " + expectedArgument + " but was " + command);
@@ -65,7 +69,7 @@ public final class LauncherProcessSupportProbe {
         verifySpawnedJamSeesExpectedFileEncoding(null, expectedEncoding);
     }
 
-    private static void verifySpawnedJamSeesExpectedFileEncoding(LauncherSettings settings, String expectedEncoding) throws Exception {
+    private static void verifySpawnedJamSeesExpectedFileEncoding(Object settings, String expectedEncoding) throws Exception {
         Properties properties = readSpawnedProbeProperties(settings);
         String actualFileEncoding = properties.getProperty("file.encoding");
         String actualDefaultCharset = properties.getProperty("defaultCharset");
@@ -78,7 +82,7 @@ public final class LauncherProcessSupportProbe {
 
     private static void verifyLauncherSettingsOverrideEncoding() throws Exception {
         String overrideEncoding = StandardCharsets.UTF_16LE.name();
-        LauncherSettings settings = new LauncherSettings(
+        Object settings = newLauncherSettings(
                 HostScale.DEFAULT_ID,
                 MLDSynth.DEFAULT.id,
                 OpenDoJaIdentity.defaultTerminalId(),
@@ -91,12 +95,11 @@ public final class LauncherProcessSupportProbe {
                 false,
                 false,
                 false);
-        GameLaunchSelection selection = new GameLaunchSelection(
-                java.nio.file.Path.of("probe.jam"),
-                java.nio.file.Path.of("probe.jar"));
-        List<String> command = new LauncherProcessSupport().buildLaunchCommand(selection, settings);
-        check(command.contains(LauncherProcessSupport.ENABLE_NATIVE_ACCESS_ARGUMENT),
-                "launch command should contain " + LauncherProcessSupport.ENABLE_NATIVE_ACCESS_ARGUMENT + " with launcher override but was " + command);
+        Object selection = newGameLaunchSelection(Path.of("probe.jam"), Path.of("probe.jar"));
+        List<String> command = buildLaunchCommand(selection, settings);
+        String nativeAccessArgument = enableNativeAccessArgument();
+        check(command.contains(nativeAccessArgument),
+                "launch command should contain " + nativeAccessArgument + " with launcher override but was " + command);
         String expectedArgument = "-Dfile.encoding=" + overrideEncoding;
         check(command.contains(expectedArgument),
                 "launch command should contain explicit launcher override " + expectedArgument + " but was " + command);
@@ -106,7 +109,7 @@ public final class LauncherProcessSupportProbe {
     }
 
     private static void verifyLauncherSettingsForwardFullscreenHostScale() throws Exception {
-        LauncherSettings settings = new LauncherSettings(
+        Object settings = newLauncherSettings(
                 HostScale.FULLSCREEN_ID,
                 MLDSynth.DEFAULT.id,
                 OpenDoJaIdentity.defaultTerminalId(),
@@ -119,10 +122,8 @@ public final class LauncherProcessSupportProbe {
                 false,
                 false,
                 false);
-        GameLaunchSelection selection = new GameLaunchSelection(
-                java.nio.file.Path.of("probe.jam"),
-                java.nio.file.Path.of("probe.jar"));
-        List<String> command = new LauncherProcessSupport().buildLaunchCommand(selection, settings);
+        Object selection = newGameLaunchSelection(Path.of("probe.jam"), Path.of("probe.jar"));
+        List<String> command = buildLaunchCommand(selection, settings);
         String expectedArgument = "-D" + OpenDoJaLaunchArgs.HOST_SCALE + "=" + HostScale.FULLSCREEN_ID;
         check(command.contains(expectedArgument),
                 "launch command should forward fullscreen host scale as " + expectedArgument + " but was " + command);
@@ -137,11 +138,10 @@ public final class LauncherProcessSupportProbe {
                 List.of(HostKeybindProfile.defaults(), alternateProfile),
                 List.of(HostKeybindConfiguration.DEFAULT_PROFILE_NAME, "Arcade"),
                 1);
-        LauncherSettings settings = LauncherSettings.defaults().withKeybindConfiguration(keybindConfiguration);
-        GameLaunchSelection selection = new GameLaunchSelection(
-                java.nio.file.Path.of("probe.jam"),
-                java.nio.file.Path.of("probe.jar"));
-        List<String> command = new LauncherProcessSupport().buildLaunchCommand(selection, settings);
+        Object settings = invokeNoArgStatic(launcherSettingsClass(), "defaults");
+        settings = invoke(settings, "withKeybindConfiguration", new Class<?>[]{HostKeybindConfiguration.class}, keybindConfiguration);
+        Object selection = newGameLaunchSelection(Path.of("probe.jam"), Path.of("probe.jar"));
+        List<String> command = buildLaunchCommand(selection, settings);
         String expectedArgument = "-D" + OpenDoJaLaunchArgs.INPUT_BINDINGS + "=" + alternateProfile.serialize();
         check(command.contains(expectedArgument),
                 "launch command should forward the active keybind profile as " + expectedArgument + " but was " + command);
@@ -152,28 +152,26 @@ public final class LauncherProcessSupportProbe {
     }
 
     private static void verifyLauncherSettingsForwardStandbyLaunchType() throws Exception {
-        LauncherSettings settings = LauncherSettings.defaults().withLaunchType(LaunchConfig.LaunchTypeOption.STANDBY.id);
-        GameLaunchSelection selection = new GameLaunchSelection(
-                java.nio.file.Path.of("probe.jam"),
-                java.nio.file.Path.of("probe.jar"));
-        List<String> command = new LauncherProcessSupport().buildLaunchCommand(selection, settings);
+        Object settings = invokeNoArgStatic(launcherSettingsClass(), "defaults");
+        settings = invoke(settings, "withLaunchType", new Class<?>[]{String.class}, LaunchConfig.LaunchTypeOption.STANDBY.id);
+        Object selection = newGameLaunchSelection(Path.of("probe.jam"), Path.of("probe.jar"));
+        List<String> command = buildLaunchCommand(selection, settings);
         String expectedPropertyArgument = "-D" + OpenDoJaLaunchArgs.LAUNCH_TYPE + "=" + LaunchConfig.LaunchTypeOption.STANDBY.id;
         check(command.contains(expectedPropertyArgument),
                 "launch command should forward standby launch type as " + expectedPropertyArgument + " but was " + command);
 
         Properties properties = readSpawnedProbeProperties(settings);
-        check(Integer.toString(com.nttdocomo.ui.IApplication.LAUNCHED_AS_CONCIERGE).equals(properties.getProperty("launchType")),
+        check(Integer.toString(IApplication.LAUNCHED_AS_CONCIERGE).equals(properties.getProperty("launchType")),
                 "spawned JAM should launch with standby/concierge launch type");
     }
 
     private static void verifySpawnedHardwareLaunchAvoidsNativeAccessWarning() throws Exception {
         Path root = Files.createTempDirectory("launcher-native-access");
-        GameLaunchSelection selection = new GameLaunchSelection(
+        Object selection = newGameLaunchSelection(
                 writeNativeAccessJam(root.resolve("NativeAccessProbe.jam")),
                 currentArtifactPath());
 
-        ProcessBuilder processBuilder = new ProcessBuilder(
-                new LauncherProcessSupport().buildLaunchCommand(selection, defaultHardwareSettings()));
+        ProcessBuilder processBuilder = new ProcessBuilder(buildLaunchCommand(selection, defaultHardwareSettings()));
         processBuilder.redirectErrorStream(true);
         processBuilder.directory(root.toFile());
         Process process = processBuilder.start();
@@ -210,14 +208,14 @@ public final class LauncherProcessSupportProbe {
         return jam;
     }
 
-    private static Properties readSpawnedProbeProperties(LauncherSettings settings) throws Exception {
+    private static Properties readSpawnedProbeProperties(Object settings) throws Exception {
         Path root = Files.createTempDirectory("launcher-process-support");
         Path output = root.resolve("encoding.properties");
-        GameLaunchSelection selection = new GameLaunchSelection(
+        Object selection = newGameLaunchSelection(
                 writeJam(root.resolve("EncodingProbe.jam"), output),
                 currentArtifactPath());
 
-        Process process = new LauncherProcessSupport().startInBackground(selection, settings);
+        Process process = startInBackground(selection, settings);
         if (!process.waitFor(20, TimeUnit.SECONDS)) {
             process.destroyForcibly();
             throw new IllegalStateException("spawned JAM probe timed out");
@@ -232,8 +230,8 @@ public final class LauncherProcessSupportProbe {
         return properties;
     }
 
-    private static LauncherSettings defaultHardwareSettings() {
-        return new LauncherSettings(
+    private static Object defaultHardwareSettings() throws Exception {
+        return newLauncherSettings(
                 HostScale.DEFAULT_ID,
                 MLDSynth.DEFAULT.id,
                 OpenDoJaIdentity.defaultTerminalId(),
@@ -252,6 +250,96 @@ public final class LauncherProcessSupportProbe {
         return Path.of(LauncherProcessSupportProbe.class.getProtectionDomain().getCodeSource().getLocation().toURI())
                 .toAbsolutePath()
                 .normalize();
+    }
+
+    private static Object newGameLaunchSelection(Path jamPath, Path gameJarPath) throws Exception {
+        Constructor<?> constructor = gameLaunchSelectionClass().getDeclaredConstructor(Path.class, Path.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(jamPath, gameJarPath);
+    }
+
+    private static Object newLauncherSettings(String hostScale,
+                                              String synthId,
+                                              String terminalId,
+                                              String userId,
+                                              String fontType,
+                                              String httpOverrideDomain,
+                                              String fileEncodingOverride,
+                                              String microeditionPlatformOverride,
+                                              OpenGlesRendererMode openGlesRendererMode,
+                                              boolean showOpenGlesFps,
+                                              boolean disableBytecodeVerification,
+                                              boolean disableOsDpiScaling) throws Exception {
+        Constructor<?> constructor = launcherSettingsClass().getDeclaredConstructor(
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                OpenGlesRendererMode.class,
+                boolean.class,
+                boolean.class,
+                boolean.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(hostScale, synthId, terminalId, userId, fontType, httpOverrideDomain,
+                fileEncodingOverride, microeditionPlatformOverride, openGlesRendererMode, showOpenGlesFps,
+                disableBytecodeVerification, disableOsDpiScaling);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> buildLaunchCommand(Object selection) throws Exception {
+        return (List<String>) invoke(newLauncherProcessSupport(), "buildLaunchCommand",
+                new Class<?>[]{gameLaunchSelectionClass()}, selection);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> buildLaunchCommand(Object selection, Object settings) throws Exception {
+        return (List<String>) invoke(newLauncherProcessSupport(), "buildLaunchCommand",
+                new Class<?>[]{gameLaunchSelectionClass(), launcherSettingsClass()}, selection, settings);
+    }
+
+    private static Process startInBackground(Object selection, Object settings) throws Exception {
+        return (Process) invoke(newLauncherProcessSupport(), "startInBackground",
+                new Class<?>[]{gameLaunchSelectionClass(), launcherSettingsClass()}, selection, settings);
+    }
+
+    private static String enableNativeAccessArgument() throws Exception {
+        Field field = launcherProcessSupportClass().getDeclaredField("ENABLE_NATIVE_ACCESS_ARGUMENT");
+        field.setAccessible(true);
+        return (String) field.get(null);
+    }
+
+    private static Object newLauncherProcessSupport() throws Exception {
+        Constructor<?> constructor = launcherProcessSupportClass().getDeclaredConstructor();
+        constructor.setAccessible(true);
+        return constructor.newInstance();
+    }
+
+    private static Object invokeNoArgStatic(Class<?> type, String methodName) throws Exception {
+        Method method = type.getDeclaredMethod(methodName);
+        method.setAccessible(true);
+        return method.invoke(null);
+    }
+
+    private static Object invoke(Object target, String methodName, Class<?>[] parameterTypes, Object... args) throws Exception {
+        Method method = target.getClass().getDeclaredMethod(methodName, parameterTypes);
+        method.setAccessible(true);
+        return method.invoke(target, args);
+    }
+
+    private static Class<?> gameLaunchSelectionClass() throws ClassNotFoundException {
+        return Class.forName(GAME_LAUNCH_SELECTION_CLASS_NAME);
+    }
+
+    private static Class<?> launcherProcessSupportClass() throws ClassNotFoundException {
+        return Class.forName(LAUNCHER_PROCESS_SUPPORT_CLASS_NAME);
+    }
+
+    private static Class<?> launcherSettingsClass() throws ClassNotFoundException {
+        return Class.forName(LAUNCHER_SETTINGS_CLASS_NAME);
     }
 
     private static void check(boolean condition, String message) {
