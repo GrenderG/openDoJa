@@ -552,6 +552,10 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     }
 
     private void notifyListenerAsync(int type, int param) {
+        // No listener means there is no media event to marshal back through the runtime.
+        if (mediaListener == null) {
+            return;
+        }
         long expectedGeneration = currentCallbackGeneration();
         Runnable callback = () -> {
             if (!isCurrentCallbackGeneration(expectedGeneration)) {
