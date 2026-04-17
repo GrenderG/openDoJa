@@ -814,7 +814,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                 return;
             }
             lastMldSyncTimeMillis = timeMillis;
-            notifyListenerAsync(AUDIO_SYNC, 0);
+            // Keep MLD sync delivery aligned with the existing MIDI sync path:
+            // sync events are timing signals, not queued lifecycle callbacks.
+            notifyListener(AUDIO_SYNC, 0);
         }
 
         @Override
