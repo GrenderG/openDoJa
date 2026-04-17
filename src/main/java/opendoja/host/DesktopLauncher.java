@@ -2,6 +2,7 @@ package opendoja.host;
 
 import com.nttdocomo.ui.IApplication;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,6 +31,15 @@ public final class DesktopLauncher {
             runtime.startApplication();
             launched = true;
             return app;
+        } catch (InvocationTargetException e) {
+            Throwable target = e.getTargetException();
+            if (target instanceof Error error) {
+                throw error;
+            }
+            if (target instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException("Failed to launch " + config.applicationClass().getName(), target);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Failed to launch " + config.applicationClass().getName(), e);
         } finally {
