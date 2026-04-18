@@ -1,5 +1,6 @@
 package com.nttdocomo.ui;
 
+import com.nttdocomo.opt.ui.AudioPresenter2;
 import opendoja.audio.MidiEventPlayer;
 import opendoja.audio.SampledPCMPlayer;
 import opendoja.audio.mld.MLDPCMPlayer;
@@ -302,6 +303,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                     if (time > 0) {
                         sequencer.setMicrosecondPosition(Math.min((long) time * 1_000L, sequencer.getMicrosecondLength()));
                     }
+                    sequencer.setTempoFactor(configuredTempoRate(true));
                     sequencer.start();
                 }
             } else if (prepared.kind() == MediaManager.PreparedSound.Kind.MLD) {
@@ -310,7 +312,7 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
                 }
                 mldPlayer.setVolumeLevel(currentVolumeLevel());
                 updateMldSyncConfiguration();
-                mldPlayer.start(prepared, loopCount, time, playbackToken);
+                mldPlayer.start(prepared, loopCount, time, mldPlaybackRate(), playbackToken);
             } else {
                 if (sampledPlayer == null) {
                     sampledPlayer = new SampledPCMPlayer(new SampledListener());
@@ -512,12 +514,28 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
      */
     @Override
     public void setAttribute(int key, int value) {
-        if (key == LOOP_COUNT) {
+        if (key == LOOP_COUNT || key == AudioPresenter2.LOOP) {
             if (value < -1) {
                 throw new IllegalArgumentException("value");
             }
             if (playing) {
                 return;
+            }
+        } else if (key == SET_VOLUME) {
+            if (value < 0 || value > 100) {
+                throw new IllegalArgumentException("value");
+            }
+        } else if (key == SYNC_MODE) {
+            if (value != ATTR_SYNC_OFF && value != ATTR_SYNC_ON) {
+                throw new IllegalArgumentException("value");
+            }
+        } else if (key == CHANGE_TEMPO) {
+            if (value < 25 || value > 400) {
+                throw new IllegalArgumentException("value");
+            }
+        } else if (key == AudioPresenter2.TEMPO) {
+            if (value < -32 || value > 32) {
+                throw new IllegalArgumentException("value");
             }
         }
         attributes.put(key, value);
@@ -528,6 +546,13 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
             }
             if (mldPlayer != null) {
                 mldPlayer.setVolumeLevel(level);
+            }
+        } else if (key == CHANGE_TEMPO || key == AudioPresenter2.TEMPO) {
+            if (key == CHANGE_TEMPO && mldPlayer != null) {
+                mldPlayer.setPlaybackRate(mldPlaybackRate());
+            }
+            if (sequencer != null) {
+                sequencer.setTempoFactor(configuredTempoRate(true));
             }
         } else if (key == SYNC_MODE && mldPlayer != null) {
             updateMldSyncConfiguration();
@@ -630,6 +655,18 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         return Math.max(0, Math.min(100, attributes.getOrDefault(SET_VOLUME, 100)));
     }
 
+    private float configuredTempoRate(boolean includeLegacyTempo) {
+        Integer modernTempo = attributes.get(CHANGE_TEMPO);
+        if (modernTempo != null) {
+            return modernTempo / 100.0f;
+        }
+        Integer legacyTempo = includeLegacyTempo ? attributes.get(AudioPresenter2.TEMPO) : null;
+        if (legacyTempo != null) {
+            return 1.0f + (legacyTempo / 100.0f);
+        }
+        return 1.0f;
+    }
+
     private void updateMldSyncConfiguration() {
         if (mldPlayer == null) {
             return;
@@ -653,7 +690,10 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
     }
 
     private int configuredLoopCount() {
-        return attributes.getOrDefault(LOOP_COUNT, 0);
+        if (attributes.containsKey(LOOP_COUNT)) {
+            return attributes.get(LOOP_COUNT);
+        }
+        return attributes.getOrDefault(AudioPresenter2.LOOP, 0);
     }
 
     private boolean hasUsableMediaResource() {
@@ -668,6 +708,12 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
 
     private boolean requiresStrictStopState() {
         return DoJaProfile.current().isAtLeast(2, 0);
+    }
+
+    protected float mldPlaybackRate() {
+        // DoJa 2.x documents AudioPresenter2.TEMPO as normal-MFi only; MLD
+        // phrase playback only uses the modern tempo attribute plus subclasses.
+        return configuredTempoRate(false);
     }
 
     private void handlePlaybackComplete(long playbackToken) {

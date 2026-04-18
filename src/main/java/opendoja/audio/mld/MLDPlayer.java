@@ -142,6 +142,21 @@ public class MLDPlayer
     float framesPerTick;
 
     /**
+     * Current sequence timebase.
+     */
+    int currentTimebase;
+
+    /**
+     * Current sequence tempo.
+     */
+    int currentTempo;
+
+    /**
+     * Relative playback rate supplied by the active presenter.
+     */
+    float playbackRate;
+
+    /**
      * Output frames to process
      */
     float pendingFrames;
@@ -210,6 +225,7 @@ public class MLDPlayer
         this.mld = mld;
         this.sampler = sampler.instance(sampleRate);
         this.sampleRate = sampleRate;
+        this.playbackRate = 1.0f;
         this.seeking = false;
         this.tracks = new MLDPlayerTrack[mld.tracks.length];
         this.playbackEngine = this.sampler.createPlaybackEngine(mld,
@@ -393,7 +409,7 @@ public class MLDPlayer
 
     public double getTime()
     {
-        return (double)this.position / this.sampleRate;
+        return ((double)this.position / this.sampleRate) * this.playbackRate;
     }
 
     /**
@@ -778,7 +794,7 @@ public class MLDPlayer
             throw new IllegalArgumentException("Invalid seconds.");
 
         // Compute the target number of frames
-        long target = (long)Math.ceil(seconds * this.sampleRate);
+        long target = (long)Math.ceil((seconds / this.playbackRate) * this.sampleRate);
 
         // Already at the target
         if (target == this.position)
@@ -1268,11 +1284,37 @@ public class MLDPlayer
     }
 
     /**
+     * Sets a relative playback rate for the sequence timebase.
+     *
+     * @param playbackRate Relative playback rate where {@code 1.0} is the
+     * normal MLD cadence.
+     * @return the value of {@code playbackRate}
+     * @throws IllegalArgumentException if {@code playbackRate} is not finite
+     * or is less than or equal to zero.
+     */
+    public float setPlaybackRate(float playbackRate)
+    {
+        if (!Float.isFinite(playbackRate) || playbackRate <= 0.0f)
+            throw new IllegalArgumentException("Invalid playback rate.");
+        float previous = this.playbackRate;
+        this.playbackRate = playbackRate;
+        if (previous > 0.0f)
+            this.pendingFrames = this.pendingFrames * previous /
+                this.playbackRate;
+        if (this.currentTimebase > 0 && this.currentTempo > 0)
+            this.setTempo(this.currentTimebase, this.currentTempo);
+        return this.playbackRate;
+    }
+
+    /**
      * Compute the number of output frames in one event tick
      */
     void setTempo(int timebase, int tempo)
     {
-        this.framesPerTick = (60 * this.sampleRate) / (timebase * tempo);
+        this.currentTimebase = timebase;
+        this.currentTempo = tempo;
+        this.framesPerTick =
+            (60 * this.sampleRate) / (timebase * tempo * this.playbackRate);
     }
 
     /**

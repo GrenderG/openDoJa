@@ -48,8 +48,8 @@ public final class MLDPCMPlayer implements AutoCloseable {
     }
 
     public void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis,
-                      long playbackToken) {
-        handle.start(sound, loopCount, startPositionMillis, playbackToken);
+                      float playbackRate, long playbackToken) {
+        handle.start(sound, loopCount, startPositionMillis, playbackRate, playbackToken);
     }
 
     public void pause() {
@@ -70,6 +70,10 @@ public final class MLDPCMPlayer implements AutoCloseable {
 
     public void setVolumeLevel(int volumeLevel) {
         handle.setVolumeLevel(volumeLevel);
+    }
+
+    public void setPlaybackRate(float playbackRate) {
+        handle.setPlaybackRate(playbackRate);
     }
 
     public void setSyncEvent(int channel, int key) {
@@ -345,6 +349,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
         private MediaManager.PreparedSound pendingSound;
         private int pendingLoopCount;
         private int pendingStartPositionMillis;
+        private float pendingPlaybackRate = 1.0f;
         private boolean pendingStop;
         private boolean paused;
         private boolean closed;
@@ -376,11 +381,12 @@ public final class MLDPCMPlayer implements AutoCloseable {
         }
 
         void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis,
-                   long playbackToken) {
+                   float playbackRate, long playbackToken) {
             synchronized (stateLock) {
                 pendingSound = sound;
                 pendingLoopCount = loopCount;
                 pendingStartPositionMillis = Math.max(0, startPositionMillis);
+                pendingPlaybackRate = validatePlaybackRate(playbackRate);
                 pendingPlaybackToken = playbackToken;
                 pendingStop = false;
                 paused = false;
@@ -432,6 +438,16 @@ public final class MLDPCMPlayer implements AutoCloseable {
             synchronized (stateLock) {
                 this.volumeLevel = Math.max(0, Math.min(100, volumeLevel));
             }
+        }
+
+        void setPlaybackRate(float playbackRate) {
+            synchronized (stateLock) {
+                pendingPlaybackRate = validatePlaybackRate(playbackRate);
+                if (activeSession != null) {
+                    activeSession.setPlaybackRate(pendingPlaybackRate);
+                }
+            }
+            engine.wake();
         }
 
         void setSyncEvent(int channel, int key) {
@@ -514,11 +530,12 @@ public final class MLDPCMPlayer implements AutoCloseable {
                 }
                 if (pendingSound != null) {
                     activeSession = sessions.computeIfAbsent(pendingSound, PlaybackSession::new);
-                    activeSession.reset(pendingLoopCount, pendingStartPositionMillis,
+                    activeSession.reset(pendingLoopCount, pendingStartPositionMillis, pendingPlaybackRate,
                             syncEventChannel, syncEventKey);
                     activePlaybackToken = pendingPlaybackToken;
                     pendingSound = null;
                     pendingStartPositionMillis = 0;
+                    pendingPlaybackRate = 1.0f;
                 }
                 if (paused || activeSession == null) {
                     return 0;
@@ -656,7 +673,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
             }
         }
 
-        private void reset(int loopCount, int startPositionMillis,
+        private void reset(int loopCount, int startPositionMillis, float playbackRate,
                            int syncEventChannel, int syncEventKey) {
             player.setPlaybackEventsEnabled(true);
             // The native Yamaha phrase engine loops in-place and lets note
@@ -671,10 +688,22 @@ public final class MLDPCMPlayer implements AutoCloseable {
             player.setLoopEnabled(cuepointLooping && loopCount != 0);
             configureSync(syncEventChannel, syncEventKey);
             player.reset();
+            player.setPlaybackRate(playbackRate);
             if (startPositionMillis > 0) {
                 player.setTime(startPositionMillis / 1000.0);
             }
         }
+
+        private void setPlaybackRate(float playbackRate) {
+            player.setPlaybackRate(playbackRate);
+        }
+    }
+
+    private static float validatePlaybackRate(float playbackRate) {
+        if (!Float.isFinite(playbackRate) || playbackRate <= 0.0f) {
+            throw new IllegalArgumentException("playbackRate");
+        }
+        return playbackRate;
     }
 
     private static final class SynthProfile {

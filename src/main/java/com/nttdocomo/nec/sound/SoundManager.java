@@ -4,7 +4,7 @@ package com.nttdocomo.nec.sound;
  * NEC audio factory used by early handset titles.
  *
  * Binary-backed evidence:
- * - title bytecode references {@code SoundManager.getAudioPresenter()} and
+ * - recovered title linkage references {@code SoundManager.getAudioPresenter()} and
  *   stores the result as an {@link NxAudioPresenter};
  * - the device dump contains the `SoundManager`, `getAudioPresenter`, and
  *   `createAudioPresenter` symbols;
