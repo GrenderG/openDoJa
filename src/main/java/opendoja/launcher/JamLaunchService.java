@@ -7,6 +7,7 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
@@ -75,25 +76,28 @@ final class JamLaunchService {
     }
 
     private static Path droppedJamPathFromDirectory(Path directory) throws IOException {
-        Path rootJam = firstJamInDirectory(directory);
-        if (rootJam != null) {
-            return rootJam;
-        }
-        Path binDirectory = directory.resolve("bin");
-        if (!Files.isDirectory(binDirectory)) {
-            return null;
-        }
-        return firstJamInDirectory(binDirectory);
+        return firstJamInDirectoryTree(directory);
     }
 
-    private static Path firstJamInDirectory(Path directory) throws IOException {
+    private static Path firstJamInDirectoryTree(Path directory) throws IOException {
         try (Stream<Path> children = Files.list(directory)) {
-            return children
-                    .filter(Files::isRegularFile)
-                    .filter(path -> hasJamExtension(path.getFileName().toString()))
+            List<Path> sortedChildren = children
                     .sorted()
-                    .findFirst()
-                    .orElse(null);
+                    .toList();
+            for (Path child : sortedChildren) {
+                if (Files.isRegularFile(child) && hasJamExtension(child.getFileName().toString())) {
+                    return child;
+                }
+            }
+            for (Path child : sortedChildren) {
+                if (Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
+                    Path nestedJam = firstJamInDirectoryTree(child);
+                    if (nestedJam != null) {
+                        return nestedJam;
+                    }
+                }
+            }
+            return null;
         }
     }
 

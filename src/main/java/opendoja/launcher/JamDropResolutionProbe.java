@@ -14,6 +14,7 @@ public final class JamDropResolutionProbe {
         verifyDirectJamFileDrop();
         verifyRootFolderJamIsPreferred();
         verifyBinFolderJamFallback();
+        verifyNestedFolderJamFallback();
         verifyFolderWithoutJamIsIgnored();
         verifyNonJamFileStillFails();
 
@@ -49,13 +50,26 @@ public final class JamDropResolutionProbe {
                 "bin/.jam should be used when the root folder has no .jam");
     }
 
+    private static void verifyNestedFolderJamFallback() throws Exception {
+        Path root = Files.createTempDirectory("jam-drop-nested");
+        Path nested = Files.createDirectories(root.resolve("data").resolve("games").resolve("target"));
+        Path expected = writeJam(nested.resolve("Nested.jam"));
+
+        Path resolved = JamLaunchService.droppedJamPath(List.of(root));
+        check(expected.toAbsolutePath().normalize().equals(resolved),
+                "recursive folder drop search should find a nested .jam");
+    }
+
     private static void verifyFolderWithoutJamIsIgnored() throws Exception {
         Path root = Files.createTempDirectory("jam-drop-empty");
         Files.createDirectories(root.resolve("bin"));
+        Files.createDirectories(root.resolve("data").resolve("games"));
         Files.writeString(root.resolve("readme.txt"), "no jam", StandardCharsets.UTF_8);
+        Files.writeString(root.resolve("data").resolve("games").resolve("readme.txt"),
+                "still no jam", StandardCharsets.UTF_8);
 
         Path resolved = JamLaunchService.droppedJamPath(List.of(root));
-        check(resolved == null, "folder drops without a matching .jam should be ignored");
+        check(resolved == null, "folder drops without a recursive .jam match should be ignored");
     }
 
     private static void verifyNonJamFileStillFails() throws Exception {
