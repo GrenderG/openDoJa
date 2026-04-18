@@ -501,7 +501,39 @@ public class Font {
         while (end > 0 && text.charAt(end - 1) == REPLACEMENT_CHARACTER) {
             end--;
         }
-        return end == text.length() ? text : text.substring(0, end);
+        if (end == 0) {
+            return "";
+        }
+        String value = end == text.length() ? text : text.substring(0, end);
+        return stripInvisibleTextControls(value);
+    }
+
+    private static String stripInvisibleTextControls(String text) {
+        StringBuilder visible = null;
+        for (int index = 0; index < text.length(); ) {
+            int codePoint = text.codePointAt(index);
+            int charCount = Character.charCount(codePoint);
+            if (isInvisibleTextControl(codePoint)) {
+                if (visible == null) {
+                    visible = new StringBuilder(text.length());
+                    visible.append(text, 0, index);
+                }
+            } else if (visible != null) {
+                visible.appendCodePoint(codePoint);
+            }
+            index += charCount;
+        }
+        return visible == null ? text : visible.toString();
+    }
+
+    private static boolean isInvisibleTextControl(int codePoint) {
+        if (codePoint == '\n' || codePoint == '\r') {
+            return false;
+        }
+        if (Character.isISOControl(codePoint)) {
+            return true;
+        }
+        return Character.getType(codePoint) == Character.FORMAT;
     }
 
     static String requireXString(XString text, String name) {
