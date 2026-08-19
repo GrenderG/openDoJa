@@ -108,10 +108,6 @@ final class OglSoftwareRenderer {
         if (vertexPointer == null) {
             return false;
         }
-        if (vertexPointer.type() != GraphicsOGL.GL_FLOAT) {
-            ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
-            return false;
-        }
         int positionSize = Math.max(1, vertexPointer.size());
         float x = owner.readFloatComponent(vertexPointer, vertexIndex, 0);
         if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
@@ -129,10 +125,6 @@ final class OglSoftwareRenderer {
         float v = 0f;
         OglRenderer.OglPointer texCoordPointer = ogl.texCoordArrayEnabled ? ogl.texCoordPointer : null;
         if (texCoordPointer != null) {
-            if (texCoordPointer.type() != GraphicsOGL.GL_FLOAT) {
-                ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
-                return false;
-            }
             int texSize = Math.max(1, texCoordPointer.size());
             u = owner.readFloatComponent(texCoordPointer, vertexIndex, 0);
             if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
@@ -196,23 +188,19 @@ final class OglSoftwareRenderer {
             return ogl.color;
         }
         OglRenderer.OglPointer colorPointer = ogl.colorPointer;
-        if (colorPointer.type() != GraphicsOGL.GL_UNSIGNED_BYTE) {
-            ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
-            return 0;
-        }
-        int red = colorPointer.size() > 0 ? owner.readUnsignedByteComponent(colorPointer, vertexIndex, 0) : 255;
+        int red = colorPointer.size() > 0 ? owner.readColorComponent(colorPointer, vertexIndex, 0) : 255;
         if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
             return 0;
         }
-        int green = colorPointer.size() > 1 ? owner.readUnsignedByteComponent(colorPointer, vertexIndex, 1) : red;
+        int green = colorPointer.size() > 1 ? owner.readColorComponent(colorPointer, vertexIndex, 1) : red;
         if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
             return 0;
         }
-        int blue = colorPointer.size() > 2 ? owner.readUnsignedByteComponent(colorPointer, vertexIndex, 2) : red;
+        int blue = colorPointer.size() > 2 ? owner.readColorComponent(colorPointer, vertexIndex, 2) : red;
         if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
             return 0;
         }
-        int alpha = colorPointer.size() > 3 ? owner.readUnsignedByteComponent(colorPointer, vertexIndex, 3) : 255;
+        int alpha = colorPointer.size() > 3 ? owner.readColorComponent(colorPointer, vertexIndex, 3) : 255;
         if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
             return 0;
         }
