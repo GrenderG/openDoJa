@@ -2,6 +2,7 @@ package opendoja.host;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.util.Arrays;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
@@ -119,11 +120,10 @@ public final class DesktopSurface {
         }
         // Presentation must remain stable while the app keeps drawing and while the EDT may still
         // be blitting one of the previous snapshots into the host window.
-        Graphics2D g2 = copy.createGraphics();
-        try {
-            g2.drawImage(image, 0, 0, null);
-        } finally {
-            g2.dispose();
+        int[] sourcePixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+        int[] destinationPixels = ((DataBufferInt) copy.getRaster().getDataBuffer()).getData();
+        for (int i = 0; i < sourcePixels.length; i++) {
+            destinationPixels[i] = sourcePixels[i] | 0xFF000000;
         }
         return copy;
     }

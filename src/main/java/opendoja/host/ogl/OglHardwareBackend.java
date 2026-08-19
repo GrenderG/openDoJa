@@ -298,7 +298,7 @@ final class OglHardwareBackend {
     private PreparedArrayState prepareArrayState(int first, int primitiveCount, OglRenderer.OglIndexSource indexSource) {
         OglRenderer.OglState ogl = owner.oglState();
         OglRenderer.OglPointer vertexPointer = ogl.vertexPointer;
-        if (vertexPointer == null || vertexPointer.type() != GraphicsOGL.GL_FLOAT) {
+        if (vertexPointer == null) {
             return null;
         }
         boolean emulateMatrixPalette = ogl.usesMatrixPalette();
@@ -401,7 +401,7 @@ final class OglHardwareBackend {
 
     private void populateHardwareTexCoord(float[] destination, int vertexSlot, int sourceVertexIndex) {
         OglRenderer.OglPointer texCoordPointer = owner.oglState().texCoordPointer;
-        if (texCoordPointer == null || texCoordPointer.type() != GraphicsOGL.GL_FLOAT) {
+        if (texCoordPointer == null) {
             return;
         }
         int size = Math.max(1, texCoordPointer.size());
@@ -412,15 +412,15 @@ final class OglHardwareBackend {
 
     private void populateHardwareColor(byte[] destination, int vertexSlot, int sourceVertexIndex) {
         OglRenderer.OglPointer colorPointer = owner.oglState().colorPointer;
-        if (colorPointer == null || colorPointer.type() != GraphicsOGL.GL_UNSIGNED_BYTE) {
+        if (colorPointer == null) {
             return;
         }
         int size = Math.max(1, colorPointer.size());
         int destinationOffset = vertexSlot * 4;
-        int red = owner.readUnsignedByteComponent(colorPointer, sourceVertexIndex, 0);
-        int green = size > 1 ? owner.readUnsignedByteComponent(colorPointer, sourceVertexIndex, 1) : red;
-        int blue = size > 2 ? owner.readUnsignedByteComponent(colorPointer, sourceVertexIndex, 2) : red;
-        int alpha = size > 3 ? owner.readUnsignedByteComponent(colorPointer, sourceVertexIndex, 3) : 255;
+        int red = owner.readColorComponent(colorPointer, sourceVertexIndex, 0);
+        int green = size > 1 ? owner.readColorComponent(colorPointer, sourceVertexIndex, 1) : red;
+        int blue = size > 2 ? owner.readColorComponent(colorPointer, sourceVertexIndex, 2) : red;
+        int alpha = size > 3 ? owner.readColorComponent(colorPointer, sourceVertexIndex, 3) : 255;
         destination[destinationOffset] = (byte) red;
         destination[destinationOffset + 1] = (byte) green;
         destination[destinationOffset + 2] = (byte) blue;
