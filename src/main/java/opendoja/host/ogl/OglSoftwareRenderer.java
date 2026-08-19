@@ -74,9 +74,12 @@ final class OglSoftwareRenderer {
                     }
                     owner.drawRasterTriangle(v0, v1, v2, pixels, depthBuffer, clip,
                             target.getWidth(), target.getHeight(), clipInput, clipScratch, project0, project1, project2);
+
+                    OglRenderer.RasterVertex tmp = previous0;
                     previous0 = previous1;
                     previous1 = next;
-                    next = v0;
+                    next = tmp;
+
                     nextClip = next == scratch0 ? clip0 : clip1;
                 }
             }
