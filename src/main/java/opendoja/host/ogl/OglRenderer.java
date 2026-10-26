@@ -15,6 +15,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class OglRenderer {
     private static final int OGL_TEXTURE_UNIT_COUNT = 1;
+    private static final int OGL_MAX_TEXTURE_SIZE = 2048;
+    private static final int OGL_DEPTH_BITS = 24;
     private static final int OGL_MAX_VERTEX_UNITS = 8;
     private static final int OGL_MAX_PALETTE_MATRICES = 32;
     private static final SharedGlObjectStore SHARED_GL_OBJECT_STORE = new SharedGlObjectStore();
@@ -909,8 +911,10 @@ public final void glGetIntegerv(int pname, int[] params) {
         throw new IllegalArgumentException("params");
     }
     switch (pname) {
+        case GraphicsOGL.GL_MAX_TEXTURE_SIZE -> params[0] = OGL_MAX_TEXTURE_SIZE;
         case GraphicsOGL.GL_MAX_LIGHTS -> params[0] = 8;
         case GraphicsOGL.GL_MAX_TEXTURE_UNITS -> params[0] = OGL_TEXTURE_UNIT_COUNT;
+        case GraphicsOGL.GL_DEPTH_BITS -> params[0] = OGL_DEPTH_BITS;
         case GraphicsOGL.GL_MAX_PALETTE_MATRICES_OES -> params[0] = OGL_MAX_PALETTE_MATRICES;
         case GraphicsOGL.GL_MAX_VERTEX_UNITS_OES -> params[0] = OGL_MAX_VERTEX_UNITS;
         default -> ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
@@ -1481,8 +1485,20 @@ int computeLightingColor(ClipVector eyePosition, float normalX, float normalY, f
 float readFloatComponent(OglPointer pointer, int vertexIndex, int componentIndex) {
     int byteOffset = pointer.componentByteOffset(vertexIndex, componentIndex);
     if (pointer.bufferObject() != null) {
-        return readFloat(pointer.bufferObject().data(), byteOffset);
+        return readTypedFloat(pointer.type(), pointer.bufferObject().data(), byteOffset);
     }
+    return switch (pointer.type()) {
+        case GraphicsOGL.GL_FLOAT -> readDirectFloatComponent(pointer, byteOffset);
+        case GraphicsOGL.GL_BYTE -> readDirectByteComponent(pointer, byteOffset);
+        case GraphicsOGL.GL_SHORT -> readDirectShortComponent(pointer, byteOffset);
+        default -> {
+            ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
+            yield 0f;
+        }
+    };
+}
+
+private float readDirectFloatComponent(OglPointer pointer, int byteOffset) {
     if (pointer.pointer() instanceof FloatBuffer floatBuffer) {
         if ((byteOffset & 3) != 0) {
             ogl.lastError = GraphicsOGL.GL_INVALID_VALUE;
@@ -1509,6 +1525,17 @@ float readFloatComponent(OglPointer pointer, int vertexIndex, int componentIndex
     }
     ogl.lastError = GraphicsOGL.GL_INVALID_VALUE;
     return 0f;
+}
+
+int readColorComponent(OglPointer pointer, int vertexIndex, int componentIndex) {
+    return switch (pointer.type()) {
+        case GraphicsOGL.GL_UNSIGNED_BYTE -> readUnsignedByteComponent(pointer, vertexIndex, componentIndex);
+        case GraphicsOGL.GL_FLOAT -> clampOglChannel(readFloatComponent(pointer, vertexIndex, componentIndex));
+        default -> {
+            ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
+            yield 0;
+        }
+    };
 }
 
 float readNormalComponent(OglPointer pointer, int vertexIndex, int componentIndex) {
