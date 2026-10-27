@@ -246,9 +246,8 @@ public final class JamNamedModuleResourceBridge {
             if (!resourceNames.contains(name)) {
                 return Optional.empty();
             }
-            // ModuleReader.defaultOpen reads through URI::toURL, so exposing the game entry as a
-            // jar: URI is enough for the default open/read implementations to work unchanged.
-            return Optional.of(URI.create("jar:" + gameJarPath.toUri().toASCIIString() + "!/" + encodeEntryName(name)));
+            String encodedFileUrl = gameJarPath.toUri().toASCIIString().replace("!", "%21");
+            return Optional.of(URI.create("jar:" + encodedFileUrl + "!/" + encodeEntryName(name)));
         }
 
         private Stream<String> list() {
