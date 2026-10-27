@@ -1448,9 +1448,12 @@ public final class DoJaRuntime {
     private String launchMicroeditionProfiles() {
         DoJaProfile resolved = DoJaProfile.fromParametersOrDocumentedDeviceIdentity(config.parameters());
         if (resolved.isKnown()) {
-            return resolved.toString();
+            // The system property uses the handset profile name, not the ADF's DoJa-* spelling.
+            return "DoCoMoProfile-" + resolved.major() + "." + resolved.minor();
         }
-        return "";
+        // Older JAMs may omit ProfileVer and device hints. Still advertise our supported
+        // runtime profile: titles commonly parse this property without checking for null.
+        return "DoCoMoProfile-5.1";
     }
 
     private String launchDeviceIdentity() {

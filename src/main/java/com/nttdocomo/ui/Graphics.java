@@ -909,11 +909,17 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
                 originY + y - font.getAscent(),
                 Math.max(1, font.stringWidth(text)),
                 Math.max(1, font.getHeight()));
-        if (drawWithOptRenderMode(bounds, graphics -> font.drawString(graphics, text, originX + x, originY + y, color))) {
+        int textColor = toOpaqueRgb(color);
+        if (drawWithOptRenderMode(bounds, graphics -> font.drawString(graphics, text, originX + x, originY + y, textColor))) {
             return;
         }
         prepareSoftwareSurfaceMutation();
-        font.drawString(delegate, text, originX + x, originY + y, color);
+        Color savedColor = delegate.getColor();
+        try {
+            font.drawString(delegate, text, originX + x, originY + y, textColor);
+        } finally {
+            delegate.setColor(savedColor);
+        }
         flushSurfacePresentation();
     }
 
@@ -1353,7 +1359,7 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
 
     protected final void drawAffineImageValidated(Image image, AffineTransform localTransform, int sx, int sy, int width, int height) {
         ensureImageNotDisposed(image);
-        BufferedImage source = image.renderForDisplay();
+        BufferedImage source = snapshotAliasedImage(image.renderForDisplay());
         if (source == null) {
             return;
         }
@@ -1501,9 +1507,20 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
         return new Rectangle(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
     }
 
+    private BufferedImage snapshotAliasedImage(BufferedImage source) {
+        if (source != null && source.getRaster().getDataBuffer() == surface.image().getRaster().getDataBuffer()) {
+            BufferedImage snapshot = new BufferedImage(source.getColorModel(),
+                    source.getRaster().createCompatibleWritableRaster(source.getWidth(), source.getHeight()),
+                    source.isAlphaPremultiplied(), null);
+            source.copyData(snapshot.getRaster());
+            return snapshot;
+        }
+        return source;
+    }
+
     private void drawSubImage(Image image, int dx, int dy, int sx, int sy, int sw, int sh, int dw, int dh) {
         ensureImageNotDisposed(image);
-        BufferedImage source = image == null ? null : image.renderForDisplay();
+        BufferedImage source = snapshotAliasedImage(image == null ? null : image.renderForDisplay());
         if (source == null || sw <= 0 || sh <= 0 || dw == 0 || dh == 0) {
             return;
         }
