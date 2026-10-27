@@ -909,11 +909,17 @@ public class Graphics implements com.nttdocomo.ui.graphics3d.Graphics3D, com.ntt
                 originY + y - font.getAscent(),
                 Math.max(1, font.stringWidth(text)),
                 Math.max(1, font.getHeight()));
-        if (drawWithOptRenderMode(bounds, graphics -> font.drawString(graphics, text, originX + x, originY + y, color))) {
+        int textColor = toOpaqueRgb(color);
+        if (drawWithOptRenderMode(bounds, graphics -> font.drawString(graphics, text, originX + x, originY + y, textColor))) {
             return;
         }
         prepareSoftwareSurfaceMutation();
-        font.drawString(delegate, text, originX + x, originY + y, color);
+        Color savedColor = delegate.getColor();
+        try {
+            font.drawString(delegate, text, originX + x, originY + y, textColor);
+        } finally {
+            delegate.setColor(savedColor);
+        }
         flushSurfacePresentation();
     }
 
