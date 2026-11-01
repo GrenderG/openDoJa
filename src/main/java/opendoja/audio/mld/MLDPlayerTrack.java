@@ -40,6 +40,8 @@ package opendoja.audio.mld;
  */
 public class MLDPlayerTrack
 {
+    public int getIndex() { return this.index; }
+
     /**
      * Starting cuepoint
      */

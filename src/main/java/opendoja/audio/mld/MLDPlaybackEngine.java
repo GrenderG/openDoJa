@@ -22,6 +22,58 @@ public interface MLDPlaybackEngine
      */
     void reset();
 
+    /** Separate source production from command consumption on clocked backends. */
+    default void setReadAheadMode(boolean enabled) {
+        if (enabled) throw new UnsupportedOperationException("Backend has no command producer");
+    }
+
+    default void beginSourceEvent(int ticks) {}
+
+    default void endSourceEvent(boolean trackEnded, boolean instantaneousEnd) {}
+
+    /** Host volume percentage for backends that apply it before rendering. */
+    default void setHostVolumeLevel(int level)
+    {
+    }
+
+    /** Return the accepted tempo, or zero when this track/event is ignored. */
+    default int eventTempo(int track, int timebase, int tempo)
+    {
+        return timebase > 0 && tempo > 0 ? tempo : 0;
+    }
+
+    /** Positive native integer tick duration, or zero for the generic float clock. */
+    default int tickDurationMicros(int timebase, int tempo)
+    {
+        return 0;
+    }
+
+    /** Backend-specific lane assignment bits from raw E5. */
+    default int assignedChannel(int current, int parameter) { return parameter & 63; }
+
+    /** Convert a decoded MFi velocity to the sampler's normalized domain. */
+    default float noteVelocity(float velocity)
+    {
+        return velocity;
+    }
+
+    /** Whether the backend accepts this decoded note and gate. */
+    default boolean acceptsNote(int channel, int key, int gateTime)
+    {
+        return true;
+    }
+
+    /** A backend may own the driver's timed-note records instead of generic note gates. */
+    default boolean ownsNoteGates() { return false; }
+
+    default void handleNote(int channel, int key, float velocity, int gateTime) {}
+
+    default int ticksUntilNoteGate() { return -1; }
+
+    default void advanceNoteGates(int elapsedTicks) {}
+
+    default void retireNoteGates() {}
+
     /**
      * Handle an ext-B event.
      *

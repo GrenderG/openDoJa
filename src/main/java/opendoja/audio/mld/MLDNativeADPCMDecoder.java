@@ -3,10 +3,10 @@ package opendoja.audio.mld;
 public final class MLDNativeADPCMDecoder {
     private static final int INPUT_SAMPLE_RATE_8K = 8000;
     private static final int INPUT_SAMPLE_RATE_16K = 16000;
+    private static final int INPUT_SAMPLE_RATE_32K = 32000;
     private static final int CODED_BITS_2 = 2;
     private static final int CODED_BITS_4 = 4;
     private static final int MONO_CHANNELS = 1;
-    private static final int LIVE_DEFAULT_LEVEL_Q12 = 4095;
     private static final int LIVE_DEFAULT_LEFT_PAN_Q12 = 4095;
     private static final int LIVE_DEFAULT_SHIFT_BITS = 24;
 
@@ -50,6 +50,14 @@ public final class MLDNativeADPCMDecoder {
             0.631808,
             new double[] { 0.226858, 0.631808, 0.385442, -0.875916 });
 
+    // lib002 0x10030470: formats 8/9 have no interpolation filter.
+    private static final LiveProfile LIVE_PROFILE_32K_2BIT = new LiveProfile(
+            INPUT_SAMPLE_RATE_32K, CODED_BITS_2, 0,
+            null, 0.0, null, 0.0, null);
+    private static final LiveProfile LIVE_PROFILE_32K_4BIT = new LiveProfile(
+            INPUT_SAMPLE_RATE_32K, CODED_BITS_4, 0,
+            null, 0.0, null, 0.0, null);
+
     // `MFiSoundLibMFi5.dll` `.data` tables at 0x100A3F98..0x100A4065.
     private static final int[] DQLN_4BIT = new int[] {
             2048, 4, 135, 213, 273, 323, 373, 425,
@@ -65,47 +73,91 @@ public final class MLDNativeADPCMDecoder {
     }
 
     public static boolean supportsLivePath(int sampleRate, int codedBits, int channelCount) {
-        return profileFor(sampleRate, codedBits, channelCount) != null;
+        // 0x10027030 stores stereo as two equal, independently coded planes.
+        return (channelCount == 1 || channelCount == 2)
+                && profileFor(sampleRate, codedBits, MONO_CHANNELS) != null;
+    }
+
+    /** Decodes packed, low-bit-first codes without the output filter or gain. */
+    public static short[] decodeMonoPcm(int codedBits, byte[] payload) {
+        if (codedBits != CODED_BITS_2 && codedBits != CODED_BITS_4) {
+            throw new IllegalArgumentException("Expected 2-bit or 4-bit ADPCM.");
+        }
+        short[] pcm = new short[Math.multiplyExact(payload.length, 8 / codedBits)];
+        LaneState lane = new LaneState();
+        int cursor = 0;
+        for (byte packed : payload) {
+            for (int shift = 0; shift < 8; shift += codedBits) {
+                pcm[cursor++] = (short) stepUpdateCore(
+                        (packed >>> shift) & ((1 << codedBits) - 1), codedBits, lane);
+            }
+        }
+        return pcm;
     }
 
     public static int[] decodeLiveMonoNativeLane0(int sampleRate, int codedBits, byte[] payload) {
-        LiveProfile profile = profileFor(sampleRate, codedBits, MONO_CHANNELS);
-        if (profile == null) {
-            throw new IllegalArgumentException(
-                    "Unsupported 0x8001 live-path subset: " + sampleRate + " Hz / " + codedBits + "-bit / mono.");
+        LiveMonoStream stream = new LiveMonoStream(sampleRate, codedBits);
+        return stream.decodeNextBuffer(payload, Math.multiplyExact(payload.length, stream.framesPerByte()));
+    }
+
+    /** Native 30470 initialization plus 32b50 buffer handoffs on one decoder. */
+    public static final class LiveMonoStream {
+        private final LiveProfile profile;
+        private final int codedBits;
+        private final LaneState lane = new LaneState();
+        private final RenderState render = new RenderState();
+
+        public LiveMonoStream(int sampleRate, int codedBits) {
+            this.profile = profileFor(sampleRate, codedBits, MONO_CHANNELS);
+            if (profile == null) {
+                throw new IllegalArgumentException("Unsupported ADPCM stream: " + sampleRate + " Hz / " + codedBits + " bits");
+            }
+            this.codedBits = codedBits;
         }
 
-        int codesPerByte = 8 / codedBits;
-        int totalFrames = payload.length * codesPerByte * (profile.upsamplePeriodMinus1 + 1);
-        int[] lane0 = new int[totalFrames];
-
-        LaneState lane = new LaneState();
-        RenderState render = new RenderState();
-        int emitted = 0;
-
-        while (emitted < totalFrames && !render.stop) {
-            double stage0 = dot5(
-                    render.sampleHist0,
-                    render.sampleHist1,
-                    render.sampleHist2,
-                    render.stage1Hist0,
-                    render.stage1Hist1,
-                    profile.stage0);
-            double stage1 = stage0 * profile.stage1Gain
-                    + dot4(render.stage1Hist0, render.stage1Hist1, render.stage2Hist0, render.stage2Hist1, profile.stage1);
-            double stage2 = stage1 * profile.stage2Gain
-                    + dot4(render.stage2Hist0, render.stage2Hist1, render.stage3Hist0, render.stage3Hist1, profile.stage2);
-
-            lane0[emitted++] = quantizeNativeLane0(stage2);
-            advanceProfile(payload, lane, render, profile, codedBits, stage0, stage1, stage2);
+        public int framesPerByte() {
+            return (8 / codedBits) * (profile.upsamplePeriodMinus1 + 1);
         }
 
-        if (emitted == lane0.length) {
-            return lane0;
+        /**
+         * Replace the input buffer, preserving predictor, packed-code latch,
+         * interpolation phase and filter history. Like native32b50, this also
+         * clears a previous underrun. Returned frames include the output made
+         * immediately before a failed code read; the unfilled tail is omitted.
+         */
+        public int[] decodeNextBuffer(byte[] payload, int frameLimit) {
+            return decodeNextBuffer(payload, frameLimit, false);
         }
-        int[] truncated = new int[emitted];
-        System.arraycopy(lane0, 0, truncated, 0, emitted);
-        return truncated;
+
+        /** Signed PCM before native307e0's per-output pan multiplication. */
+        public int[] decodeNextBufferRawPcm16(byte[] payload, int frameLimit) {
+            return decodeNextBuffer(payload, frameLimit, true);
+        }
+
+        private int[] decodeNextBuffer(byte[] payload, int frameLimit, boolean rawPcm) {
+            if (frameLimit < 0) throw new IllegalArgumentException("Negative frame limit");
+            render.inputByteCursor = 0;
+            render.stop = false;
+            int[] lane0 = new int[frameLimit];
+            int emitted = 0;
+            while (emitted < frameLimit && !render.stop) {
+                // 30640 accumulates each stage in this order. Computing the
+                // feedback sum separately changes rounding at integer edges.
+                double stage0 = profile.upsamplePeriodMinus1 == 0 ? 0.0 : dot5(
+                        render.sampleHist0, render.sampleHist1, render.sampleHist2,
+                        render.stage1Hist0, render.stage1Hist1, profile.stage0);
+                double stage1 = profile.upsamplePeriodMinus1 == 0 ? 0.0 : dot4(
+                        stage0 * profile.stage1Gain,
+                        render.stage1Hist0, render.stage1Hist1, render.stage2Hist0, render.stage2Hist1, profile.stage1);
+                double stage2 = profile.upsamplePeriodMinus1 == 0 ? render.sampleHist0 : dot4(
+                        stage1 * profile.stage2Gain,
+                        render.stage2Hist0, render.stage2Hist1, render.stage3Hist0, render.stage3Hist1, profile.stage2);
+
+                lane0[emitted++] = rawPcm ? clamp16(stage2) : quantizeNativeLane0(stage2);
+                advanceProfile(payload, lane, render, profile, codedBits, stage0, stage1, stage2);
+            }
+            return emitted == lane0.length ? lane0 : java.util.Arrays.copyOf(lane0, emitted);
+        }
     }
 
     private static LiveProfile profileFor(int sampleRate, int codedBits, int channelCount) {
@@ -129,6 +181,13 @@ public final class MLDNativeADPCMDecoder {
                 return LIVE_PROFILE_16K_4BIT;
             }
             return null;
+        }
+        if (sampleRate == INPUT_SAMPLE_RATE_32K) {
+            return switch (codedBits) {
+                case CODED_BITS_2 -> LIVE_PROFILE_32K_2BIT;
+                case CODED_BITS_4 -> LIVE_PROFILE_32K_4BIT;
+                default -> null;
+            };
         }
         return null;
     }
@@ -260,8 +319,11 @@ public final class MLDNativeADPCMDecoder {
     }
 
     private static int reconstructSignMagnitude(boolean negative, int dqln, int y) {
-        int dql = dqln + (y >> 2);
-        if (dql < 0) {
+        // lib002 0x10031680/0x100316a0 uses a signed 12-bit logarithm.
+        // In particular table entry 0x800 means negative infinity (silence),
+        // not the positive Java integer 2048.
+        int dql = (dqln + (y >> 2)) & 0x0FFF;
+        if ((dql & 0x0800) != 0) {
             return negative ? 0xFFFF8000 : 0;
         }
         int dex = (dql >> 7) & 0x0F;
@@ -568,8 +630,10 @@ public final class MLDNativeADPCMDecoder {
 
     private static int quantizeNativeLane0(double sample) {
         int clamped = clamp16(sample);
-        int leveled = q12MultiplyTrunc(clamped, LIVE_DEFAULT_LEVEL_Q12);
-        int left = q12MultiplyTrunc(leveled, LIVE_DEFAULT_LEFT_PAN_Q12);
+        // 0x100307e0 clamps the level field but applies only the pan word.
+        // The caller encodes gain in the pan words; multiplying by the level
+        // field here would apply an extra gain stage.
+        int left = q12MultiplyTrunc(clamped, LIVE_DEFAULT_LEFT_PAN_Q12);
         return shiftSignedLane(left, LIVE_DEFAULT_SHIFT_BITS);
     }
 
@@ -614,8 +678,8 @@ public final class MLDNativeADPCMDecoder {
         return 31 - Integer.numberOfLeadingZeros(value);
     }
 
-    private static double dot4(double a, double b, double c, double d, double[] coeffs) {
-        return a * coeffs[0] + b * coeffs[1] + c * coeffs[2] + d * coeffs[3];
+    private static double dot4(double initial, double a, double b, double c, double d, double[] coeffs) {
+        return initial + a * coeffs[0] + b * coeffs[1] + c * coeffs[2] + d * coeffs[3];
     }
 
     private static double dot5(double a, double b, double c, double d, double e, double[] coeffs) {

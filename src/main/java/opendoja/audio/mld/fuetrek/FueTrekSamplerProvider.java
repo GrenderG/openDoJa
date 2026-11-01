@@ -15,6 +15,8 @@ public final class FueTrekSamplerProvider implements SamplerProvider {
     // with a hard maximum of 4096. OpenDoJa uses 128 as the smallest positive
     // normalized block when sanitizing user buffer requests.
     public static final float SAMPLE_RATE = 32000.0f;
+    // Advertised reservation. The native port enables borrowing from the
+    // shared 96-voice DSP pool (100059d0 -> 10005bc0 -> 10005d40).
     public static final int MAX_POLYPHONY = 32;
     public static final int MIN_FRAME_SIZE = 128;
     public static final int MAX_FRAME_SIZE = 4096;

@@ -126,6 +126,8 @@ public class MLDPlayer
 
     final MLDPlaybackEngine playbackEngine;
 
+    private final boolean readAheadSource;
+
     /**
      * Playback events are enabled
      */
@@ -206,6 +208,15 @@ public class MLDPlayer
 
     public MLDPlayer(MLD mld, SamplerProvider sampler, float sampleRate)
     {
+        this(mld, sampler, sampleRate, false);
+    }
+
+    /**
+     * Internal producer context; playback consumes its encoded command stream separately.
+     * Resource/SysEx delivery and presenter lifecycle still require clock binding.
+     */
+    MLDPlayer(MLD mld, SamplerProvider sampler, float sampleRate, boolean readAheadSource)
+    {
 
         // Error checking
         if (mld == null)
@@ -223,6 +234,7 @@ public class MLDPlayer
         this.loopEnabled = true;
         this.loopStopAll = true;
         this.mld = mld;
+        this.readAheadSource = readAheadSource;
         this.sampler = sampler.instance(sampleRate);
         this.sampleRate = sampleRate;
         this.playbackRate = 1.0f;
@@ -230,6 +242,7 @@ public class MLDPlayer
         this.tracks = new MLDPlayerTrack[mld.tracks.length];
         this.playbackEngine = this.sampler.createPlaybackEngine(mld,
             sampleRate);
+        this.playbackEngine.setReadAheadMode(readAheadSource);
         this.trackControlEngine = TrackControlEngine.create(
             this.playbackEngine.trackControlMode(), this.tracks.length);
 
@@ -596,6 +609,8 @@ public class MLDPlayer
     public int render(float[] samples, int offset, int frames, float left,
         float right, boolean erase, boolean clamp)
     {
+        if (this.readAheadSource)
+            throw new IllegalStateException("Read-ahead source must be consumed through its command driver");
         //  Total frames output so far
         int ret = 0;
 
@@ -672,9 +687,12 @@ public class MLDPlayer
                 this.tickNow += this.pendingTicks;
 
                 // Notes
-                for (MLDChannel chan : this.channels)
-                    for (MLDNote note : chan.notesOut)
-                        note.gateTime -= this.pendingTicks;
+                if (this.playbackEngine.ownsNoteGates())
+                    this.playbackEngine.advanceNoteGates(this.pendingTicks);
+                else
+                    for (MLDChannel chan : this.channels)
+                        for (MLDNote note : chan.notesOut)
+                            note.gateTime -= this.pendingTicks;
                 retireZeroGateNotes();
 
                 // Tracks
@@ -833,7 +851,7 @@ public class MLDPlayer
         int lane = event.channelIndex;
         if (this.trackControlEngine.usesRuntimeChannelMap() &&
             lane >= 0 && lane < track.channelMap.length)
-            track.channelMap[lane] = event.param & 0x3F;
+            track.channelMap[lane] = this.playbackEngine.assignedChannel(track.channelMap[lane], event.param);
         this.setTrackOffset(track, track.offset + 1);
     }
 
@@ -893,7 +911,7 @@ public class MLDPlayer
     void evtEndOfTrack(MLDPlayerTrack track, MLDEvent event)
     {
         track.trackControlReplayByte = 1;
-        this.setTrackOffset(track, track.offset + 1);
+        this.setTrackOffset(track, track.mld.size());
     }
 
     /**
@@ -958,11 +976,22 @@ public class MLDPlayer
         if (channel < 0)
             return;
 
+        if (this.playbackEngine.ownsNoteGates())
+        {
+            if (!this.seeking)
+                this.playbackEngine.handleNote(channel, event.key, event.velocity, event.gateTime);
+            return;
+        }
+
+        if (!this.playbackEngine.acceptsNote(channel, event.key, event.gateTime))
+            return;
+
         MLDChannel chan = this.channels[channel];
         MLDNote note = chan.notesOn[MLDPlayer.A4 + event.key];
 
-        // Velocity 0 is regarded as key-off
-        if (event.velocity == 0)
+        float velocity = this.playbackEngine.noteVelocity(event.velocity);
+        // Backends choose whether the raw zero code means key-off.
+        if (velocity == 0)
         {
             this.sampler.keyOff(channel, event.key);
             if (note != null)
@@ -978,7 +1007,7 @@ public class MLDPlayer
         // same key is struck again before release.
         if (!this.seeking &&
             (note == null || !this.sampler.suppressActiveKeyRetrigger()))
-            this.sampler.keyOn(channel, event.key, event.velocity);
+            this.sampler.keyOn(channel, event.key, velocity);
 
         // Get or create the note for this key
         if (note == null)
@@ -1047,12 +1076,21 @@ public class MLDPlayer
      */
     void evtTimebaseTempo(MLDPlayerTrack track, MLDEvent event)
     {
-        if (event.timebase == -1)
-            return;
-        float prev = this.framesPerTick;
-        this.setTempo(event.timebase, event.tempo);
-        this.pendingFrames = this.pendingFrames * this.framesPerTick / prev;
+        int tempo = this.playbackEngine.eventTempo(track.index, event.timebase, event.tempo);
+        if (tempo > 0)
+        {
+            this.setBackendTempo(event.timebase, tempo);
+        }
+        // Ignored tempo opcodes still consume their event bytes.
         this.setTrackOffset(track, track.offset + 1);
+    }
+
+    /** Apply a backend's accepted tempo while preserving fractional pending output. */
+    public void setBackendTempo(int timebase, int tempo)
+    {
+        float previous = this.framesPerTick;
+        this.setTempo(timebase, tempo);
+        this.pendingFrames = this.pendingFrames * this.framesPerTick / previous;
     }
 
     /**
@@ -1085,24 +1123,7 @@ public class MLDPlayer
         {
             MLDEvent event = track.mld.get(track.offset);
 
-            // Process the event
-            switch (event.type)
-            {
-                case MLD.EVENT_TYPE_NOTE:
-                    this.evtNote(track, event);
-                    break;
-                case MLD.EVENT_TYPE_RESOURCE:
-                    this.evtResource(track, event);
-                    break;
-                case MLD.EVENT_TYPE_EXT_B:
-                    this.evtExtB(track, event);
-                    break;
-                case MLD.EVENT_TYPE_EXT_INFO:
-                    this.evtExtInfo(track, event);
-                    break;
-                default:
-                    this.setTrackOffset(track, track.offset + 1);
-            }
+            this.dispatchSourceEvent(track, event);
 
             // Stop processing events
             if (track.finished)
@@ -1123,6 +1144,107 @@ public class MLDPlayer
             track.ticks = track.mld.get(track.offset).delta;
         }
 
+    }
+
+    private void dispatchSourceEvent(MLDPlayerTrack track, MLDEvent event)
+    {
+        switch (event.type)
+        {
+            case MLD.EVENT_TYPE_NOTE -> this.evtNote(track, event);
+            case MLD.EVENT_TYPE_RESOURCE -> this.evtResource(track, event);
+            case MLD.EVENT_TYPE_EXT_B -> this.evtExtB(track, event);
+            case MLD.EVENT_TYPE_EXT_INFO -> this.evtExtInfo(track, event);
+            default -> this.setTrackOffset(track, track.offset + 1);
+        }
+    }
+
+    /** One native-style source event, retaining cursors between producer yields. */
+    boolean produceNextSourceEvent()
+    {
+        if (!this.readAheadSource) throw new IllegalStateException("Not a read-ahead source");
+        MLDPlayerTrack chosen = null;
+        for (MLDPlayerTrack track : this.tracks)
+            if (!track.finished && (chosen == null || track.ticks < chosen.ticks)) chosen = track;
+        if (chosen == null) return false;
+        int ticks = chosen.ticks;
+        this.tickNow += ticks;
+        for (MLDPlayerTrack track : this.tracks)
+            if (!track.finished) track.ticks = (track.ticks - ticks) & 65535;
+        MLDEvent event = chosen.mld.get(chosen.offset);
+        this.playbackEngine.beginSourceEvent(ticks);
+        this.dispatchSourceEvent(chosen, event);
+        if (!chosen.finished && !chosen.trackControlSkipReschedule && !this.trackControlEngine.restartRequested())
+            chosen.ticks = chosen.mld.get(chosen.offset).delta;
+        chosen.trackControlSkipReschedule = false;
+        this.trackControlEngine.clearRestartRequest();
+        boolean end = chosen.finished;
+        this.playbackEngine.endSourceEvent(end, this.allTracksFinished() && this.tickNow == 0);
+        this.finished = this.allTracksFinished();
+        return true;
+    }
+
+    /** Whole-file classic08a20 scan modes, with a non-expiring host thread slice. */
+    void prefillWholeFile(int millis, java.util.function.IntConsumer stageObserver)
+    {
+        if (!this.readAheadSource || !(this.playbackEngine instanceof opendoja.audio.mld.fuetrek.FueTrekMLDPlaybackEngine engine))
+            throw new IllegalStateException("Public prefill requires a native read-ahead source");
+        engine.beginPublicPrefill(millis);
+        this.rewindWholeFileSource(engine, false);
+        engine.setSourceMode(2);
+        if (stageObserver != null) stageObserver.accept(0);
+        while (!this.finished) {
+            MLDPlayerTrack next = null;
+            for (MLDPlayerTrack track : this.tracks)
+                if (!track.finished && (next == null || track.ticks < next.ticks)) next = track;
+            if (next == null) break;
+            var wait = engine.prefillWait(next.ticks);
+            if (wait.boundary()) {
+                for (MLDPlayerTrack track : this.tracks)
+                    if (!track.finished) track.ticks = (track.ticks - wait.ticks()) & 65535;
+                break;
+            }
+            this.produceNextSourceEvent();
+        }
+        if (stageObserver != null) stageObserver.accept(1);
+        this.rewindWholeFileSource(engine, true);
+        engine.setSourceMode(3);
+        if (stageObserver != null) stageObserver.accept(2);
+        if (this.tracks.length != 0) {
+            MLDPlayerTrack track = this.tracks[0];
+            while (!track.finished && track.ticks == 0) {
+                engine.beginSourceEvent(0);
+                this.dispatchSourceEvent(track, track.mld.get(track.offset));
+                if (!track.finished) track.ticks = track.mld.get(track.offset).delta;
+                engine.endSourceEvent(track.finished, false);
+            }
+        }
+        if (stageObserver != null) stageObserver.accept(3);
+        this.rewindWholeFileSource(engine, true);
+        engine.setSourceMode(4);
+        if (stageObserver != null) stageObserver.accept(4);
+        //24700 immediately returns6 for whole-file mode. Cue mode has its own scan.
+        engine.setSourceMode(1);
+        if (stageObserver != null) stageObserver.accept(5);
+        engine.finishPublicPrefill();
+    }
+
+    private void rewindWholeFileSource(opendoja.audio.mld.fuetrek.FueTrekMLDPlaybackEngine engine, boolean restart)
+    {
+        this.tickNow = 0;
+        for (MLDPlayerTrack track : this.tracks) {
+            this.resetChannelMap(track);
+            track.cuepoint = -1;
+            track.offset = 0;
+            track.finished = track.mld.isEmpty();
+            track.trackControlSkipReschedule = false;
+            track.trackControlReplayByte = 0;
+            this.syncTrackControlCursor(track);
+            track.trackControlModeByte = track.index;
+            track.ticks = track.finished ? 0 : track.mld.get(0).delta;
+        }
+        this.trackControlEngine.reset(this);
+        this.finished = this.allTracksFinished();
+        if (restart) engine.restartClassicSource();
     }
 
     /**
@@ -1165,6 +1287,12 @@ public class MLDPlayer
             track.ticks = track.finished ? 0 : track.mld.get(track.offset).delta;
         }
         this.trackControlEngine.reset(this);
+
+        if (this.readAheadSource)
+        {
+            this.finished = this.allTracksFinished();
+            return;
+        }
 
         // Initialize playback
         this.finished = true;
@@ -1313,8 +1441,10 @@ public class MLDPlayer
     {
         this.currentTimebase = timebase;
         this.currentTempo = tempo;
-        this.framesPerTick =
-            (60 * this.sampleRate) / (timebase * tempo * this.playbackRate);
+        int micros = this.playbackEngine.tickDurationMicros(timebase, tempo);
+        this.framesPerTick = micros > 0
+            ? (float)(micros * (this.sampleRate / 1000000.0d) / this.playbackRate)
+            : (60 * this.sampleRate) / (timebase * tempo * this.playbackRate);
     }
 
     /**
@@ -1357,6 +1487,8 @@ public class MLDPlayer
      */
     int untilNote()
     {
+        if (this.playbackEngine.ownsNoteGates())
+            return this.playbackEngine.ticksUntilNoteGate();
         int ret = -1;
         for (MLDChannel chan : this.channels)
             for (MLDNote note : chan.notesOut)
@@ -1369,6 +1501,11 @@ public class MLDPlayer
 
     private void retireZeroGateNotes()
     {
+        if (this.playbackEngine.ownsNoteGates())
+        {
+            this.playbackEngine.retireNoteGates();
+            return;
+        }
         // Retire due note-offs before same-tick event processing so
         // backends that suppress active-key retriggers can start a fresh
         // voice when a note repeats exactly at its gate boundary.

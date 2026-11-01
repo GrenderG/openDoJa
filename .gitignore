@@ -17,6 +17,8 @@ target/
 build/
 out/
 /.tmp/
+/src/test/
+/scripts/
 
 # Project-local runtime state
 .opendoja/

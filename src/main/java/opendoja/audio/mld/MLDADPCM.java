@@ -83,8 +83,10 @@ public final class MLDADPCM
         if (this.sampleRateHz <= 0 || this.codedBits <= 0)
             return 0.0;
         int channels = Math.max(1, this.channelCount);
-        double codedFrames = (this.payload.length * 8.0d) / this.codedBits;
-        return codedFrames / (channels * this.sampleRateHz);
+        // Stereo ADPCM is planar; an unmatched trailing byte belongs to
+        // neither plane (lib002 0x10027030 truncates the half-length).
+        double codedFrames = ((this.payload.length / channels) * 8.0d) / this.codedBits;
+        return codedFrames / this.sampleRateHz;
     }
 
     public int sampleRateHz()

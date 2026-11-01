@@ -182,6 +182,12 @@ public class MLDEvent
         return this.id;
     }
 
+    /** Original ext-B opcode, including the tempo selector before normalization. */
+    public int getSourceOpcode()
+    {
+        return this.id == MLD.EVENT_TIMEBASE_TEMPO ? this.bank : this.id;
+    }
+
     public int getResourceAuxAzimuthDegrees()
     {
         return this.resourceAuxAzimuthDegrees;
@@ -222,9 +228,19 @@ public class MLDEvent
         return this.resourceIndex;
     }
 
+    /** Legacy name for the raw per-start level; use getResourceStartLevel(). */
     public int getResourcePitchByte()
     {
         return this.resourcePitchByte;
+    }
+
+    /** Native24fa0's per-start level; negative means an unsupported start flag. */
+    public int getResourceStartLevel()
+    {
+        if (this.data == null || this.data.length < 2)
+            return 127;
+        int value = this.data[1] & 255;
+        return (value & 0xc0) == 0 ? (value & 63) << 1 : -1;
     }
 
     public int getParam()
