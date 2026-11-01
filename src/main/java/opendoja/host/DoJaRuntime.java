@@ -80,6 +80,8 @@ public final class DoJaRuntime {
     private volatile String hostScaleSetting;
     private volatile String starDirectionRotation;
     private volatile IApplication application;
+    private volatile ControllerInputManager controllerInputManager;
+    private volatile boolean vibratorEnabled;
     private JFrame frameWindow;
     private GraphicsDevice fullScreenDevice;
     private volatile Frame currentFrame;
@@ -141,11 +143,13 @@ public final class DoJaRuntime {
         this.hostWindowFocusListener = new java.awt.event.WindowAdapter() {
             @Override
             public void windowGainedFocus(java.awt.event.WindowEvent e) {
+                setControllerRumbleFocused(true);
                 updateFullScreenTopHint((JFrame) e.getWindow(), true);
             }
 
             @Override
             public void windowLostFocus(java.awt.event.WindowEvent e) {
+                setControllerRumbleFocused(false);
                 updateFullScreenTopHint((JFrame) e.getWindow(), false);
             }
         };
@@ -181,6 +185,7 @@ public final class DoJaRuntime {
         runtime.createWindowIfPossible();
         current = runtime;
         runtime.applyLaunchSystemProperties();
+        PhoneSystem.setAttribute(PhoneSystem.DEV_VIBRATOR, PhoneSystem.ATTR_VIBRATOR_OFF);
         PhoneSystem2.resetRuntimeDefaults();
         StereoScreen.resetRuntimeDefaults();
         return runtime;
@@ -197,6 +202,24 @@ public final class DoJaRuntime {
 
     public static DoJaRuntime current() {
         return current;
+    }
+
+    /** Host output shared by the DoJa and STAR PhoneSystem vibrator APIs. */
+    public synchronized void setVibratorEnabled(boolean enabled) {
+        if (shutdown.get()) return;
+        vibratorEnabled = enabled;
+        if (controllerInputManager != null) {
+            controllerInputManager.setVibratorEnabled(enabled);
+        }
+    }
+
+    public boolean isVibratorEnabled() {
+        return vibratorEnabled;
+    }
+
+    private void setControllerRumbleFocused(boolean focused) {
+        ControllerInputManager manager = controllerInputManager;
+        if (manager != null) manager.setRumbleFocused(focused);
     }
 
     public LaunchConfig config() {
@@ -418,6 +441,12 @@ public final class DoJaRuntime {
     private void shutdown(boolean exitProcess) {
         if (!shutdown.compareAndSet(false, true)) {
             return;
+        }
+        synchronized (this) {
+            vibratorEnabled = false;
+            if (current == this) {
+                PhoneSystem.setAttribute(PhoneSystem.DEV_VIBRATOR, PhoneSystem.ATTR_VIBRATOR_OFF);
+            }
         }
         closeShutdownResources();
         synchronized (videoMonitor) {
@@ -1742,7 +1771,6 @@ public final class DoJaRuntime {
         private final DesktopKeyInputAdapter keyInputAdapter;
         private final DesktopKeyInputAdapter softKeyInputAdapter;
         private final HostInputRouter inputRouter;
-        private volatile ControllerInputManager controllerInputManager;
         private boolean touchPointerActive;
 
         private HostPanel(DoJaRuntime runtime) {
@@ -1788,18 +1816,22 @@ public final class DoJaRuntime {
         }
 
         private void ensureControllerInput(JFrame ownerWindow) {
-            if (controllerInputManager != null || GraphicsEnvironment.isHeadless()) {
-                return;
-            }
-            ControllerInputManager manager = new ControllerInputManager(ownerWindow);
-            manager.addListener(new ControllerInputListener() {
-                @Override
-                public void onInput(ControllerInputEvent event) {
-                    SwingUtilities.invokeLater(() -> dispatchControllerEvent(event));
+            synchronized (runtime) {
+                if (runtime.shutdown.get() || runtime.controllerInputManager != null || GraphicsEnvironment.isHeadless()) {
+                    return;
                 }
-            });
-            runtime.registerShutdownResource(manager);
-            controllerInputManager = manager;
+                ControllerInputManager manager = new ControllerInputManager(ownerWindow);
+                manager.setRumbleFocused(ownerWindow.isFocused());
+                manager.setVibratorEnabled(runtime.vibratorEnabled);
+                manager.addListener(new ControllerInputListener() {
+                    @Override
+                    public void onInput(ControllerInputEvent event) {
+                        SwingUtilities.invokeLater(() -> dispatchControllerEvent(event));
+                    }
+                });
+                runtime.controllerInputManager = manager;
+                runtime.registerShutdownResource(manager);
+            }
         }
 
         private DesktopKeyInputAdapter.PendingRelease scheduleRelease(int delayMillis, Runnable task) {
