@@ -15,6 +15,8 @@ public final class DesktopHttpConnection implements HttpConnection, com.docomost
     private final boolean star = ApplicationProfile.current() == ApplicationProfile.STAR;
     private int responseCode = -1;
     private HttpURLConnection connection;
+    private InputStream responseInputStream;
+    private boolean closed;
     private String requestMethod = GET;
     private long ifModifiedSince = 0L;
     private boolean userAgentProvidedByGame;
@@ -41,8 +43,14 @@ public final class DesktopHttpConnection implements HttpConnection, com.docomost
 
     @Override
     public void close() throws IOException {
-        if (connection != null) {
-            connection.disconnect();
+        if (closed) return;
+        closed = true;
+        try {
+            if (responseInputStream != null) {
+                http(() -> { responseInputStream.close(); return null; });
+            }
+        } finally {
+            if (connection != null) connection.disconnect();
         }
     }
 
@@ -52,9 +60,11 @@ public final class DesktopHttpConnection implements HttpConnection, com.docomost
             ensureConnection();
             logRequestIfNeeded();
             if (star) responseCode = connection.getResponseCode();
-            InputStream stream = normalizeResponseInputStream(connection.getInputStream());
+            if (responseInputStream == null) {
+                responseInputStream = normalizeResponseInputStream(connection.getInputStream());
+            }
             logResponseIfNeeded();
-            return star ? starInput(stream) : stream;
+            return responseInput(responseInputStream);
         } catch (IOException exception) {
             OpenDoJaLog.warn(DesktopHttpConnection.class, "HTTP openInputStream failed " + requestSummary(), exception);
             throw translate(exception);
@@ -206,6 +216,7 @@ public final class DesktopHttpConnection implements HttpConnection, com.docomost
     }
 
     private void ensureConnection() throws IOException {
+        if (closed) throw new IOException("Connection closed");
         if (connection != null) {
             return;
         }
@@ -261,14 +272,23 @@ public final class DesktopHttpConnection implements HttpConnection, com.docomost
         catch (IOException failure) { throw translate(failure); }
     }
 
-    private InputStream starInput(InputStream delegate) {
+    private InputStream responseInput(InputStream delegate) {
         return new FilterInputStream(delegate) {
-            @Override public int read() throws IOException { return http(in::read); }
-            @Override public int read(byte[] b, int off, int len) throws IOException { return http(() -> in.read(b, off, len)); }
-            @Override public long skip(long n) throws IOException { return http(() -> in.skip(n)); }
-            @Override public int available() throws IOException { return http(in::available); }
-            @Override public synchronized void reset() throws IOException { http(() -> { in.reset(); return null; }); }
-            @Override public void close() throws IOException { http(() -> { in.close(); return null; }); }
+            private boolean streamClosed;
+
+            private <T> T readResponse(IOOperation<T> operation) throws IOException {
+                return http(() -> {
+                    if (streamClosed || closed) throw new IOException("Stream closed");
+                    return operation.run();
+                });
+            }
+
+            @Override public int read() throws IOException { return readResponse(in::read); }
+            @Override public int read(byte[] b, int off, int len) throws IOException { return readResponse(() -> in.read(b, off, len)); }
+            @Override public long skip(long n) throws IOException { return readResponse(() -> in.skip(n)); }
+            @Override public int available() throws IOException { return readResponse(in::available); }
+            @Override public synchronized void reset() throws IOException { readResponse(() -> { in.reset(); return null; }); }
+            @Override public void close() { streamClosed = true; }
         };
     }
 

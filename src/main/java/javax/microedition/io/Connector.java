@@ -77,7 +77,20 @@ public class Connector {
             return asDataInputStream(runtime.openScratchpadInput(location.index(), location.position(), location.length()));
         }
         if (lower.startsWith("http://") || lower.startsWith("https://")) {
-            return asDataInputStream(((DesktopHttpConnection) open(name, READ, false)).openInputStream());
+            DesktopHttpConnection connection = (DesktopHttpConnection) open(name, READ, false);
+            try {
+                // The returned stream owns its lifetime.
+                return new DataInputStream(connection.openInputStream()) {
+                    @Override public void close() throws IOException {
+                        try { super.close(); }
+                        finally { connection.close(); }
+                    }
+                };
+            } catch (IOException | RuntimeException failure) {
+                try { connection.close(); }
+                catch (IOException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
+                throw failure;
+            }
         }
         throw new ConnectionNotFoundException("Unsupported input connector URI: " + name);
     }
