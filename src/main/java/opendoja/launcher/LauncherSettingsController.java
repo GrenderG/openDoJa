@@ -62,6 +62,21 @@ final class LauncherSettingsController {
         return normalized;
     }
 
+    String promptUimId(Component parent, String currentValue) {
+        String entered = promptValue(parent, "UIM ID", currentValue,
+                "Enter a 20-character uppercase alphanumeric UIM ID.");
+        if (entered == null) {
+            return null;
+        }
+        String normalized = entered.trim().toUpperCase();
+        if (!OpenDoJaIdentity.isValidUimId(normalized)) {
+            JOptionPane.showMessageDialog(parent, "UIM ID must be 20 uppercase letters or digits.",
+                    "UIM ID", JOptionPane.ERROR_MESSAGE);
+            return null;
+        }
+        return normalized;
+    }
+
     String promptHttpOverrideDomain(Component parent, String currentValue) {
         String entered = promptValue(parent, "HTTP Host Override", currentValue,
                 "Enter the hostname to use for all outbound HTTP requests. Leave blank to disable.");

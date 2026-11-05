@@ -154,6 +154,8 @@ public final class OpenDoJaLaunchArgs {
     public static final String TERMINAL_ID = "opendoja.terminalId";
     /** Simulated user ID returned to apps. */
     public static final String USER_ID = "opendoja.userId";
+    /** Simulated UIM ID returned to apps as Phone.getProperty("user-id"). */
+    public static final String UIM_ID = "opendoja.uimId";
     /** Debounce window for repeated key releases. */
     public static final String INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS = "opendoja.input.keyRepeatReleaseDebounceMs";
     /** Serialized host input bindings for the active launcher profile. */
@@ -345,6 +347,7 @@ public final class OpenDoJaLaunchArgs {
             LAUNCH_TYPE,
             TERMINAL_ID,
             USER_ID,
+            UIM_ID,
             INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS,
             INPUT_BINDINGS,
             INPUT_MINIMUM_SELECT_PRESS_MS,
@@ -632,6 +635,7 @@ public final class OpenDoJaLaunchArgs {
         defaults.put(LAUNCH_TYPE, () -> LaunchConfig.LaunchTypeOption.NORMAL.id);
         defaults.put(TERMINAL_ID, OpenDoJaIdentity::defaultTerminalId);
         defaults.put(USER_ID, OpenDoJaIdentity::defaultUserId);
+        defaults.put(UIM_ID, OpenDoJaIdentity::defaultUimId);
         defaults.put(INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS, () -> "25");
         defaults.put(INPUT_BINDINGS, () -> "");
         defaults.put(INPUT_MINIMUM_SELECT_PRESS_MS, () -> "75");

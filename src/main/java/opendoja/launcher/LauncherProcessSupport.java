@@ -85,6 +85,7 @@ final class LauncherProcessSupport {
         appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.MLD_SYNTH, settings.synthId());
         appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.TERMINAL_ID, settings.terminalId());
         appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.USER_ID, settings.userId());
+        appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.UIM_ID, settings.uimId());
         appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.FONT_TYPE, settings.fontType());
         appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.SYSTEM_FONT_OVERRIDE, settings.systemFontOverride());
         appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.HTTP_OVERRIDE_DOMAIN, settings.httpOverrideDomain());

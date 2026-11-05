@@ -48,6 +48,7 @@ public final class LauncherProcessSupportProbe {
         verifyLauncherSettingsForwardSystemFontOverride();
         verifyLauncherSettingsForwardFullscreenHostScale();
         verifyLauncherSettingsForwardStandbyLaunchType();
+        verifyLauncherSettingsForwardUimIdSeparatelyFromUserId();
         verifyLauncherSettingsForwardActiveKeybindProfile();
         verifySpawnedHardwareLaunchAvoidsNativeAccessWarning();
         System.out.println("Launcher process support probe OK");
@@ -180,6 +181,22 @@ public final class LauncherProcessSupportProbe {
         Properties properties = readSpawnedProbeProperties(settings);
         check(Integer.toString(IApplication.LAUNCHED_AS_CONCIERGE).equals(properties.getProperty("launchType")),
                 "spawned JAM should launch with standby/concierge launch type");
+    }
+
+    private static void verifyLauncherSettingsForwardUimIdSeparatelyFromUserId() throws Exception {
+        String userId = "ABCDEF123456";
+        String uimId = "0123456789ABCDEFGHIJ";
+        Object settings = invokeNoArgStatic(launcherSettingsClass(), "defaults");
+        settings = invoke(settings, "withUserId", new Class<?>[]{String.class}, userId);
+        settings = invoke(settings, "withUimId", new Class<?>[]{String.class}, uimId);
+        Object selection = newGameLaunchSelection(Path.of("probe.jam"), Path.of("probe.jar"));
+        List<String> command = buildLaunchCommand(selection, settings);
+        String expectedUserId = "-D" + OpenDoJaLaunchArgs.USER_ID + "=" + userId;
+        String expectedUimId = "-D" + OpenDoJaLaunchArgs.UIM_ID + "=" + uimId;
+        check(command.contains(expectedUserId),
+                "launch command should forward user ID as " + expectedUserId + " but was " + command);
+        check(command.contains(expectedUimId),
+                "launch command should forward UIM ID as " + expectedUimId + " but was " + command);
     }
 
     private static void verifySpawnedHardwareLaunchAvoidsNativeAccessWarning() throws Exception {

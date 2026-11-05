@@ -9,12 +9,18 @@ import java.util.regex.Pattern;
  * It also rewrites the legacy default UID token in outbound HTTP traffic to the active configured UID.
  */
 public final class OpenDoJaIdentity {
+    private static final String DEFAULT_UIM_ID = "00000000000000000000";
     private static final String DEFAULT_TERMINAL_ID = "000000000000000";
     private static final String DEFAULT_USER_ID = "NULLGWDOCOMO";
-    private static final Pattern TERMINAL_ID_PATTERN = Pattern.compile("[A-Z0-9]{15}");
-    private static final Pattern USER_ID_PATTERN = Pattern.compile("[A-Za-z0-9]{12}");
+    private static final Pattern UIM_ID_PATTERN = Pattern.compile("^[A-Z0-9]{20}$");
+    private static final Pattern TERMINAL_ID_PATTERN = Pattern.compile("^[A-Z0-9]{15}$");
+    private static final Pattern USER_ID_PATTERN = Pattern.compile("^[A-Za-z0-9]{12}$");
 
     private OpenDoJaIdentity() {
+    }
+
+    public static String defaultUimId() {
+        return DEFAULT_UIM_ID;
     }
 
     public static String defaultTerminalId() {
@@ -25,12 +31,24 @@ public final class OpenDoJaIdentity {
         return DEFAULT_USER_ID;
     }
 
+    public static String uimId() {
+        return normalizeUimId(OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.UIM_ID));
+    }
+
     public static String terminalId() {
         return normalizeTerminalId(OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.TERMINAL_ID));
     }
 
     public static String userId() {
         return normalizeUserId(OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.USER_ID));
+    }
+
+    public static String normalizeUimId(String candidate) {
+        if (candidate == null) {
+            return DEFAULT_UIM_ID;
+        }
+        String normalized = candidate.trim().toUpperCase();
+        return isValidUimId(normalized) ? normalized : DEFAULT_UIM_ID;
     }
 
     public static String normalizeTerminalId(String candidate) {
@@ -47,6 +65,10 @@ public final class OpenDoJaIdentity {
         }
         String normalized = candidate.trim();
         return isValidUserId(normalized) ? normalized : DEFAULT_USER_ID;
+    }
+
+    public static boolean isValidUimId(String candidate) {
+        return candidate != null && UIM_ID_PATTERN.matcher(candidate).matches();
     }
 
     public static boolean isValidTerminalId(String candidate) {
