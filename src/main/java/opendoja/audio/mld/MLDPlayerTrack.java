@@ -48,6 +48,11 @@ public class MLDPlayerTrack
     int cuepoint;
 
     /**
+     * Track has encountered its own cue-start event.
+     */
+    boolean cueStarted;
+
+    /**
      * Track has no more events
      */
     boolean finished;

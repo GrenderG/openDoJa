@@ -1029,6 +1029,7 @@ public class MLD
     {
         double tempo = 60.0 / (48 * 128);
         long tickNow = 0;
+        boolean[] trkCueStarted = new boolean[this.tracks.length];
         int[][] deltas = new int[this.tracks.length][];
         for (int track = 0; track < this.tracks.length; track++)
         {
@@ -1099,12 +1100,15 @@ public class MLD
             // cuepoint start
             if (event.cuepoint == MLD.CUEPOINT_START)
             {
+                trkCueStarted[next.track()] = true;
                 this.tickLoop = tickNow;
                 continue;
             }
 
-            // cuepoint end, but the loop point isn't set
-            if (this.tickLoop == -1)
+            // Unused tracks can contain a cue end without a start of their
+            // own. It must not truncate another track's cue region.
+            if (event.cuepoint != MLD.CUEPOINT_END || this.tickLoop == -1 ||
+                !trkCueStarted[next.track()])
                 continue;
 
             // Some recorded voice files put both cue markers at tick 0,
@@ -1112,6 +1116,7 @@ public class MLD
             // the remaining sequence or make the sound appear lengthless.
             if (tickNow == this.tickLoop)
             {
+                trkCueStarted[next.track()] = false;
                 this.tickLoop = -1;
                 continue;
             }

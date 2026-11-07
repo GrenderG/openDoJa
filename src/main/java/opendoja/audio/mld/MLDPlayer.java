@@ -862,7 +862,7 @@ public class MLDPlayer
     {
 
         // cuepoint-end
-        if (event.cuepoint == MLD.CUEPOINT_END && this.tracks[0].cuepoint != -1)
+        if (event.cuepoint == MLD.CUEPOINT_END && track.cueStarted)
         {
             // Process only if looping is enabled
             if (this.loopEnabled)
@@ -890,6 +890,7 @@ public class MLDPlayer
         // cuepoint-start
         if (event.cuepoint == MLD.CUEPOINT_START)
         {
+            track.cueStarted = true;
             for (MLDPlayerTrack t : this.tracks)
                 t.cuepoint = t.offset;
         }
@@ -1234,6 +1235,7 @@ public class MLDPlayer
         for (MLDPlayerTrack track : this.tracks) {
             this.resetChannelMap(track);
             track.cuepoint = -1;
+            track.cueStarted = false;
             track.offset = 0;
             track.finished = track.mld.isEmpty();
             track.trackControlSkipReschedule = false;
@@ -1278,6 +1280,7 @@ public class MLDPlayer
         {
             this.resetChannelMap(track);
             track.cuepoint = -1;
+            track.cueStarted = false;
             track.offset = track.mld.cue;
             track.finished = track.offset >= track.mld.size();
             track.trackControlSkipReschedule = false;
