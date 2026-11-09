@@ -1,8 +1,0 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>com.jpexs</groupId>
-  <artifactId>ffdec-lib</artifactId>
-  <version>26.4.0</version>
-  <description>Unmodified upstream FFDec library distribution</description>
-  <licenses><license><name>LGPL-3.0-or-later</name></license></licenses>
-</project>
