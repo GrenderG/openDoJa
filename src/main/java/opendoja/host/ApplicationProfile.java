@@ -20,7 +20,7 @@ public enum ApplicationProfile {
     public static ApplicationProfile current() {
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null) {
-            return fromParameters(runtime.parameters());
+            return runtime.applicationProfile();
         }
         LaunchConfig prepared = DoJaRuntime.peekPreparedLaunch();
         return prepared == null ? DOJA : prepared.applicationProfile();

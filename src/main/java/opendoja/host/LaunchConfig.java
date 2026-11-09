@@ -19,6 +19,7 @@ public final class LaunchConfig {
     private final String sourceUrl;
     private final Path jamPath;
     private final Map<String, String> parameters;
+    private final ApplicationProfile applicationProfile;
     private final Path scratchpadRoot;
     private final Path scratchpadPackedFile;
     private final int[] scratchpadSizes;
@@ -37,6 +38,7 @@ public final class LaunchConfig {
         this.sourceUrl = builder.sourceUrl;
         this.jamPath = builder.jamPath;
         this.parameters = Collections.unmodifiableMap(caseInsensitiveCopy(builder.parameters));
+        this.applicationProfile = ApplicationProfile.fromParameters(parameters);
         this.scratchpadRoot = builder.scratchpadRoot;
         this.scratchpadPackedFile = builder.scratchpadPackedFile;
         this.scratchpadSizes = builder.scratchpadSizes == null ? new int[0] : builder.scratchpadSizes.clone();
@@ -88,7 +90,7 @@ public final class LaunchConfig {
     }
 
     public ApplicationProfile applicationProfile() {
-        return ApplicationProfile.fromParameters(parameters);
+        return applicationProfile;
     }
 
     public Path scratchpadRoot() {

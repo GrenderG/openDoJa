@@ -55,6 +55,7 @@ public final class StarImageProbe {
         palette.setEntry(1, Graphics.getColorOfRGB(0, 0, 255));
         clear(graphics); graphics.drawImage(indexed, 0, 0);
         check(pixel(target, 1) == 0x0000ff, "Live palette updates reach renderer");
+        verifyIndexedUpdates(indexed, graphics, target);
         try { PalettedImage.createPalettedImage(new byte[]{1, 2}); throw new AssertionError("Invalid image accepted"); }
         catch (UIException expected) { check(expected.getStatus() == UIException.UNSUPPORTED_FORMAT, "STAR exception type"); }
         source.dispose();
@@ -64,6 +65,52 @@ public final class StarImageProbe {
         try { indexed.getPalette(); throw new AssertionError("Disposed palette accepted"); }
         catch (UIException expected) { check(expected.getStatus() == UIException.ILLEGAL_STATE, "Disposed-palette status"); }
         offscreen.dispose(); target.dispose();
+    }
+
+    private static void verifyIndexedUpdates(PalettedImage indexed, Graphics graphics, Image target) throws Exception {
+        indexed.setTransparentEnabled(false);
+        clear(graphics); graphics.drawImage(indexed, 0, 0);
+        check(pixel(target, 0) == 0xff0000 && pixel(target, 1) == 0x0000ff,
+                "Disabling transparency redraws the transparent index");
+        indexed.setTransparentIndex(1);
+        clear(graphics); graphics.drawImage(indexed, 0, 0);
+        check(pixel(target, 1) == 0x0000ff, "Changing the index while disabled keeps pixels opaque");
+        indexed.setTransparentEnabled(true);
+        clear(graphics); graphics.drawImage(indexed, 0, 0);
+        check(pixel(target, 0) == 0xff0000 && pixel(target, 1) == 0,
+                "Enabling transparency applies the new index");
+        indexed.setTransparentIndex(0);
+        Palette replacement = new Palette(new int[]{0xffffffff, 0xffffff00});
+        indexed.setPalette(replacement);
+        clear(graphics); graphics.drawImage(indexed, 0, 0);
+        check(pixel(target, 0) == 0 && pixel(target, 1) == 0xffff00,
+                "Replacing a palette updates pixels and preserves transparency");
+
+        PalettedImage shared = PalettedImage.createPalettedImage(indexedGif());
+        try {
+            shared.setPalette(replacement);
+            clear(graphics); graphics.drawImage(indexed, 0, 0); graphics.drawImage(shared, 2, 0);
+            replacement.setEntry(1, 0xff00ff00);
+            clear(graphics); graphics.drawImage(indexed, 0, 0); graphics.drawImage(shared, 2, 0);
+            check(pixel(target, 1) == 0x00ff00 && pixel(target, 3) == 0x00ff00,
+                    "A shared palette mutation updates every image using it");
+            indexed.setAlpha(128);
+            clear(graphics); graphics.drawImage(indexed, 0, 0);
+            check(pixel(target, 1) == 0x008000, "Image alpha still applies to a previously drawn image");
+
+            indexed.changeData(indexedGif());
+            clear(graphics); graphics.drawImage(indexed, 0, 0);
+            check(pixel(target, 0) == 0xff0000 && pixel(target, 1) == 0x00ff00,
+                    "Replacing encoded data resets palette, alpha and transparency");
+            var model = new IndexColorModel(8, 2, new byte[]{0, (byte)255},
+                    new byte[]{0, (byte)255}, new byte[]{(byte)255, (byte)255});
+            var smaller = new BufferedImage(1, 1, BufferedImage.TYPE_BYTE_INDEXED, model);
+            var bytes = new ByteArrayOutputStream(); ImageIO.write(smaller, "gif", bytes);
+            indexed.changeData(new java.io.ByteArrayInputStream(bytes.toByteArray()));
+            clear(graphics); graphics.drawImage(indexed, 0, 0);
+            check(indexed.getWidth() == 1 && pixel(target, 0) == 0x0000ff && pixel(target, 1) == 0,
+                    "Stream data replacement updates image dimensions and pixels");
+        } finally { shared.dispose(); }
     }
 
     private static byte[] indexedGif() throws Exception {

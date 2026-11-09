@@ -408,6 +408,10 @@ public final class DoJaRuntime {
         return config.parameters();
     }
 
+    public ApplicationProfile applicationProfile() {
+        return config.applicationProfile();
+    }
+
     public int launchType() {
         return config.launchType();
     }

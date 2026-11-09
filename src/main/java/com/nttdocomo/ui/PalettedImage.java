@@ -4,6 +4,7 @@ import com.nttdocomo.lang.UnsupportedOperationException;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.awt.image.IndexColorModel;
 import java.awt.image.Raster;
 import java.io.ByteArrayInputStream;
@@ -23,6 +24,10 @@ public class PalettedImage extends Image {
     private int transparentIndex = -1;
     private int appliedTransparentIndex = -1;
     private boolean transparentEnabled;
+    private BufferedImage displayImage;
+    private Palette renderedPalette;
+    private long renderedPaletteRevision;
+    private int renderedTransparentIndex;
 
     /**
      * Applications cannot create this class directly.
@@ -254,6 +259,8 @@ public class PalettedImage extends Image {
     public void dispose() {
         pixels = null;
         palette = null;
+        displayImage = null;
+        renderedPalette = null;
         alpha = 255;
         appliedTransparentIndex = -1;
     }
@@ -287,21 +294,35 @@ public class PalettedImage extends Image {
         if (pixels == null || palette == null) {
             return null;
         }
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        for (int y = 0, pos = 0; y < height; y++) {
-            for (int x = 0; x < width; x++, pos++) {
-                int index = pixels[pos] & 0xFF;
-                int argb = palette.getArgbEntry(index);
-                if (transparentEnabled && appliedTransparentIndex >= 0 && index == appliedTransparentIndex) {
-                    argb &= 0x00FFFFFF;
-                }
-                image.setRGB(x, y, argb);
-            }
+        long paletteRevision = palette.revision();
+        int displayTransparentIndex = transparentEnabled ? appliedTransparentIndex : -1;
+        if (displayImage != null && renderedPalette == palette
+                && renderedPaletteRevision == paletteRevision && renderedTransparentIndex == displayTransparentIndex) {
+            return displayImage;
         }
-        return image;
+        if (displayImage == null) {
+            displayImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        }
+        // Sprites often share a large sheet. Convert it once per palette/transparency change,
+        // rather than once per sprite, and avoid BufferedImage.setRGB's per-pixel allocations.
+        int[] argbPixels = ((DataBufferInt) displayImage.getRaster().getDataBuffer()).getData();
+        for (int pos = 0; pos < pixels.length; pos++) {
+            int index = pixels[pos] & 0xFF;
+            int argb = palette.getArgbEntry(index);
+            if (index == displayTransparentIndex) {
+                argb &= 0x00FFFFFF;
+            }
+            argbPixels[pos] = argb;
+        }
+        renderedPalette = palette;
+        renderedPaletteRevision = paletteRevision;
+        renderedTransparentIndex = displayTransparentIndex;
+        return displayImage;
     }
 
     private void replaceWith(PalettedImage updated) {
+        this.displayImage = null;
+        this.renderedPalette = null;
         this.width = updated.width;
         this.height = updated.height;
         this.pixels = updated.pixels;
