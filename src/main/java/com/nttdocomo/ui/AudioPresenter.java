@@ -460,7 +460,9 @@ public class AudioPresenter implements MediaPresenter, AutoCloseable {
         }
         nextCallbackGeneration();
         stopPlayback();
-        notifyListener(AUDIO_STOPPED, 0);
+        // Some titles may finish updating their stop-request after stop() returns.
+        // Going to deliver the event on the same application callback path as play/complete.
+        notifyListenerAsync(AUDIO_STOPPED, 0);
     }
 
     private void stopPlayback() {
