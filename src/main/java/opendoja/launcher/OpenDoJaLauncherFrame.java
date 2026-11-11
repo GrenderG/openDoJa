@@ -104,6 +104,12 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 updateUserId();
             }
         }));
+        settingsMenu.add(new JMenuItem(new AbstractAction("Set UIM ID...") {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                updateUimId();
+            }
+        }));
         settingsMenu.addSeparator();
         settingsMenu.add(buildOverridesMenu());
         settingsMenu.addSeparator();
@@ -552,6 +558,15 @@ final class OpenDoJaLauncherFrame extends JFrame {
             return;
         }
         jamLaunchService.saveSettings(current.withUserId(updated));
+    }
+
+    private void updateUimId() {
+        LauncherSettings current = jamLaunchService.loadSettings();
+        String updated = settingsController.promptUserId(this, current.uimId());
+        if (updated == null) {
+            return;
+        }
+        jamLaunchService.saveSettings(current.withUimId(updated));
     }
 
     private void updateHttpOverrideDomain() {

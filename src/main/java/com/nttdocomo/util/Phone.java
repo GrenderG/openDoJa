@@ -111,7 +111,7 @@ public final class Phone {
             return OpenDoJaIdentity.terminalId();
         }
         if (USER_ID.equals(key)) {
-            return OpenDoJaIdentity.userId();
+            return OpenDoJaIdentity.uimId();
         }
         if (UIM_VERSION.equals(key)) {
             return "2";
