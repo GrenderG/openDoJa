@@ -4,8 +4,11 @@ import com.nttdocomo.lang.XString;
 import com.nttdocomo.lang._XStringSupport;
 import com.nttdocomo.ui.IApplication;
 import opendoja.host.DoJaEncoding;
+import opendoja.host.DoJaRuntime;
 import opendoja.host.OpenDoJaLog;
+import opendoja.launcher.LinkedAppLaunchService;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Arrays;
@@ -44,6 +47,16 @@ public final class DoJaExternalActionSupport {
             default -> throw new IllegalArgumentException("Unsupported launch target: " + target);
         }
         lastLaunch = new LaunchRequest(target, copiedArgs);
+        if (target == IApplication.LAUNCH_IAPPLI) {
+            DoJaRuntime runtime = DoJaRuntime.current();
+            try {
+                new LinkedAppLaunchService().launch(runtime, copiedArgs);
+            } catch (IOException exception) {
+                throw new SecurityException("Could not launch linked application: " + copiedArgs[0], exception);
+            }
+            runtime.shutdown();
+            return;
+        }
         OpenDoJaLog.info(DoJaExternalActionSupport.class, () ->
                 "Simulated DoJa external launch target=" + target + " args=" + Arrays.toString(copiedArgs));
     }

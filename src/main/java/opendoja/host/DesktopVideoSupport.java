@@ -1,5 +1,6 @@
 package opendoja.host;
 
+import java.awt.Dimension;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Locale;
@@ -43,6 +44,28 @@ public final class DesktopVideoSupport {
             return data.clone();
         }
         return Arrays.copyOf(data, containerLength);
+    }
+
+    /** Display dimensions from track headers, excluding decoder buffer padding (e.g. QCIF 144 -> 160). */
+    public static Dimension videoSize(byte[] data) {
+        if (data == null) return new Dimension();
+        Box movie = findBox(data, 0, data.length, "moov");
+        if (movie == null) return new Dimension();
+        int end = movie.offset() + movie.size();
+        int cursor = movie.payloadOffset();
+        while (cursor < end) {
+            Box track = findBox(data, cursor, end, "trak");
+            if (track == null) break;
+            Box header = findBox(data, track.payloadOffset(), track.offset() + track.size(), "tkhd");
+            if (header != null && header.payloadLength() >= 84) {
+                int dimensions = header.offset() + header.size() - 8;
+                int width = (int) (readUInt32(data, dimensions) >>> 16);
+                int height = (int) (readUInt32(data, dimensions + 4) >>> 16);
+                if (width > 0 && height > 0) return new Dimension(width, height);
+            }
+            cursor = track.offset() + track.size();
+        }
+        return new Dimension();
     }
 
     private static int detectContainerLength(byte[] data) {

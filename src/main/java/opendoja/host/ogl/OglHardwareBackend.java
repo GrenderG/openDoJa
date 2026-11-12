@@ -33,11 +33,13 @@ final class OglHardwareBackend {
     private float[] vertexScratch = new float[0];
     private float[] normalScratch = new float[0];
     private float[] texCoordScratch = new float[0];
+    private float[] secondaryTexCoordScratch = new float[0];
     private byte[] colorScratch = new byte[0];
     private short[] indexScratch = new short[0];
     private java.nio.ByteBuffer vertexBufferBytes;
     private java.nio.ByteBuffer normalBufferBytes;
     private java.nio.ByteBuffer texCoordBufferBytes;
+    private java.nio.ByteBuffer secondaryTexCoordBufferBytes;
     private java.nio.ByteBuffer colorBufferBytes;
     private java.nio.ByteBuffer indexBufferBytes;
     private int resolveTextureId;
@@ -65,9 +67,9 @@ final class OglHardwareBackend {
                 gl.glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
                 glMask |= GraphicsOGL.GL_COLOR_BUFFER_BIT;
             }
-            if ((mask & GraphicsOGL.GL_DEPTH_BUFFER_BIT) != 0) {
+            if ((mask & GraphicsOGL.GL_DEPTH_BUFFER_BIT) != 0 && owner.oglState().depthMask) {
                 gl.glDepthMask(true);
-                gl.glClearDepth(0d);
+                gl.glClearDepth(1d - owner.oglState().clearDepth);
                 glMask |= GraphicsOGL.GL_DEPTH_BUFFER_BIT;
             }
             if (glMask != 0) {
@@ -316,11 +318,15 @@ final class OglHardwareBackend {
             normalScratch = normalValues;
         }
         int texCoordFloatCount = vertexCount * 2;
-        float[] texCoordValues = (ogl.texCoordArrayEnabled && ogl.texCoordPointer != null)
+        float[] texCoordValues = (ogl.textureUnits[0].texCoordArrayEnabled && ogl.textureUnits[0].texCoordPointer != null)
                 ? ensureFloatArray(texCoordScratch, texCoordFloatCount) : null;
         if (texCoordValues != null) {
             texCoordScratch = texCoordValues;
         }
+        OglRenderer.OglTextureUnit secondary = ogl.textureUnits[1];
+        float[] secondaryTexCoords = secondary.texCoordArrayEnabled && secondary.texCoordPointer != null
+                ? ensureFloatArray(secondaryTexCoordScratch, texCoordFloatCount) : null;
+        if (secondaryTexCoords != null) secondaryTexCoordScratch = secondaryTexCoords;
         int colorByteCount = vertexCount * 4;
         byte[] colorValues = (ogl.colorArrayEnabled && ogl.colorPointer != null)
                 ? ensureByteArray(colorScratch, colorByteCount) : null;
@@ -338,10 +344,14 @@ final class OglHardwareBackend {
                 return null;
             }
             if (texCoordValues != null) {
-                populateHardwareTexCoord(texCoordValues, i, sourceVertexIndex);
+                populateHardwareTexCoord(texCoordValues, i, sourceVertexIndex, 0);
                 if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
                     return null;
                 }
+            }
+            if (secondaryTexCoords != null) {
+                populateHardwareTexCoord(secondaryTexCoords, i, sourceVertexIndex, 1);
+                if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) return null;
             }
             if (colorValues != null) {
                 populateHardwareColor(colorValues, i, sourceVertexIndex);
@@ -368,6 +378,7 @@ final class OglHardwareBackend {
                 toReusableFloatBuffer(vertexValues, vertexFloatCount, BufferType.VERTEX),
                 normalValues == null ? null : toReusableFloatBuffer(normalValues, normalFloatCount, BufferType.NORMAL),
                 texCoordValues == null ? null : toReusableFloatBuffer(texCoordValues, texCoordFloatCount, BufferType.TEX_COORD),
+                secondaryTexCoords == null ? null : toReusableFloatBuffer(secondaryTexCoords, texCoordFloatCount, BufferType.SECONDARY_TEX_COORD),
                 colorValues == null ? null : toReusableByteBuffer(colorValues, colorByteCount, BufferType.COLOR),
                 indexValues == null ? null : toReusableShortBuffer(indexValues, primitiveCount),
                 0,
@@ -399,8 +410,8 @@ final class OglHardwareBackend {
         destination[destinationOffset + 3] = w;
     }
 
-    private void populateHardwareTexCoord(float[] destination, int vertexSlot, int sourceVertexIndex) {
-        OglRenderer.OglPointer texCoordPointer = owner.oglState().texCoordPointer;
+    private void populateHardwareTexCoord(float[] destination, int vertexSlot, int sourceVertexIndex, int unit) {
+        OglRenderer.OglPointer texCoordPointer = owner.oglState().textureUnits[unit].texCoordPointer;
         if (texCoordPointer == null) {
             return;
         }
@@ -486,7 +497,16 @@ final class OglHardwareBackend {
         surfaceDirty = false;
     }
 
+    private void resetOverlayTextureUnits(GL2 gl) {
+        for (int index = owner.oglState().textureUnits.length - 1; index > 0; index--) {
+            gl.glActiveTexture(GraphicsOGL.GL_TEXTURE0 + index);
+            gl.glDisable(GraphicsOGL.GL_TEXTURE_2D);
+        }
+        gl.glActiveTexture(GraphicsOGL.GL_TEXTURE0);
+    }
+
     private void syncSoftwareSurface(GL2 gl) {
+        resetOverlayTextureUnits(gl);
         DesktopSurface surface = owner.host().surface();
         int width = surface.width();
         int height = surface.height();
@@ -548,7 +568,7 @@ final class OglHardwareBackend {
     }
 
     private void applyClipState(GL2 gl) {
-        Rectangle clip = owner.host().delegate().getClipBounds();
+        Rectangle clip = owner.drawingClip();
         if (clip == null) {
             gl.glDisable(GraphicsOGL.GL_SCISSOR_TEST);
             return;
@@ -692,17 +712,25 @@ final class OglHardwareBackend {
 
     private void applyTextureState(GL2 gl) {
         OglRenderer.OglState ogl = owner.oglState();
-        if (!ogl.textureEnabled()) {
+        for (int index = 0; index < ogl.textureUnits.length; index++) {
+            gl.glActiveTexture(GraphicsOGL.GL_TEXTURE0 + index);
+            applyTextureUnit(gl, ogl.textureUnits[index], ogl);
+        }
+        gl.glActiveTexture(GraphicsOGL.GL_TEXTURE0);
+    }
+
+    private void applyTextureUnit(GL2 gl, OglRenderer.OglTextureUnit unit, OglRenderer.OglState ogl) {
+        if (!unit.enabled(ogl.textures)) {
             gl.glDisable(GraphicsOGL.GL_TEXTURE_2D);
             return;
         }
-        OglRenderer.OglTexture texture = ogl.boundTexture();
+        OglRenderer.OglTexture texture = unit.boundTexture(ogl.textures);
         if (texture == null) {
             gl.glDisable(GraphicsOGL.GL_TEXTURE_2D);
             return;
         }
         gl.glEnable(GraphicsOGL.GL_TEXTURE_2D);
-        HardwareTexture hardwareTexture = textureCache.computeIfAbsent(ogl.boundTextureId,
+        HardwareTexture hardwareTexture = textureCache.computeIfAbsent(unit.boundTextureId,
                 ignored -> new HardwareTexture(0, -1, -1, -1, -1));
         int textureId = hardwareTexture.textureId();
         if (textureId == 0) {
@@ -710,7 +738,7 @@ final class OglHardwareBackend {
             gl.glGenTextures(1, textureIds, 0);
             textureId = textureIds[0];
             hardwareTexture = new HardwareTexture(textureId, -1, -1, -1, -1);
-            textureCache.put(ogl.boundTextureId, hardwareTexture);
+            textureCache.put(unit.boundTextureId, hardwareTexture);
         }
         gl.glBindTexture(GraphicsOGL.GL_TEXTURE_2D, textureId);
         gl.glPixelStorei(GraphicsOGL.GL_UNPACK_ALIGNMENT, 1);
@@ -725,32 +753,32 @@ final class OglHardwareBackend {
             }
             hardwareTexture = new HardwareTexture(textureId, texture.uploadRevision(),
                     texture.width, texture.height, textureUpload.format());
-            textureCache.put(ogl.boundTextureId, hardwareTexture);
+            textureCache.put(unit.boundTextureId, hardwareTexture);
         }
         gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_MIN_FILTER, sanitizeHardwareMinFilter(texture.minFilter));
         gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_MAG_FILTER, sanitizeHardwareMagFilter(texture.magFilter));
         gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_WRAP_S, texture.wrapS);
         gl.glTexParameteri(GraphicsOGL.GL_TEXTURE_2D, GraphicsOGL.GL_TEXTURE_WRAP_T, texture.wrapT);
         gl.glMatrixMode(GraphicsOGL.GL_TEXTURE);
-        gl.glLoadMatrixf(ogl.textureMatrix, 0);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_TEXTURE_ENV_MODE, ogl.textureEnvMode);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_COMBINE_RGB, ogl.combineRgb);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_COMBINE_ALPHA, ogl.combineAlpha);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC0_RGB, ogl.srcRgb[0]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC1_RGB, ogl.srcRgb[1]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC2_RGB, ogl.srcRgb[2]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC0_ALPHA, ogl.srcAlpha[0]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC1_ALPHA, ogl.srcAlpha[1]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC2_ALPHA, ogl.srcAlpha[2]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND0_RGB, ogl.operandRgb[0]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND1_RGB, ogl.operandRgb[1]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND2_RGB, ogl.operandRgb[2]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND0_ALPHA, ogl.operandAlpha[0]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND1_ALPHA, ogl.operandAlpha[1]);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND2_ALPHA, ogl.operandAlpha[2]);
-        gl.glTexEnvfv(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_TEXTURE_ENV_COLOR, owner.unpackColor(ogl.textureEnvColor), 0);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_RGB_SCALE, ogl.rgbScale);
-        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_ALPHA_SCALE, ogl.alphaScale);
+        gl.glLoadMatrixf(unit.textureMatrix, 0);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_TEXTURE_ENV_MODE, unit.textureEnvMode);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_COMBINE_RGB, unit.combineRgb);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_COMBINE_ALPHA, unit.combineAlpha);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC0_RGB, unit.srcRgb[0]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC1_RGB, unit.srcRgb[1]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC2_RGB, unit.srcRgb[2]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC0_ALPHA, unit.srcAlpha[0]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC1_ALPHA, unit.srcAlpha[1]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_SRC2_ALPHA, unit.srcAlpha[2]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND0_RGB, unit.operandRgb[0]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND1_RGB, unit.operandRgb[1]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND2_RGB, unit.operandRgb[2]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND0_ALPHA, unit.operandAlpha[0]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND1_ALPHA, unit.operandAlpha[1]);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_OPERAND2_ALPHA, unit.operandAlpha[2]);
+        gl.glTexEnvfv(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_TEXTURE_ENV_COLOR, owner.unpackColor(unit.textureEnvColor), 0);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_RGB_SCALE, unit.rgbScale);
+        gl.glTexEnvi(GraphicsOGL.GL_TEXTURE_ENV, GraphicsOGL.GL_ALPHA_SCALE, unit.alphaScale);
         gl.glMatrixMode(GraphicsOGL.GL_MODELVIEW);
     }
 
@@ -771,19 +799,30 @@ final class OglHardwareBackend {
         } else {
             gl.glDisableClientState(GraphicsOGL.GL_COLOR_ARRAY);
         }
-        if (arrayState.texCoordBuffer() != null && ogl.textureEnabled()) {
-            gl.glEnableClientState(GraphicsOGL.GL_TEXTURE_COORD_ARRAY);
-            gl.glTexCoordPointer(2, GraphicsOGL.GL_FLOAT, 0, arrayState.texCoordBuffer());
-        } else {
-            gl.glDisableClientState(GraphicsOGL.GL_TEXTURE_COORD_ARRAY);
+        for (int index = 0; index < ogl.textureUnits.length; index++) {
+            OglRenderer.OglTextureUnit unit = ogl.textureUnits[index];
+            java.nio.FloatBuffer coordinates = index == 0 ? arrayState.texCoordBuffer() : arrayState.secondaryTexCoordBuffer();
+            gl.glClientActiveTexture(GraphicsOGL.GL_TEXTURE0 + index);
+            gl.glMultiTexCoord4f(GraphicsOGL.GL_TEXTURE0 + index, unit.currentU, unit.currentV, unit.currentR, unit.currentQ);
+            if (coordinates != null && unit.enabled(ogl.textures)) {
+                gl.glEnableClientState(GraphicsOGL.GL_TEXTURE_COORD_ARRAY);
+                gl.glTexCoordPointer(2, GraphicsOGL.GL_FLOAT, 0, coordinates);
+            } else {
+                gl.glDisableClientState(GraphicsOGL.GL_TEXTURE_COORD_ARRAY);
+            }
         }
+        gl.glClientActiveTexture(GraphicsOGL.GL_TEXTURE0);
     }
 
     private void unbindArrayState(GL2 gl) {
         gl.glDisableClientState(GraphicsOGL.GL_VERTEX_ARRAY);
         gl.glDisableClientState(GraphicsOGL.GL_NORMAL_ARRAY);
         gl.glDisableClientState(GraphicsOGL.GL_COLOR_ARRAY);
-        gl.glDisableClientState(GraphicsOGL.GL_TEXTURE_COORD_ARRAY);
+        for (int index = 0; index < owner.oglState().textureUnits.length; index++) {
+            gl.glClientActiveTexture(GraphicsOGL.GL_TEXTURE0 + index);
+            gl.glDisableClientState(GraphicsOGL.GL_TEXTURE_COORD_ARRAY);
+        }
+        gl.glClientActiveTexture(GraphicsOGL.GL_TEXTURE0);
     }
 
     private void readBackColorBuffer(GL2 gl) {
@@ -811,6 +850,7 @@ final class OglHardwareBackend {
     }
 
     private void resolveSupersampledReadback(GL2 gl, int width, int height, int scale) {
+        resetOverlayTextureUnits(gl);
         int renderWidth = width * scale;
         int renderHeight = height * scale;
         if (resolveTextureId == 0) {
@@ -982,6 +1022,7 @@ final class OglHardwareBackend {
             case VERTEX -> vertexBufferBytes;
             case NORMAL -> normalBufferBytes;
             case TEX_COORD -> texCoordBufferBytes;
+            case SECONDARY_TEX_COORD -> secondaryTexCoordBufferBytes;
             case COLOR -> colorBufferBytes;
             case INDEX -> indexBufferBytes;
         };
@@ -991,6 +1032,7 @@ final class OglHardwareBackend {
                 case VERTEX -> vertexBufferBytes = storage;
                 case NORMAL -> normalBufferBytes = storage;
                 case TEX_COORD -> texCoordBufferBytes = storage;
+                case SECONDARY_TEX_COORD -> secondaryTexCoordBufferBytes = storage;
                 case COLOR -> colorBufferBytes = storage;
                 case INDEX -> indexBufferBytes = storage;
             }
@@ -1093,6 +1135,7 @@ final class OglHardwareBackend {
     private record PreparedArrayState(java.nio.FloatBuffer vertexBuffer,
                                       java.nio.FloatBuffer normalBuffer,
                                       java.nio.FloatBuffer texCoordBuffer,
+                                      java.nio.FloatBuffer secondaryTexCoordBuffer,
                                       java.nio.ByteBuffer colorBuffer,
                                       java.nio.ShortBuffer indexBuffer,
                                       int drawFirst,
@@ -1104,6 +1147,7 @@ final class OglHardwareBackend {
         VERTEX,
         NORMAL,
         TEX_COORD,
+        SECONDARY_TEX_COORD,
         COLOR,
         INDEX
     }

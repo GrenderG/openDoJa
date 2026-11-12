@@ -46,6 +46,20 @@ public final class JamLauncher {
     private static LaunchConfig buildLaunchConfig(Path jamPath, Properties properties, boolean exitOnShutdown,
                                                   LaunchConfig.LaunchTypeOption launchType)
             throws IOException, ClassNotFoundException {
+        return buildLaunchConfig(jamPath, properties, exitOnShutdown, launchType, null);
+    }
+
+    public static LaunchConfig buildLinkedLaunchConfig(Path jamPath, boolean exitOnShutdown,
+                                                       Map<String, String> linkedParameters)
+            throws IOException, ClassNotFoundException {
+        return buildLaunchConfig(jamPath, JamMetadataResolver.loadJamProperties(jamPath), exitOnShutdown,
+                LaunchConfig.LaunchTypeOption.NORMAL, java.util.Objects.requireNonNull(linkedParameters));
+    }
+
+    private static LaunchConfig buildLaunchConfig(Path jamPath, Properties properties, boolean exitOnShutdown,
+                                                  LaunchConfig.LaunchTypeOption launchType,
+                                                  Map<String, String> linkedParameters)
+            throws IOException, ClassNotFoundException {
         String appClassName = properties.getProperty("AppClass");
         if (appClassName == null || appClassName.isBlank()) {
             throw new IllegalArgumentException("JAM/ADF missing AppClass: " + jamPath);
@@ -67,9 +81,12 @@ public final class JamLauncher {
         int[] scratchpadSizes = parseScratchpadSizes(properties.getProperty("SPsize"));
         LaunchConfig.Builder builder = LaunchConfig.builder(applicationClass)
                 .title(properties.getProperty("AppName", applicationClass.getSimpleName()))
+                .jamPath(jamPath)
                 .sourceUrl(resolvePackageUrl(jamPath, properties.getProperty("PackageURL")))
                 .scratchpadSizes(scratchpadSizes)
-                .launchType((launchType == null ? LaunchConfig.LaunchTypeOption.NORMAL : launchType).launchType)
+                .launchType(linkedParameters == null
+                        ? (launchType == null ? LaunchConfig.LaunchTypeOption.NORMAL : launchType).launchType
+                        : IApplication.LAUNCHED_FROM_IAPPLI)
                 .iAppliType(LaunchConfig.IAppliType.fromJamProperties(properties))
                 .exitOnShutdown(exitOnShutdown);
         ResolvedScratchpad scratchpad = null;
@@ -88,6 +105,9 @@ public final class JamLauncher {
         }
         for (Map.Entry<String, String> entry : effectiveParameters.entrySet()) {
             builder.parameter(entry.getKey(), entry.getValue());
+        }
+        if (linkedParameters != null) {
+            linkedParameters.forEach(builder::parameter);
         }
         if (scratchpad != null && !scratchpad.found()) {
             ResolvedScratchpad missingScratchpad = scratchpad;
@@ -132,8 +152,20 @@ public final class JamLauncher {
         Path jamPath = Path.of(effectiveArgs.get(0));
         LaunchCompatibility.reexecJamLauncherWithRequiredAddOpensIfNeeded(jamPath);
         LaunchCompatibility.reexecJamLauncherIfNeeded(jamPath);
+        String requestFile = OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.LINKED_LAUNCH_REQUEST);
+        Path requestPath = requestFile.isBlank() ? null : Path.of(requestFile);
+        LinkedAppLaunchRequest linkedRequest = requestPath == null ? null
+                : LinkedAppLaunchRequest.read(requestPath, jamPath);
+        if (requestPath != null) {
+            // Keep it available to the one-time VerifyError re-exec until startup succeeds.
+            requestPath.toFile().deleteOnExit();
+        }
         try {
-            launch(jamPath, true, launchType);
+            if (linkedRequest == null) {
+                launch(jamPath, true, launchType);
+            } else {
+                DesktopLauncher.launch(buildLinkedLaunchConfig(jamPath, true, linkedRequest.parameters()));
+            }
         } catch (VerifyError error) {
             // A few handset-era jars contain bytecode that modern HotSpot rejects up front even
             // though the same title otherwise runs once verification is disabled. Retry once from
@@ -142,6 +174,10 @@ public final class JamLauncher {
                 throw error;
             }
             return;
+        }
+        if (requestPath != null) {
+            Files.deleteIfExists(requestPath);
+            System.clearProperty(OpenDoJaLaunchArgs.LINKED_LAUNCH_REQUEST);
         }
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime != null) {

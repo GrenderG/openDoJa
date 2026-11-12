@@ -119,6 +119,13 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 updateKeybinds();
             }
         }));
+        settingsMenu.addSeparator();
+        settingsMenu.add(new JMenuItem(new AbstractAction("Clear Linked JAM Selections") {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                clearLinkedJamSelections();
+            }
+        }));
 
         JMenu helpMenu = new JMenu("Help");
         helpMenu.add(new JMenuItem(checkUpdatesAction));
@@ -220,6 +227,18 @@ final class OpenDoJaLauncherFrame extends JFrame {
                     e.getMessage(),
                     OpenDoJaLauncher.APP_NAME,
                     JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void clearLinkedJamSelections() {
+        try {
+            new LinkedAppLaunchService().clearRememberedSelections();
+            JOptionPane.showMessageDialog(this,
+                    "Remembered linked JAM selections cleared.",
+                    OpenDoJaLauncher.APP_NAME, JOptionPane.INFORMATION_MESSAGE);
+        } catch (IOException exception) {
+            JOptionPane.showMessageDialog(this, exception.getMessage(),
+                    OpenDoJaLauncher.APP_NAME, JOptionPane.ERROR_MESSAGE);
         }
     }
 

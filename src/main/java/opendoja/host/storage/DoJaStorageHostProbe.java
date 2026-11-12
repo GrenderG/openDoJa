@@ -7,6 +7,7 @@ import com.nttdocomo.io.FileEntity;
 import com.nttdocomo.ui.IApplication;
 import opendoja.host.DoJaRuntime;
 import opendoja.host.JamLauncher;
+import opendoja.host.LaunchConfig;
 import opendoja.host.OpenDoJaLog;
 
 import java.io.InputStream;
@@ -37,8 +38,10 @@ public final class DoJaStorageHostProbe {
         OpenDoJaLog.configure(OpenDoJaLog.Level.WARN);
 
         verifyDeviceRootCreationHelper();
+        verifyJamFilenameMapping();
         verifyBundledGundamMapping();
         verifyBundledRockmanMapping();
+        verifyContentsProviderMapping();
         verifyRuntimeStorageContract();
         verifyOptionalGundamStorageIoContract();
         verifyOptionalRockmanStorageIoContract();
@@ -61,19 +64,67 @@ public final class DoJaStorageHostProbe {
         parameters.put("TrustedAPID", "00000000000");
 
         Path actual = DoJaStorageHost.resolveNamespaceRoot(
+                Path.of("games", "Gundam.jam"),
                 parameters,
                 "http://sdg.gs.keitaiarchive.org/jar.php?uid=LQNBFCWVHBQF",
                 "GGeneMobile",
                 BRIDGE_ACCESS_MASK,
                 DoJaStorageService.SHARE_APPLICATION);
-        check(actual.endsWith(Path.of("SD_BIND", "GGeneMobile")),
-                "sample Gundam app should resolve to an SD_BIND/GGeneMobile bridge folder");
+        check(actual.endsWith(Path.of("SD_BIND", "SVC0000Gundam.jam")),
+                "sample Gundam app should use its JAM filename instead of AppName or PackageURL");
+    }
+
+    private static void verifyJamFilenameMapping() throws Exception {
+        Path root = Files.createTempDirectory("sd-binding-jam-names");
+        String[] filenames = {
+                "ENGLISH_PATCH__Final_Fantasy_7_-_Dirge_of_Cerberus_-_Lost_Episode.jam",
+                "Different-file-same-AppName.jam",
+                "[English Patch] Game + extra (v1.2).JAM",
+                "ゲーム.jam"
+        };
+        for (String filename : filenames) {
+            Path jam = root.resolve(filename);
+            Files.writeString(jam, buildJam("DC-FFVIII-LOST_EP")
+                    + "PackageURL=https://example.test/download.jar\n", StandardCharsets.UTF_8);
+            LaunchConfig config = JamLauncher.buildLaunchConfig(jam, false);
+            check(jam.toAbsolutePath().normalize().equals(config.jamPath()),
+                    "JAM launch configuration should retain the actual descriptor path");
+            check("https://example.test/".equals(config.sourceUrl()),
+                    "storage naming must preserve the game's source URL contract");
+            for (int access : new int[]{BRIDGE_ACCESS_MASK, DoJaAccessToken.ACCESS_SERIES}) {
+                Path actual = DoJaStorageHost.resolveNamespaceRoot(config.jamPath(), config.parameters(),
+                        config.sourceUrl(), ProbeApp.class.getName(), access,
+                        DoJaStorageService.SHARE_APPLICATION);
+                check(actual.equals(DoJaStorageHost.bindingRoot().resolve("SVC0000" + filename)),
+                        "all application access modes should preserve the full JAM filename: " + filename);
+                Path relocated = DoJaStorageHost.resolveNamespaceRoot(root.resolve("elsewhere").resolve(filename),
+                        Map.of("AppName", "Changed title"), "https://elsewhere.test/", "OtherClass", access,
+                        DoJaStorageService.SHARE_APPLICATION);
+                check(actual.equals(relocated), "JAM location and metadata should not affect its SD folder");
+            }
+        }
+        Path fallback = DoJaStorageHost.resolveNamespaceRoot(null, Map.of("AppName", "DirectLaunch"),
+                "resource:///", ProbeApp.class.getName(), BRIDGE_ACCESS_MASK, DoJaStorageService.SHARE_APPLICATION);
+        check(fallback.equals(DoJaStorageHost.bindingRoot().resolve("DirectLaunch")),
+                "programmatic launches without a JAM should retain their fallback folder");
+    }
+
+    private static void verifyContentsProviderMapping() {
+        Map<String, String> parameters = Map.of("CPName", "Provider", "TrustedAPID", "00000000000");
+        Path first = DoJaStorageHost.resolveNamespaceRoot(Path.of("First.jam"), parameters, null, null,
+                BRIDGE_ACCESS_MASK, DoJaStorageService.SHARE_CONTENTS_PROVIDER);
+        Path second = DoJaStorageHost.resolveNamespaceRoot(Path.of("Second.jam"), parameters, null, null,
+                BRIDGE_ACCESS_MASK, DoJaStorageService.SHARE_CONTENTS_PROVIDER);
+        check(first.equals(second), "contents-provider sharing should remain independent of JAM filename");
+        check(first.equals(DoJaStorageHost.bindingRoot().resolve("Provider/.odj-bind/access-"
+                        + BRIDGE_ACCESS_MASK + "/share-" + DoJaStorageService.SHARE_CONTENTS_PROVIDER)),
+                "contents-provider access namespaces should retain their existing layout");
     }
 
     private static void verifyRuntimeStorageContract() throws Exception {
         String appName = "SdBindingProbe-" + Long.toUnsignedString(System.nanoTime(), 36);
         Path jamRoot = Files.createTempDirectory("sd-binding-storage-probe");
-        Path jam = jamRoot.resolve("Probe.jam");
+        Path jam = jamRoot.resolve(appName + " [English Patch].jam");
         Files.writeString(jam, buildJam(appName), StandardCharsets.UTF_8);
 
         IApplication application = JamLauncher.launch(jam, false);
@@ -99,20 +150,23 @@ public final class DoJaStorageHostProbe {
             Path namespaceRoot = DoJaStorageHost.resolveNamespaceRoot(token);
 
             check("/".equals(folder.getPath()), "storage folder should keep logical root path");
-            check(namespaceRoot.endsWith(Path.of("SD_BIND", appName)),
-                    "bridge token should map to an SD_BIND scope folder");
+            check(namespaceRoot.endsWith(Path.of("SD_BIND", "SVC0000" + jam.getFileName())),
+                    "bridge token should map to the JAM's SVC0000 folder at runtime");
+            check(Files.isDirectory(namespaceRoot), "folder access should create the SVC0000 directory");
             check(folder.isFileAttributeSupported(EncryptionAttribute.class),
                     "EncryptionAttribute should be supported for SD storage");
             check(folder.isFileAttributeSupported(SDBindingEncryptionAttribute.class),
                     "SDBindingEncryptionAttribute should be supported for SD storage");
 
-            Files.createDirectories(namespaceRoot);
-            Files.copy(GUNDAM_PACKAGE_PATH, namespaceRoot.resolve("PACKAGE.LST"), StandardCopyOption.REPLACE_EXISTING);
+            byte[] packageBytes = "SD binding probe payload".getBytes(StandardCharsets.UTF_8);
+            Files.write(namespaceRoot.resolve("PACKAGE.LST"), packageBytes);
 
             com.nttdocomo.fs.File packageFile = folder.getFile("package.lst");
-            check("/PACKAGE.LST".equals(packageFile.getPath()),
-                    "case-insensitive lookup should preserve the on-disk file name");
-            check(Arrays.equals(Files.readAllBytes(GUNDAM_PACKAGE_PATH), readAllBytes(packageFile)),
+            // Windows may resolve the requested spelling directly; case-sensitive
+            // filesystems use the directory entry's spelling instead.
+            check("/PACKAGE.LST".equalsIgnoreCase(packageFile.getPath()),
+                    "case-insensitive lookup should return the package's logical path");
+            check(Arrays.equals(packageBytes, readAllBytes(packageFile)),
                     "case-insensitive reads should return the copied payload");
 
             EncryptionAttribute attribute = new EncryptionAttribute();
@@ -127,6 +181,9 @@ public final class DoJaStorageHostProbe {
 
             check(Arrays.equals("ok".getBytes(StandardCharsets.UTF_8), readAllBytes(folder.getFile("SETTINGS.BIN"))),
                     "case-insensitive lookup should resolve files created through the API");
+            check(Arrays.equals("ok".getBytes(StandardCharsets.UTF_8),
+                            Files.readAllBytes(namespaceRoot.resolve("settings.bin"))),
+                    "API writes should persist in the SVC0000 directory");
 
             try {
                 folder.createFile("SETTINGS.BIN");
@@ -149,12 +206,13 @@ public final class DoJaStorageHostProbe {
         parameters.put("AppClass", "RockmanDash_F");
 
         Path actual = DoJaStorageHost.resolveNamespaceRoot(
+                Path.of("games", "RockmanDASH.jam"),
                 parameters,
                 "file:/probe/RockmanDASH.jar",
                 "RockmanDash_F",
                 DoJaAccessToken.ACCESS_SERIES,
                 DoJaStorageService.SHARE_APPLICATION);
-        check(actual.endsWith(Path.of("SD_BIND", "RockmanDashProbe")),
+        check(actual.endsWith(Path.of("SD_BIND", "SVC0000RockmanDASH.jam")),
                 "application-shared series-only token should still resolve to a visible SD_BIND app folder");
     }
 

@@ -109,6 +109,7 @@ public class Primitive extends DrawableObject3D {
     private boolean depthTestEnabled = true;
     private boolean depthWriteEnabled = true;
     private boolean doubleSided = true;
+    private boolean starBlendColorKey;
 
     /**
      * Creates a primitive object with the specified type, parameter flags, and
@@ -358,4 +359,7 @@ public class Primitive extends DrawableObject3D {
     boolean doubleSided() {
         return doubleSided;
     }
+
+    void setStarBlendColorKey(boolean enabled) { starBlendColorKey = enabled; }
+    boolean starBlendColorKey() { return starBlendColorKey; }
 }

@@ -28,6 +28,7 @@ public final class OptCommandListProbe {
             throw new IllegalStateException("Legacy and packed command-list headers produced different output");
         }
         verifyCommandScaleOverridesPreviousScreenView();
+        verifySmallFixedPointScaleAndUnsetTransformTable();
 
         Set<Integer> unique = new HashSet<>();
         int opaquePixels = 0;
@@ -64,6 +65,35 @@ public final class OptCommandListProbe {
         }
         if (visiblePixels == 0) {
             throw new IllegalStateException("COMMAND_SCREEN_SCALE did not override the previous screen-view projection");
+        }
+    }
+
+    private static void verifySmallFixedPointScaleAndUnsetTransformTable() throws Exception {
+        Image image = Image.createImage(64, 64);
+        Graphics graphics = image.getGraphics();
+        graphics.setPrimitiveTextureArray(new Texture(makeTexture(), false));
+        graphics.executeCommandList(new int[]{
+                1,
+                Graphics3D.COMMAND_SCREEN_CENTER, 0, 0,
+                Graphics3D.COMMAND_SCREEN_SCALE, 1, 1,
+                Graphics3D.COMMAND_VIEW_TRANS | 2,
+                Graphics3D.COMMAND_TEXTURE,
+                Graphics3D.COMMAND_RENDER_QUADS | Graphics3D.TEXTURE_COORD_PER_VERTEX | (1 << 16),
+                0, 0, 0, 64 << 12, 0, 0, 64 << 12, 64 << 12, 0, 0, 64 << 12, 0,
+                0, 0, 255, 0, 255, 255, 0, 255,
+                Graphics3D.COMMAND_FLUSH, Graphics3D.COMMAND_END
+        });
+        int[] pixels = graphics.getRGBPixels(0, 0, 64, 64, null, 0);
+        checkRgb(pixels[16 * 64 + 16], 0xFF0000);
+        checkRgb(pixels[16 * 64 + 48], 0x00FF00);
+        checkRgb(pixels[48 * 64 + 16], 0x0000FF);
+        checkRgb(pixels[48 * 64 + 48], 0xFFFFFF);
+    }
+
+    private static void checkRgb(int pixel, int expected) {
+        if ((pixel & 0xFFFFFF) != expected) {
+            throw new IllegalStateException("Small fixed-point scale produced "
+                    + Integer.toHexString(pixel) + " instead of " + Integer.toHexString(expected));
         }
     }
 

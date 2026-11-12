@@ -161,6 +161,7 @@ public final class TextBox extends Component implements Interactable {
             throw new IllegalStateException("XString text cannot be made editable");
         }
         this.editable = editable;
+        hostChanged();
     }
 
     /**
@@ -203,6 +204,8 @@ public final class TextBox extends Component implements Interactable {
     @Override
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+        if (!enabled && ownerPanel() != null) ownerPanel().componentBecameUnavailable(this);
+        hostChanged();
     }
 
     /**
@@ -254,6 +257,7 @@ public final class TextBox extends Component implements Interactable {
     }
 
     private void fireTextChangedIfVisible() {
+        hostChanged();
         Panel panel = ownerPanel();
         if (panel != null && visible()) {
             panel.fireComponentAction(this, ComponentListener.TEXT_CHANGED, 0);
@@ -296,6 +300,12 @@ public final class TextBox extends Component implements Interactable {
     int hostRows() {
         return rows;
     }
+
+    int hostColumns() { return columns; }
+    boolean hostEditable() { return enabled && editable && !xTextMode; }
+    int hostInputMode() { return inputMode; }
+    int hostDisplayMode() { return displayMode; }
+    int hostInputSize() { return inputSize; }
 
     boolean hostEnabled() {
         return enabled;

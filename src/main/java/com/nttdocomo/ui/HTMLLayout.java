@@ -58,6 +58,7 @@ public class HTMLLayout implements LayoutManager {
             throw new IllegalArgumentException("Unsupported HTMLLayout tag: " + tag);
         }
         stack.push(normalized);
+        if (P.equals(normalized)) pendingBreaks += 2;
     }
 
     /**
@@ -72,7 +73,7 @@ public class HTMLLayout implements LayoutManager {
         if (stack.isEmpty()) {
             throw new UIException(UIException.ILLEGAL_STATE, "HTMLLayout.end() without a matching begin()");
         }
-        stack.pop();
+        if (P.equals(stack.pop())) pendingBreaks += 2;
     }
 
     int consumePendingBreaks() {
@@ -82,6 +83,7 @@ public class HTMLLayout implements LayoutManager {
     }
 
     String currentTag() {
-        return stack.peek();
+        for (String tag : stack) if (!P.equals(tag)) return tag;
+        return LEFT;
     }
 }

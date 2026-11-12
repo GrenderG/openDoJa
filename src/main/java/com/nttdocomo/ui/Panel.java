@@ -18,9 +18,10 @@ public class Panel extends Frame {
     private ComponentListener componentListener;
     private Component focusedComponent;
     private KeyListener keyListener;
-    private LayoutManager layoutManager;
+    private LayoutManager layoutManager = new HTMLLayout();
     private SoftKeyListener softKeyListener;
     private String title;
+    final _PanelHost host = new _PanelHost(this);
 
     /**
      * Creates an empty panel.
@@ -45,6 +46,9 @@ public class Panel extends Frame {
         }
         components.add(component);
         component.attachToPanel(this);
+        host.added(component, layoutManager instanceof HTMLLayout html ? html.consumePendingBreaks() : 0,
+                layoutManager instanceof HTMLLayout html ? html.currentTag() : HTMLLayout.LEFT);
+        invalidateForHost();
     }
 
     /**
@@ -86,6 +90,7 @@ public class Panel extends Frame {
     @Override
     public void setBackground(int color) {
         super.setBackground(color);
+        invalidateForHost();
     }
 
     /**
@@ -119,6 +124,7 @@ public class Panel extends Frame {
      */
     public void setLayoutManager(LayoutManager layoutManager) {
         this.layoutManager = layoutManager;
+        invalidateForHost();
     }
 
     /**
@@ -165,6 +171,7 @@ public class Panel extends Frame {
      */
     public void setTitle(String title) {
         this.title = title;
+        invalidateForHost();
     }
 
     final void requestFocus(Component component) {
@@ -179,6 +186,8 @@ public class Panel extends Frame {
         }
         focusedComponent = component;
         component.setFocused(true);
+        host.focusChanged(component);
+        invalidateForHost();
     }
 
     final void componentBecameUnavailable(Component component) {
@@ -186,6 +195,7 @@ public class Panel extends Frame {
             focusedComponent.setFocused(false);
             focusedComponent = null;
         }
+        invalidateForHost();
     }
 
     final void fireComponentAction(Component component, int type, int param) {
@@ -208,6 +218,14 @@ public class Panel extends Frame {
 
     Component hostFocusedComponent() {
         return focusedComponent;
+    }
+
+    final void invalidateForHost() { host.changed(); }
+
+    final void hostKeyEvent(int type, int key) {
+        if (keyListener == null) return;
+        if (type == Display.KEY_PRESSED_EVENT) keyListener.keyPressed(this, key);
+        else if (type == Display.KEY_RELEASED_EVENT) keyListener.keyReleased(this, key);
     }
 
     private static final class SystemFocusManager implements FocusManager {

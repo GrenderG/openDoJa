@@ -13,12 +13,19 @@ public final class OglContractProbe {
         GraphicsOGL graphics = (GraphicsOGL) Image.createImage(4, 4).getGraphics();
         int[] value = new int[1];
         graphics.glGetIntegerv(GraphicsOGL.GL_MAX_TEXTURE_UNITS, value);
-        check(value[0] == 1, "GL_MAX_TEXTURE_UNITS should report the supported software texture unit count");
+        check(value[0] == 2, "GL_MAX_TEXTURE_UNITS should report both supported texture units");
         check(graphics.glGetError() == GraphicsOGL.GL_NO_ERROR, "GL_MAX_TEXTURE_UNITS should not set an OGL error");
 
         graphics.glGetIntegerv(GraphicsOGL.GL_MAX_LIGHTS, value);
         check(value[0] == 8, "GL_MAX_LIGHTS should report the GLES light count");
         check(graphics.glGetError() == GraphicsOGL.GL_NO_ERROR, "GL_MAX_LIGHTS should not set an OGL error");
+
+        int[] viewport = {-1, -1};
+        graphics.glGetIntegerv(GraphicsOGL.GL_MAX_VIEWPORT_DIMS, viewport);
+        check(viewport[0] >= 854 && viewport[1] >= 480, "Viewport capacity should accommodate STAR landscape games");
+        check(graphics.glGetError() == GraphicsOGL.GL_NO_ERROR, "Capability queries must not poison later model uploads");
+        assertThrows("short viewport params", IllegalArgumentException.class,
+                () -> graphics.glGetIntegerv(GraphicsOGL.GL_MAX_VIEWPORT_DIMS, new int[1]));
 
         graphics.glGetIntegerv(GraphicsOGL.GL_MAX_PALETTE_MATRICES_OES, value);
         check(value[0] == 32, "GL_MAX_PALETTE_MATRICES_OES should report the software palette capacity");

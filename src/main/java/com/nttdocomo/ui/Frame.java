@@ -63,6 +63,7 @@ public abstract class Frame {
     public void setSoftLabel(int key, String caption) {
         if (key >= 0 && key < softLabels.length) {
             softLabels[key] = caption;
+            repaintHostLabels();
         }
     }
 
@@ -74,6 +75,7 @@ public abstract class Frame {
      */
     public void setSoftLabelVisible(boolean visible) {
         this.softLabelVisible = visible;
+        repaintHostLabels();
     }
 
     /**
@@ -100,5 +102,10 @@ public abstract class Frame {
 
     int backgroundColor() {
         return background;
+    }
+
+    private void repaintHostLabels() {
+        var runtime = opendoja.host.DoJaRuntime.current();
+        if (runtime != null && runtime.getCurrentFrame() == this) runtime.repaintWindow();
     }
 }

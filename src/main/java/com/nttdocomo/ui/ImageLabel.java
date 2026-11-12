@@ -36,5 +36,8 @@ public final class ImageLabel extends Component {
         }
         _ImageInternalAccess.requireUsable(image);
         this.image = image;
+        hostChanged();
     }
+
+    Image hostImage() { return image; }
 }

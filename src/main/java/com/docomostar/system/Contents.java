@@ -9,7 +9,7 @@ public final class Contents {
     }
 
     public static void sendMyMenuRequest(Hashtable parameters, boolean showDialog)
-            throws ContentsException, com.nttdocomo.system.InterruptedOperationException {
+            throws ContentsException, InterruptedOperationException {
         OpenDoJaLog.info(Contents.class, () ->
                 "Simulated Star Contents.sendMyMenuRequest params=" + parameters + " showDialog=" + showDialog);
     }

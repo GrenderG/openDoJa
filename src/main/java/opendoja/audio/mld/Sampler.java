@@ -115,6 +115,11 @@ public interface Sampler
      */
     void keyOff(int channel, int key);
 
+    /** MIDI hold-pedal value in 0..127; backends without this control ignore it. */
+    default void sustain(int channel, int value)
+    {
+    }
+
     /**
      * Activate a key on a channel. If no key is currently active on the
      * channel, begins a new note. If a key is already active on the

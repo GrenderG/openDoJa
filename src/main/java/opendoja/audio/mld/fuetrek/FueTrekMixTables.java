@@ -46,10 +46,9 @@ final class FueTrekMixTables {
         if (velocity <= 0.0f) {
             return 0;
         }
-        // lib002 note parsing forwards the 6-bit note velocity lane as `value << 1`,
-        // so the live synth-side domain is the even range 0..126 rather than 0..127.
-        int velocity6 = clamp(Math.round(velocity * 63.0f), 0, 0x3f);
-        return velocity6 << 1;
+        // SynthModule consumes the full MIDI 7-bit domain. The MFi player
+        // performs its separate 6-bit expansion before calling this layer.
+        return clamp(Math.round(velocity * 127.0f), 0, 0x7f);
     }
 
     private static int clamp(int value, int min, int max) {

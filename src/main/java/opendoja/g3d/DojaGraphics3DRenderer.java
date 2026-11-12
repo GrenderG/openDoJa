@@ -140,7 +140,7 @@ public final class DojaGraphics3DRenderer {
                         + " transform=" + (objectMatrix == null ? "null" : Arrays.toString(objectMatrix)));
             }
             context.renderUiPrimitive(target.graphics(), target.image(), target.originX(), target.originY(), target.width(), target.height(),
-                    primitive.getPrimitiveType(), primitive.getPrimitiveParam(), primitive.size(),
+                    primitive.getPrimitiveType(), renderState.primitiveParam(), primitive.size(),
                     primitive.getVertexArray(), primitive.getColorArray(), primitive.getTextureCoordArray(), renderState.textureHandle(),
                     objectMatrix, drawableState.blendMode(), drawableState.transparency(),
                     renderState.textureWrapEnabled(),

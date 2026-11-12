@@ -21,6 +21,7 @@ public final class DoJaStorageHost {
     public static final String EXTERNAL_DEVICE_NAME = "/ext0";
     public static final String PRINT_NAME = "SD Memory Card";
     private static final String SD_BIND_DIRECTORY_NAME = "SD_BIND";
+    private static final String APPLICATION_BINDING_PREFIX = "SVC0000";
 
     private static final String[] ALL_CAPABILITIES = {
             StorageDevice.CAPABILITY_SD,
@@ -100,19 +101,19 @@ public final class DoJaStorageHost {
         String applicationClassName = runtime.application() == null
                 ? trim(runtime.parameters().get("AppClass"))
                 : runtime.application().getClass().getName();
-        return resolveNamespaceRoot(runtime.parameters(), runtime.sourceUrl(), applicationClassName,
+        return resolveNamespaceRoot(runtime.jamPath(), runtime.parameters(), runtime.sourceUrl(), applicationClassName,
                 token.getAccess(), token.getShare());
     }
 
-    static Path resolveNamespaceRoot(Map<String, String> parameters,
+    static Path resolveNamespaceRoot(Path jamPath,
+                                     Map<String, String> parameters,
                                      String sourceUrl,
                                      String applicationClassName,
                                      int access,
                                      int share) {
         String scopeName = switch (share) {
-            case DoJaStorageService.SHARE_APPLICATION -> scopedDirectoryName(
-                    applicationScopeDisplayName(parameters, sourceUrl, applicationClassName),
-                    "app-" + stableId(applicationScopeKey(parameters, sourceUrl, applicationClassName)));
+            case DoJaStorageService.SHARE_APPLICATION -> applicationDirectoryName(
+                    jamPath, parameters, sourceUrl, applicationClassName);
             case DoJaStorageService.SHARE_CONTENTS_PROVIDER -> scopedDirectoryName(
                     contentsProviderDisplayName(parameters),
                     "cp-" + stableId(contentsProviderScopeKey(parameters)));
@@ -124,7 +125,7 @@ public final class DoJaStorageHost {
             // bind IDs, but real extracted game packages are commonly
             // distributed for idkDoJa-style manual installs under one visible
             // application folder. Keep every app-shared token rooted at the
-            // same SD_BIND/<app> directory so those media dumps remain
+            // same SD_BIND/SVC0000<JAM filename> directory so those media dumps remain
             // consumable while contents-provider shares stay isolated.
             return scopeRoot;
         }
@@ -297,6 +298,21 @@ public final class DoJaStorageHost {
             return appName;
         }
         return "runtime-missing";
+    }
+
+    private static String applicationDirectoryName(Path jamPath,
+                                                   Map<String, String> parameters,
+                                                   String sourceUrl,
+                                                   String applicationClassName) {
+        if (jamPath != null && jamPath.getFileName() != null) {
+            // Match the emulator's visible binding folder exactly, including
+            // spaces, punctuation, case, and the descriptor's extension.
+            return APPLICATION_BINDING_PREFIX + jamPath.getFileName();
+        }
+        // Programmatic launches (demos/probes) do not have a JAM filename.
+        return scopedDirectoryName(
+                applicationScopeDisplayName(parameters, sourceUrl, applicationClassName),
+                "app-" + stableId(applicationScopeKey(parameters, sourceUrl, applicationClassName)));
     }
 
     private static String applicationScopeDisplayName(Map<String, String> parameters,

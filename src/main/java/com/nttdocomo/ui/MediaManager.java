@@ -457,7 +457,7 @@ public final class MediaManager {
         }
     }
 
-    private static InputStream openNamedInputStream(String name) throws IOException {
+    static InputStream openNamedInputStream(String name) throws IOException {
         if (name == null || name.isBlank()) {
             throw new IOException("Empty media name");
         }

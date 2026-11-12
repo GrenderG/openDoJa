@@ -56,6 +56,10 @@ Print all available launcher options:
 java -jar opendoja-{version}.jar --help
 ```
 
+STAR support is experimental. A JAM containing an `AppType` field selects STAR (which is unique to star);
+JAMs without that field use DoJa Profile. A compatibility layer is used over the shared graphics, audio,
+input, network, and scratchpad. Other STAR APIs and mini-app behavior are not yet fully implemented.
+
 ## Reporting Broken Games
 
 If a game does not work, please open a GitHub issue using the broken game report template.

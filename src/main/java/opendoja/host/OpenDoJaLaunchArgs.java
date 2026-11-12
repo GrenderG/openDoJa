@@ -160,6 +160,8 @@ public final class OpenDoJaLaunchArgs {
     public static final String INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS = "opendoja.input.keyRepeatReleaseDebounceMs";
     /** Serialized host input bindings for the active launcher profile. */
     public static final String INPUT_BINDINGS = "opendoja.input.bindings";
+    /** Initial STAR desktop direction rotation: none, left, right, or upside-down. */
+    public static final String INPUT_STAR_DIRECTION_ROTATION = "opendoja.input.starDirectionRotation";
     /** Minimum select-key press duration in ms. */
     public static final String INPUT_MINIMUM_SELECT_PRESS_MS = "opendoja.input.minimumSelectPressMs";
     /** Payload returned by mock IR receive. */
@@ -168,6 +170,8 @@ public final class OpenDoJaLaunchArgs {
     public static final String KEEP_EXPLICIT_GC = "opendoja.keepExplicitGc";
     /** Marks that launch compatibility tweaks were applied. */
     public static final String LAUNCH_COMPAT_APPLIED = "opendoja.launchCompatApplied";
+    /** Internal file carrying parameters for an i-appli linked launch. */
+    public static final String LINKED_LAUNCH_REQUEST = "opendoja.linkedLaunchRequest";
     /** Marks that the one-time VerifyError fallback re-exec was applied. */
     public static final String VERIFY_FALLBACK_APPLIED = "opendoja.verifyFallbackApplied";
     /** Minimum OpenDoJa log level. */
@@ -350,6 +354,7 @@ public final class OpenDoJaLaunchArgs {
             UIM_ID,
             INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS,
             INPUT_BINDINGS,
+            INPUT_STAR_DIRECTION_ROTATION,
             INPUT_MINIMUM_SELECT_PRESS_MS,
             IRRECEIVER_DATA,
             KEEP_EXPLICIT_GC,
@@ -408,6 +413,7 @@ public final class OpenDoJaLaunchArgs {
             TRACE_FAILURES,
             UI_FIGURE_VERTEX_SCALE,
             LAUNCH_COMPAT_APPLIED,
+            LINKED_LAUNCH_REQUEST,
             VERIFY_FALLBACK_APPLIED);
 
     private static final Map<String, Supplier<String>> DEFAULTS = buildDefaults();
@@ -638,10 +644,12 @@ public final class OpenDoJaLaunchArgs {
         defaults.put(UIM_ID, OpenDoJaIdentity::defaultUimId);
         defaults.put(INPUT_KEY_REPEAT_RELEASE_DEBOUNCE_MS, () -> "25");
         defaults.put(INPUT_BINDINGS, () -> "");
+        defaults.put(INPUT_STAR_DIRECTION_ROTATION, () -> "none");
         defaults.put(INPUT_MINIMUM_SELECT_PRESS_MS, () -> "75");
         defaults.put(IRRECEIVER_DATA, () -> "IR-RECEIVE");
         defaults.put(KEEP_EXPLICIT_GC, () -> "false");
         defaults.put(LAUNCH_COMPAT_APPLIED, () -> "false");
+        defaults.put(LINKED_LAUNCH_REQUEST, () -> "");
         defaults.put(VERIFY_FALLBACK_APPLIED, () -> "false");
         defaults.put(LOG_LEVEL, () -> OpenDoJaLog.Level.OFF.name());
         defaults.put(VISUAL_PLAYER_FALLBACK_DELAY_MS, () -> "2000");

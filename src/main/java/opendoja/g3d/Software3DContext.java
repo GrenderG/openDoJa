@@ -1761,14 +1761,14 @@ public final class Software3DContext {
         if (optViewWidth > 0f) {
             return optViewWidth;
         }
-        return surfaceWidth / java.lang.Math.max(0.25f, optScaleX);
+        return surfaceWidth / java.lang.Math.max(1f / 4096f, optScaleX);
     }
 
     private float resolveOptOrthoHeight(int surfaceHeight) {
         if (optViewHeight > 0f) {
             return optViewHeight;
         }
-        return surfaceHeight / java.lang.Math.max(0.25f, optScaleY);
+        return surfaceHeight / java.lang.Math.max(1f / 4096f, optScaleY);
     }
 
     private static float normalizeNear(float rawNear) {

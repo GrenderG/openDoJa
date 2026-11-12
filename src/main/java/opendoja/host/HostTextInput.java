@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class HostTextInput {
     private static final String AUTOMATION_CANCEL_TOKEN = "__CANCEL__";
-    private static final AtomicReference<Canvas> ACTIVE_IME = new AtomicReference<>();
+    private static final AtomicReference<Object> ACTIVE_IME = new AtomicReference<>();
 
     private HostTextInput() {
     }
@@ -85,9 +85,15 @@ public final class HostTextInput {
     }
 
     private static JTextComponent createField(int displayMode, String initialText, int inputSize) {
+        return createField(displayMode, initialText, inputSize, true, false);
+    }
+
+    private static JTextComponent createField(int displayMode, String initialText, int inputSize,
+                                              boolean countHalfWidthUnits, boolean multiline) {
         JTextComponent field = displayMode == TextBox.DISPLAY_PASSWORD
                 ? new JPasswordField(initialText)
-                : new JTextField(initialText);
+                : multiline ? new JTextArea(initialText, 5, 24) : new JTextField(initialText);
+        if (field instanceof JTextArea area) { area.setLineWrap(true); area.setWrapStyleWord(true); }
         if (inputSize > 0) {
             PlainDocument document = new PlainDocument() {
                 @Override
@@ -95,7 +101,8 @@ public final class HostTextInput {
                     if (str == null) {
                         return;
                     }
-                    if (inputUnits(documentTextAfterInsert(this, offset, str)) > inputSize) {
+                    String result = documentTextAfterInsert(this, offset, str);
+                    if ((countHalfWidthUnits ? inputUnits(result) : result.length()) > inputSize) {
                         return;
                     }
                     super.insertString(offset, str, attr);
@@ -103,7 +110,8 @@ public final class HostTextInput {
 
                 @Override
                 public void replace(int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
-                    if (inputUnits(documentTextAfterReplace(this, offset, length, text)) > inputSize) {
+                    String result = documentTextAfterReplace(this, offset, length, text);
+                    if ((countHalfWidthUnits ? inputUnits(result) : result.length()) > inputSize) {
                         return;
                     }
                     super.replace(offset, length, text, attrs);
@@ -114,6 +122,51 @@ public final class HostTextInput {
         }
         field.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT);
         return field;
+    }
+
+    /** Reuses the canvas IME editor while preserving TextBox's character-count limit and events. */
+    public static void requestTextBox(com.nttdocomo.ui.Panel panel, TextBox box, String text,
+                                      int displayMode, int inputMode, int inputSize, boolean multiline,
+                                      java.util.function.Consumer<String> committed) {
+        DoJaRuntime runtime = DoJaRuntime.current();
+        if (runtime == null || runtime.getCurrentFrame() != panel || !ACTIVE_IME.compareAndSet(null, box)) return;
+        runtime.beginModalDialog();
+        Runnable task = () -> {
+            String result = null;
+            try {
+                String automated = OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.IME_AUTOMATION_RESPONSE, null);
+                if (automated != null) {
+                    long delay = OpenDoJaLaunchArgs.getLong(OpenDoJaLaunchArgs.IME_AUTOMATION_DELAY_MS, 0L);
+                    if (delay > 0) Thread.sleep(delay);
+                    if (!AUTOMATION_CANCEL_TOKEN.equals(automated)) result = automated;
+                } else if (!GraphicsEnvironment.isHeadless()) {
+                    JTextComponent field = createField(displayMode, text == null ? "" : text, inputSize, false, multiline);
+                    field.enableInputMethods(inputMode == TextBox.KANA);
+                    field.selectAll();
+                    Object contents = multiline ? new JScrollPane(field) : field;
+                    if (JOptionPane.showConfirmDialog(dialogParent(), contents, dialogTitle(),
+                            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION)
+                        result = readFieldValue(field);
+                }
+                if (result != null && inputSize > 0 && result.length() > inputSize) {
+                    int end = inputSize;
+                    if (Character.isHighSurrogate(result.charAt(end - 1))) end--;
+                    result = result.substring(0, end);
+                }
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+            } finally {
+                ACTIVE_IME.compareAndSet(box, null);
+                runtime.endModalDialog();
+                String value = result;
+                if (value != null) runtime.postApplicationCallback(() -> {
+                    if (DoJaRuntime.current() == runtime && runtime.getCurrentFrame() == panel) committed.accept(value);
+                });
+            }
+        };
+        if (OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.IME_AUTOMATION_RESPONSE, null) != null || GraphicsEnvironment.isHeadless()) {
+            Thread worker = new Thread(task, "openDoja-panel-ime"); worker.setDaemon(true); worker.start();
+        } else SwingUtilities.invokeLater(task);
     }
 
     private static Component dialogParent() {

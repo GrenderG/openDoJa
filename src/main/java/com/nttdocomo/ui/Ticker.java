@@ -45,7 +45,10 @@ public final class Ticker extends Component {
      */
     public void setText(String text) {
         this.text = text == null ? "" : text;
+        hostChanged();
     }
+
+    String hostText() { return text; }
 
     /**
      * Sets the displayed text from an {@link XString}.

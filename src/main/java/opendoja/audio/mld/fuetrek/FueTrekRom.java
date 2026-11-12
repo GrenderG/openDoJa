@@ -193,7 +193,12 @@ final class FueTrekRom {
                     entries[i] = objects[objectIndex];
                 }
             }
-            groupsById[id] = new Group(id, entries);
+            // 0x10008670 turns entry 4 into the writable 16-slot preset bank
+            // 0x11 and replaces its entries. Its on-disk drum entries are not
+            // available for ordinary ROM selection after initialization.
+            if (g != 4) {
+                groupsById[id] = new Group(id, entries);
+            }
         }
 
         reader.expectFullyConsumed();
@@ -281,12 +286,27 @@ final class FueTrekRom {
                 int tune1024,
                 int rootKey,
                 int controlByte) {
-            this.pcm8 = Arrays.copyOf(pcm8, pcm8.length);
+            this(pcm8, loopStart, loopEnd, tune1024, rootKey, controlByte, true);
+        }
+
+        private Sample(byte[] pcm8, int loopStart, int loopEnd, int tune1024,
+                       int rootKey, int controlByte, boolean copy) {
+            this.pcm8 = copy ? Arrays.copyOf(pcm8, pcm8.length) : pcm8;
             this.loopStart = loopStart;
             this.loopEnd = loopEnd;
             this.tune1024 = tune1024;
             this.rootKey = rootKey;
             this.controlByte = controlByte;
+        }
+
+        Sample withPitch(int rootKey, int tune1024) {
+            return new Sample(pcm8, loopStart, loopEnd, (short) tune1024,
+                    rootKey & 0xff, controlByte, false);
+        }
+
+        Sample withWaveform(Sample wave) {
+            return new Sample(wave.pcm8, wave.loopStart, wave.loopEnd, tune1024,
+                    rootKey, controlByte, false);
         }
 
         int sampleCount() {

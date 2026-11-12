@@ -34,7 +34,8 @@ public final class StatusBarIconProbe {
                 true,
                 config.statusBarIconDevice(),
                 config.iAppliType(),
-                config.launchType());
+                config.launchType(),
+                config.applicationProfile());
         ExternalFrameLayout layout = renderer.layoutFor(config.width(), config.height(), HOST_SCALE);
         BufferedImage image = new BufferedImage(layout.preferredSize().width, layout.preferredSize().height,
                 BufferedImage.TYPE_INT_ARGB);

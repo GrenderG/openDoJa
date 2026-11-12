@@ -19,7 +19,11 @@ final class LauncherProcessSupport {
     }
 
     Process startInBackground(GameLaunchSelection selection, LauncherSettings settings) throws IOException {
-        ProcessBuilder processBuilder = new ProcessBuilder(buildLaunchCommand(selection, settings));
+        return startInBackground(selection, settings, null);
+    }
+
+    Process startInBackground(GameLaunchSelection selection, LauncherSettings settings, Path linkedRequest) throws IOException {
+        ProcessBuilder processBuilder = new ProcessBuilder(buildLaunchCommand(selection, settings, linkedRequest));
         if (selection.jamPath().getParent() != null) {
             processBuilder.directory(selection.jamPath().getParent().toFile());
         }
@@ -37,6 +41,10 @@ final class LauncherProcessSupport {
     }
 
     List<String> buildLaunchCommand(GameLaunchSelection selection, LauncherSettings settings) throws IOException {
+        return buildLaunchCommand(selection, settings, null);
+    }
+
+    List<String> buildLaunchCommand(GameLaunchSelection selection, LauncherSettings settings, Path linkedRequest) throws IOException {
         List<String> command = new ArrayList<>();
         command.add(Path.of(OpenDoJaLaunchArgs.get("java.home"), "bin", "java").toString());
         command.add(ENABLE_NATIVE_ACCESS_ARGUMENT);
@@ -49,6 +57,9 @@ final class LauncherProcessSupport {
         Set<String> overriddenProperties = appendForwardedProperties(command, System.getProperties(), settings);
         appendLauncherSettings(command, settings, overriddenProperties);
         appendFileEncoding(command, settings);
+        if (linkedRequest != null) {
+            command.add("-D" + OpenDoJaLaunchArgs.LINKED_LAUNCH_REQUEST + "=" + linkedRequest.toAbsolutePath());
+        }
         command.add("-cp");
         command.add(resolveLauncherArtifact().toString());
         command.add(OpenDoJaLauncher.class.getName());
@@ -61,6 +72,9 @@ final class LauncherProcessSupport {
         Set<String> forwarded = new HashSet<>();
         boolean disableOsDpiScaling = settings != null && settings.disableOsDpiScaling();
         for (String name : properties.stringPropertyNames()) {
+            if (name.equals(OpenDoJaLaunchArgs.LINKED_LAUNCH_REQUEST)) {
+                continue;
+            }
             if (disableOsDpiScaling
                     && (name.equals("sun.java2d.uiScale") || name.equals(JAVA2D_UI_SCALE_ENABLED))) {
                 continue;

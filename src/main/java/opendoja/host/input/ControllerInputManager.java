@@ -53,11 +53,20 @@ public final class ControllerInputManager implements AutoCloseable {
 
     private long lastPluginAttemptNanos;
     private String lastLoggedErrorMessage;
+    // Guarded by deviceStates, together with native polling and device disposal.
+    private boolean vibratorEnabled;
+    private boolean rumbleFocused = true;
 
     public ControllerInputManager(Frame ownerFrame) {
+        this(ownerFrame, true);
+    }
+
+    ControllerInputManager(Frame ownerFrame, boolean startPolling) {
         silenceInput4jLogs();
         this.ownerFrame = ownerFrame;
-        executor.scheduleWithFixedDelay(this::pollLoop, 0L, POLL_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        if (startPolling) {
+            executor.scheduleWithFixedDelay(this::pollLoop, 0L, POLL_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        }
     }
 
     public List<ControllerDeviceInfo> devices() {
@@ -70,6 +79,46 @@ public final class ControllerInputManager implements AutoCloseable {
 
     public String lastErrorMessage() {
         return lastErrorMessage;
+    }
+
+    /** Applies the handset's on/off vibrator request to connected controllers. */
+    public void setVibratorEnabled(boolean enabled) {
+        synchronized (deviceStates) {
+            if (closed) return;
+            vibratorEnabled = enabled;
+            updateRumble();
+        }
+    }
+
+    /** Mutes physical output while the game window is unfocused, retaining the app's request. */
+    public void setRumbleFocused(boolean focused) {
+        synchronized (deviceStates) {
+            if (closed) return;
+            rumbleFocused = focused;
+            updateRumble();
+        }
+    }
+
+    private void updateRumble() {
+        for (DeviceState state : deviceStates.values()) {
+            applyRumble(state, vibratorEnabled && rumbleFocused);
+        }
+    }
+
+    private void applyRumble(DeviceState state, boolean enabled) {
+        if (state.rumbling == enabled) return;
+        // Record the attempt first so cleanup still sends OFF if a backend partially succeeds.
+        state.rumbling = enabled;
+        float strength = enabled ? 1f : 0f;
+        try {
+            state.device.rumble(strength, strength);
+        } catch (Throwable throwable) {
+            if (!state.rumbleFailureLogged) {
+                state.rumbleFailureLogged = true;
+                OpenDoJaLog.warn(ControllerInputManager.class,
+                        "Controller rumble failed for " + state.info.displayName(), throwable);
+            }
+        }
     }
 
     public List<ControllerInputEvent> activeInputs() {
@@ -109,41 +158,42 @@ public final class ControllerInputManager implements AutoCloseable {
 
     @Override
     public void close() {
-        if (closed) {
-            return;
-        }
-        closed = true;
-        executor.shutdownNow();
-        InputDevicePlugin currentPlugin = plugin;
-        plugin = null;
-        if (currentPlugin != null) {
-            try {
-                currentPlugin.close();
-            } catch (Exception exception) {
-                OpenDoJaLog.warn(ControllerInputManager.class, "Failed to close controller plugin", exception);
-            }
-        }
         synchronized (deviceStates) {
+            if (closed) return;
+            closed = true;
+            executor.shutdownNow();
+            for (DeviceState state : deviceStates.values()) {
+                applyRumble(state, false);
+            }
+            InputDevicePlugin currentPlugin = plugin;
+            plugin = null;
+            if (currentPlugin != null) {
+                try {
+                    currentPlugin.close();
+                } catch (Exception exception) {
+                    OpenDoJaLog.warn(ControllerInputManager.class, "Failed to close controller plugin", exception);
+                }
+            }
             deviceStates.clear();
             devices = List.of();
+            listeners.clear();
+            available = false;
         }
-        listeners.clear();
-        available = false;
     }
 
     private void pollLoop() {
-        if (closed) {
-            return;
-        }
-        try {
-            ensurePlugin();
-            if (plugin == null) {
-                return;
+        synchronized (deviceStates) {
+            if (closed) return;
+            try {
+                ensurePlugin();
+                if (plugin == null) {
+                    return;
+                }
+                pollDevices();
+            } catch (Throwable throwable) {
+                OpenDoJaLog.error(ControllerInputManager.class, "Unhandled controller polling failure", throwable);
+                handleInitializationFailure("Controller polling failed: " + throwable.getMessage());
             }
-            pollDevices();
-        } catch (Throwable throwable) {
-            OpenDoJaLog.error(ControllerInputManager.class, "Unhandled controller polling failure", throwable);
-            handleInitializationFailure("Controller polling failed: " + throwable.getMessage());
         }
     }
 
@@ -228,6 +278,7 @@ public final class ControllerInputManager implements AutoCloseable {
         List<ControllerDeviceInfo> connected = new ArrayList<>();
 
         synchronized (deviceStates) {
+            if (closed) return;
             Map<String, DeviceState> updatedStates = new LinkedHashMap<>();
             for (DeviceSnapshot snapshot : snapshots) {
                 newDeviceInfos.add(snapshot.info);
@@ -236,13 +287,19 @@ public final class ControllerInputManager implements AutoCloseable {
                     existing = new DeviceState(snapshot.device, snapshot.info);
                     connected.add(snapshot.info);
                 } else {
+                    if (existing.device != snapshot.device) {
+                        applyRumble(existing, false);
+                        existing.rumbleFailureLogged = false;
+                    }
                     existing.device = snapshot.device;
                     existing.info = snapshot.info;
                 }
+                applyRumble(existing, vibratorEnabled && rumbleFocused);
                 updatedStates.put(snapshot.info.id(), existing);
             }
             for (DeviceState existing : deviceStates.values()) {
                 if (!updatedStates.containsKey(existing.info.id())) {
+                    applyRumble(existing, false);
                     disconnected.add(existing.info);
                 }
             }
@@ -651,6 +708,8 @@ public final class ControllerInputManager implements AutoCloseable {
         private final Map<String, Boolean> oneSidedAxisReadyForPress = new LinkedHashMap<>();
         private final Map<String, Long> oneSidedAxisRestStartNanos = new LinkedHashMap<>();
         private boolean initialized;
+        private boolean rumbling;
+        private boolean rumbleFailureLogged;
 
         private DeviceState(InputDevice device, ControllerDeviceInfo info) {
             this.device = device;

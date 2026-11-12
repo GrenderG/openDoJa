@@ -293,6 +293,12 @@ public class PhoneSystem {
         if (!isValidAttributeValue(device, attribute)) {
             throw new IllegalArgumentException("Invalid attribute value " + attribute + " for device " + device);
         }
+        if (device == DEV_VIBRATOR) {
+            DoJaRuntime runtime = DoJaRuntime.current();
+            if (runtime != null) {
+                runtime.setVibratorEnabled(attribute == ATTR_VIBRATOR_ON);
+            }
+        }
         if (device == DEV_KEYPAD) {
             DoJaRuntime runtime = DoJaRuntime.current();
             if (runtime != null) {
@@ -314,6 +320,12 @@ public class PhoneSystem {
      * @return the attribute value, or {@code -1} if the resource type does not exist
      */
     public static int getAttribute(int device) {
+        if (device == DEV_VIBRATOR) {
+            DoJaRuntime runtime = DoJaRuntime.current();
+            if (runtime != null) {
+                return runtime.isVibratorEnabled() ? ATTR_VIBRATOR_ON : ATTR_VIBRATOR_OFF;
+            }
+        }
         return ATTRIBUTES.getOrDefault(device, -1);
     }
 

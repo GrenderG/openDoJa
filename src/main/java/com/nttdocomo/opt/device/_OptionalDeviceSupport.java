@@ -4,6 +4,9 @@ import com.nttdocomo.device.DeviceException;
 import com.nttdocomo.fs.File;
 import com.nttdocomo.system.StoreException;
 import opendoja.host.DoJaEncoding;
+import opendoja.host.DesktopVideoPlayback;
+import opendoja.host.DesktopVideoSupport;
+import opendoja.host.DoJaRuntime;
 import opendoja.host.device.DoJaCameraSupport;
 
 import java.io.IOException;
@@ -43,7 +46,7 @@ final class _OptionalDeviceSupport {
 
     private static final Map<Integer, Integer> irAttributeValues = new HashMap<>();
     private static boolean irReceiving;
-    private static long mediaPlayerLastStoppedPosition;
+    private static volatile long mediaPlayerLastStoppedPosition;
     private static int bodyHeightMm = roundToUnit(opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_DEFAULT_HEIGHT_MM), HEIGHT_UNIT_MM);
     private static int bodyWeightG = roundToUnit(opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.PEDOMETER_DEFAULT_WEIGHT_G), WEIGHT_UNIT_G);
 
@@ -143,7 +146,7 @@ final class _OptionalDeviceSupport {
         return MEDIA_PLAYER;
     }
 
-    static synchronized int playMedia(File file, long position) throws IOException {
+    static int playMedia(File file, long position) throws IOException {
         if (file == null) {
             throw new NullPointerException("file");
         }
@@ -151,6 +154,30 @@ final class _OptionalDeviceSupport {
             throw new IllegalArgumentException("position");
         }
         file.getLength();
+        // Explicit mock settings remain available to compatibility probes.
+        if (opendoja.host.OpenDoJaLaunchArgs.get(opendoja.host.OpenDoJaLaunchArgs.MEDIAPLAYER_STATUS, null) == null) {
+            byte[] bytes;
+            com.nttdocomo.io.FileEntity entity = file.open(File.MODE_READ_ONLY);
+            try (InputStream input = entity.openInputStream()) {
+                bytes = input.readAllBytes();
+            } finally {
+                entity.close();
+            }
+            DesktopVideoSupport.VideoMetadata metadata = DesktopVideoSupport.probe(bytes);
+            if (metadata.isVideo()) {
+                DoJaRuntime runtime = DoJaRuntime.current();
+                if (runtime == null) return MediaPlayer.STATUS_FAILED;
+                DesktopVideoPlayback playback = new DesktopVideoPlayback(runtime, metadata.data(),
+                        metadata.extension(), true, position);
+                DesktopVideoPlayback.Result result = playback.playAndWait(null);
+                mediaPlayerLastStoppedPosition = playback.stoppedPositionMillis();
+                return switch (result) {
+                    case COMPLETED -> MediaPlayer.STATUS_COMPLETED;
+                    case STOPPED -> MediaPlayer.STATUS_STOPPED;
+                    case FAILED -> MediaPlayer.STATUS_FAILED;
+                };
+            }
+        }
         long configured = opendoja.host.OpenDoJaLaunchArgs.getLong(opendoja.host.OpenDoJaLaunchArgs.MEDIAPLAYER_STOP_POSITION, position);
         mediaPlayerLastStoppedPosition = java.lang.Math.max(0L, configured);
         return opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.MEDIAPLAYER_STATUS);

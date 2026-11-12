@@ -74,6 +74,7 @@ public final class ListBox extends Component implements Interactable {
             throw new NullPointerException("item");
         }
         items.add(Item.ofXString(item));
+        hostChanged();
     }
 
     /**
@@ -87,6 +88,7 @@ public final class ListBox extends Component implements Interactable {
             throw new NullPointerException("item");
         }
         items.add(Item.ofString(item));
+        hostChanged();
     }
 
     /**
@@ -102,6 +104,7 @@ public final class ListBox extends Component implements Interactable {
         }
         this.items.clear();
         selected.clear();
+        hostChanged();
         for (String item : items) {
             append(item);
         }
@@ -120,6 +123,7 @@ public final class ListBox extends Component implements Interactable {
         }
         this.items.clear();
         selected.clear();
+        hostChanged();
         for (XString item : items) {
             append(item);
         }
@@ -205,6 +209,7 @@ public final class ListBox extends Component implements Interactable {
     public void removeAll() {
         items.clear();
         selected.clear();
+        hostChanged();
     }
 
     /**
@@ -248,6 +253,8 @@ public final class ListBox extends Component implements Interactable {
     @Override
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+        if (!enabled && ownerPanel() != null) ownerPanel().componentBecameUnavailable(this);
+        hostChanged();
     }
 
     /**
@@ -289,6 +296,7 @@ public final class ListBox extends Component implements Interactable {
     }
 
     private void fireSelectionChangedIfVisible() {
+        hostChanged();
         Panel panel = ownerPanel();
         if (panel != null && visible()) {
             panel.fireComponentAction(this, ComponentListener.SELECTION_CHANGED, 0);
@@ -321,4 +329,8 @@ public final class ListBox extends Component implements Interactable {
             return new Item(null, value);
         }
     }
+
+    int hostRows() { return rows; }
+    int hostType() { return type; }
+    boolean hostEnabled() { return enabled; }
 }

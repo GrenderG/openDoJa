@@ -3,13 +3,27 @@ package com.docomostar.media;
 import com.nttdocomo.lang.IterationAbortedException;
 import com.nttdocomo.ui.AvatarData;
 import com.nttdocomo.ui.ExifData;
-import com.nttdocomo.ui.Image;
+import com.docomostar.ui.Image;
 import com.nttdocomo.ui.MediaData;
 
 import java.io.InputStream;
 
 public final class MediaManager {
     private MediaManager() {
+    }
+
+    private static <T> T media(java.util.function.Supplier<T> action) {
+        try { return action.get(); }
+        catch (com.nttdocomo.ui.UIException failure) { throw MediaException.from(failure); }
+    }
+
+    /** Host integration: resource adapters must not hide the backend's prepared media. */
+    public static com.nttdocomo.ui.MediaResource unwrap(MediaResource resource) {
+        if (resource == null) return null;
+        if (resource instanceof MediaSoundAdapter sound) return sound.delegate;
+        if (resource instanceof MediaImageAdapter image) return com.nttdocomo.ui._DeferredMediaImage.preparedResource(image.delegate);
+        if (resource instanceof com.nttdocomo.ui.MediaResource host) return host;
+        throw new IllegalArgumentException("Resource was not created by MediaManager");
     }
 
     public static MediaData getData(String name) {
@@ -25,31 +39,31 @@ public final class MediaManager {
     }
 
     public static MediaImage getImage(String name) {
-        return adaptImage(com.nttdocomo.ui.MediaManager.getImage(name));
+        return adaptImage(new com.nttdocomo.ui._DeferredMediaImage(name));
     }
 
     public static MediaImage getImage(InputStream inputStream) {
-        return adaptImage(com.nttdocomo.ui.MediaManager.getImage(inputStream));
+        return media(() -> adaptImage(com.nttdocomo.ui.MediaManager.getImage(inputStream)));
     }
 
     public static MediaImage getImage(byte[] data) {
-        return adaptImage(com.nttdocomo.ui.MediaManager.getImage(data));
+        return media(() -> adaptImage(com.nttdocomo.ui.MediaManager.getImage(data)));
     }
 
     public static MediaImage getStreamingImage(String location, String contentType) {
-        return adaptImage(com.nttdocomo.ui.MediaManager.getStreamingImage(location, contentType));
+        return media(() -> adaptImage(com.nttdocomo.ui.MediaManager.getStreamingImage(location, contentType)));
     }
 
     public static MediaSound getSound(String name) {
-        return adaptSound(com.nttdocomo.ui.MediaManager.getSound(name));
+        return media(() -> adaptSound(com.nttdocomo.ui.MediaManager.getSound(name)));
     }
 
     public static MediaSound getSound(InputStream inputStream) {
-        return adaptSound(com.nttdocomo.ui.MediaManager.getSound(inputStream));
+        return media(() -> adaptSound(com.nttdocomo.ui.MediaManager.getSound(inputStream)));
     }
 
     public static MediaSound getSound(byte[] data) {
-        return adaptSound(com.nttdocomo.ui.MediaManager.getSound(data));
+        return media(() -> adaptSound(com.nttdocomo.ui.MediaManager.getSound(data)));
     }
 
     public static AvatarData getAvatarData(String name) {
@@ -65,20 +79,28 @@ public final class MediaManager {
     }
 
     public static void use(MediaImage[] mediaImages, boolean exclusive) throws IterationAbortedException {
-        com.nttdocomo.ui.MediaManager.use(mediaImages, exclusive);
+        if (mediaImages == null) return;
+        var images = new com.nttdocomo.ui.MediaImage[mediaImages.length];
+        for (int i = 0; i < images.length; i++) images[i] = (com.nttdocomo.ui.MediaImage) unwrap(mediaImages[i]);
+        com.nttdocomo.ui.MediaManager.use(images, exclusive);
     }
 
     public static void use(MediaSound[] mediaSounds, boolean exclusive) throws IterationAbortedException {
-        com.nttdocomo.ui.MediaManager.use(mediaSounds, exclusive);
+        if (mediaSounds == null) return;
+        var sounds = new com.nttdocomo.ui.MediaSound[mediaSounds.length];
+        for (int i = 0; i < sounds.length; i++) sounds[i] = (com.nttdocomo.ui.MediaSound) unwrap(mediaSounds[i]);
+        com.nttdocomo.ui.MediaManager.use(sounds, exclusive);
     }
 
     public static MediaImage createMediaImage(int width, int height) {
-        return adaptImage(com.nttdocomo.ui.MediaManager.createMediaImage(width, height));
+        return media(() -> adaptImage(com.nttdocomo.ui.MediaManager.createMediaImage(width, height)));
     }
 
     public static MediaSound createMediaSound(int size) {
-        return adaptSound(com.nttdocomo.ui.MediaManager.createMediaSound(size));
+        return media(() -> adaptSound(com.nttdocomo.ui.MediaManager.createMediaSound(size)));
     }
+
+    public static MediaImage wrapImage(com.nttdocomo.ui.MediaImage image) { return adaptImage(image); }
 
     private static MediaImage adaptImage(com.nttdocomo.ui.MediaImage image) {
         if (image == null) {
@@ -102,6 +124,8 @@ public final class MediaManager {
 
     private static final class MediaImageAdapter implements MediaImage {
         private final com.nttdocomo.ui.MediaImage delegate;
+        private com.nttdocomo.ui.Image hostImage;
+        private Image image;
 
         private MediaImageAdapter(com.nttdocomo.ui.MediaImage delegate) {
             this.delegate = delegate;
@@ -109,17 +133,19 @@ public final class MediaManager {
 
         @Override
         public int getWidth() {
-            return delegate.getWidth();
+            return media(delegate::getWidth);
         }
 
         @Override
         public int getHeight() {
-            return delegate.getHeight();
+            return media(delegate::getHeight);
         }
 
         @Override
-        public Image getImage() {
-            return delegate.getImage();
+        public synchronized Image getImage() {
+            var current = media(delegate::getImage);
+            if (current != hostImage) { hostImage = current; image = Image.wrap(current); }
+            return image;
         }
 
         @Override
@@ -133,23 +159,29 @@ public final class MediaManager {
         }
 
         @Override
-        public void use() throws com.nttdocomo.io.ConnectionException {
-            delegate.use();
+        public void use() throws com.docomostar.io.ConnectionException {
+            try { delegate.use(); }
+            catch (com.nttdocomo.io.ConnectionException failure) { throw com.docomostar.io.ConnectionException.from(failure); }
+            catch (com.nttdocomo.ui.UIException failure) { throw MediaException.from(failure); }
         }
 
         @Override
-        public void use(com.nttdocomo.ui.MediaResource other, boolean exclusive) throws com.nttdocomo.io.ConnectionException {
-            delegate.use(other, exclusive);
+        public void use(MediaResource other, boolean exclusive) throws com.docomostar.io.ConnectionException {
+            try { delegate.use(unwrap(other), exclusive); }
+            catch (com.nttdocomo.io.ConnectionException failure) { throw com.docomostar.io.ConnectionException.from(failure); }
+            catch (com.nttdocomo.ui.UIException failure) { throw MediaException.from(failure); }
         }
 
         @Override
         public void unuse() {
-            delegate.unuse();
+            try { delegate.unuse(); }
+            catch (com.nttdocomo.ui.UIException failure) { throw MediaException.from(failure); }
         }
 
         @Override
         public void dispose() {
-            delegate.dispose();
+            try { delegate.dispose(); }
+            catch (com.nttdocomo.ui.UIException failure) { throw MediaException.from(failure); }
         }
 
         @Override
@@ -181,23 +213,29 @@ public final class MediaManager {
         }
 
         @Override
-        public void use() throws com.nttdocomo.io.ConnectionException {
-            delegate.use();
+        public void use() throws com.docomostar.io.ConnectionException {
+            try { delegate.use(); }
+            catch (com.nttdocomo.io.ConnectionException failure) { throw com.docomostar.io.ConnectionException.from(failure); }
+            catch (com.nttdocomo.ui.UIException failure) { throw MediaException.from(failure); }
         }
 
         @Override
-        public void use(com.nttdocomo.ui.MediaResource other, boolean exclusive) throws com.nttdocomo.io.ConnectionException {
-            delegate.use(other, exclusive);
+        public void use(MediaResource other, boolean exclusive) throws com.docomostar.io.ConnectionException {
+            try { delegate.use(unwrap(other), exclusive); }
+            catch (com.nttdocomo.io.ConnectionException failure) { throw com.docomostar.io.ConnectionException.from(failure); }
+            catch (com.nttdocomo.ui.UIException failure) { throw MediaException.from(failure); }
         }
 
         @Override
         public void unuse() {
-            delegate.unuse();
+            try { delegate.unuse(); }
+            catch (com.nttdocomo.ui.UIException failure) { throw MediaException.from(failure); }
         }
 
         @Override
         public void dispose() {
-            delegate.dispose();
+            try { delegate.dispose(); }
+            catch (com.nttdocomo.ui.UIException failure) { throw MediaException.from(failure); }
         }
 
         @Override

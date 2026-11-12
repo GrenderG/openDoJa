@@ -16,12 +16,26 @@
 
   <repositories>
     <repository>
+      <id>bundled-libraries</id>
+      <url>file://${project.basedir}/vendor/maven</url>
+    </repository>
+    <repository>
       <id>jogamp</id>
       <url>https://jogamp.org/deployment/maven/</url>
     </repository>
   </repositories>
 
   <dependencies>
+    <dependency>
+      <groupId>com.jpexs</groupId>
+      <artifactId>ffdec-lib</artifactId>
+      <version>26.4.0</version>
+    </dependency>
+    <dependency>
+      <groupId>uk.co.caprica</groupId>
+      <artifactId>vlcj</artifactId>
+      <version>4.11.0</version>
+    </dependency>
     <dependency>
       <groupId>de.gurkenlabs</groupId>
       <artifactId>input4j</artifactId>
@@ -40,6 +54,10 @@
   </dependencies>
 
   <build>
+    <resources>
+      <resource><directory>src/main/resources</directory></resource>
+      <resource><directory>licenses</directory><targetPath>META-INF/licenses</targetPath></resource>
+    </resources>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -73,6 +91,16 @@
             </goals>
             <configuration>
               <createDependencyReducedPom>false</createDependencyReducedPom>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <mainClass>opendoja.launcher.OpenDoJaLauncher</mainClass>

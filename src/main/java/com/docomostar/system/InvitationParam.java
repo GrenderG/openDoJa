@@ -1,22 +1,22 @@
 package com.docomostar.system;
 
-import com.nttdocomo.lang.XString;
-import com.nttdocomo.lang._XStringSupport;
+import com.docomostar.lang.XString;
 
+/** Parameters for a STAR launch invitation; recipient and launch text are separate values. */
 public final class InvitationParam {
-    private final String launcherAppName;
-    private final String launchParameter;
-    private final int downloadBehavior;
-    private final String expirationText;
-    private final int expiration;
+    private String launcherAppName;
+    private XString recipient;
+    private int expiration;
+    private String launchParameter;
+    private int downloadBehavior;
 
-    public InvitationParam(String launcherAppName, XString launchParameter,
-                           int downloadBehavior, String expirationText, int expiration) {
+    public InvitationParam(String launcherAppName, XString recipient,
+                           int expiration, String launchParameter, int downloadBehavior) {
         this.launcherAppName = launcherAppName;
-        this.launchParameter = _XStringSupport.valueOrNull(launchParameter);
-        this.downloadBehavior = downloadBehavior;
-        this.expirationText = expirationText;
+        this.recipient = recipient;
         this.expiration = expiration;
+        this.launchParameter = launchParameter;
+        this.downloadBehavior = downloadBehavior;
     }
 
     public int getDownloadBehavior() {
@@ -36,6 +36,14 @@ public final class InvitationParam {
     }
 
     public String getExpirationText() {
-        return expirationText;
+        // Retain the old host accessor for the fourth constructor argument.
+        return launchParameter;
     }
+
+    public XString getRecipient() { return recipient; }
+    public void setLauncherAppName(String launcherAppName) { this.launcherAppName = launcherAppName; }
+    public void setRecipient(XString recipient) { this.recipient = recipient; }
+    public void setExpiration(int expiration) { this.expiration = expiration; }
+    public void setLaunchParameter(String launchParameter) { this.launchParameter = launchParameter; }
+    public void setDownloadBehavior(int downloadBehavior) { this.downloadBehavior = downloadBehavior; }
 }

@@ -80,6 +80,9 @@ public final class ExternalFrameSoftKeyProbe {
                 runtime.dispatchHostSoftKey(Frame.SOFT_KEY_2, Display.KEY_PRESSED_EVENT);
                 runtime.dispatchHostSoftKey(Frame.SOFT_KEY_2, Display.KEY_RELEASED_EVENT);
                 flushEdt();
+                // UI callbacks run on the application event executor, independently of Swing.
+                long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+                while (canvas.events().size() < 4 && System.nanoTime() < deadline) Thread.sleep(5);
 
                 List<String> expectedEvents = List.of(
                         "0:21",
@@ -171,11 +174,11 @@ public final class ExternalFrameSoftKeyProbe {
         }
 
         @Override
-        public void processEvent(int type, int param) {
+        public synchronized void processEvent(int type, int param) {
             events.add(type + ":" + param);
         }
 
-        List<String> events() {
+        synchronized List<String> events() {
             return List.copyOf(events);
         }
     }

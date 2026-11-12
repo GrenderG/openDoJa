@@ -22,7 +22,7 @@ final class OglSoftwareRenderer {
             primitiveCount = Math.min(Math.max(0, count), indexSource.elementCount());
         }
         drawScratch.beginDraw(indexSource != null, primitiveCount);
-        Rectangle clip = owner.host().delegate().getClipBounds();
+        Rectangle clip = owner.drawingClip();
         BufferedImage target = owner.host().surface().image();
         int[] pixels = ((DataBufferInt) target.getRaster().getDataBuffer()).getData();
         float[] depthBuffer = owner.host().surface().depthBufferForFrame();
@@ -124,22 +124,6 @@ final class OglSoftwareRenderer {
         if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
             return false;
         }
-        float u = 0f;
-        float v = 0f;
-        OglRenderer.OglPointer texCoordPointer = ogl.texCoordArrayEnabled ? ogl.texCoordPointer : null;
-        if (texCoordPointer != null) {
-            int texSize = Math.max(1, texCoordPointer.size());
-            u = owner.readFloatComponent(texCoordPointer, vertexIndex, 0);
-            if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
-                return false;
-            }
-            if (texSize > 1) {
-                v = owner.readFloatComponent(texCoordPointer, vertexIndex, 1);
-                if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) {
-                    return false;
-                }
-            }
-        }
         boolean useExtensionMatrices = positionSize >= 3 && ogl.usesExtensionMatrices();
         owner.transformVertex(clipVector, owner.eyeVectorTemp(), x, y, z, vertexIndex, useExtensionMatrices);
         float w = Math.abs(clipVector.w) < 0.000001f ? (clipVector.w < 0f ? -0.000001f : 0.000001f) : clipVector.w;
@@ -176,13 +160,35 @@ final class OglSoftwareRenderer {
                 owner.viewportY(ndcY),
                 depth,
                 reciprocalW,
-                u,
-                v,
+                0f,
+                0f,
                 primaryColor,
                 backColor
         );
+        populateTextureCoordinate(targetVertex, vertexIndex, 0);
+        populateTextureCoordinate(targetVertex, vertexIndex, 1);
+        if (ogl.lastError != GraphicsOGL.GL_NO_ERROR) return false;
         drawScratch.cacheVertex(vertexIndex, targetVertex);
         return true;
+    }
+
+    private void populateTextureCoordinate(OglRenderer.RasterVertex vertex, int index, int unitIndex) {
+        OglRenderer.OglTextureUnit unit = owner.oglState().textureUnits[unitIndex];
+        float u = unit.currentU, v = unit.currentV;
+        float r = unit.currentR, sourceQ = unit.currentQ;
+        if (unit.texCoordArrayEnabled && unit.texCoordPointer != null) {
+            u = owner.readFloatComponent(unit.texCoordPointer, index, 0);
+            v = unit.texCoordPointer.size() > 1 ? owner.readFloatComponent(unit.texCoordPointer, index, 1) : 0f;
+            r = unit.texCoordPointer.size() > 2 ? owner.readFloatComponent(unit.texCoordPointer, index, 2) : 0f;
+            sourceQ = unit.texCoordPointer.size() > 3 ? owner.readFloatComponent(unit.texCoordPointer, index, 3) : 1f;
+        }
+        float[] m = unit.textureMatrix;
+        float q = m[3] * u + m[7] * v + m[11] * r + m[15] * sourceQ;
+        if (Math.abs(q) < 0.000001f) q = 1f;
+        float transformedU = (m[0] * u + m[4] * v + m[8] * r + m[12] * sourceQ) / q;
+        float transformedV = (m[1] * u + m[5] * v + m[9] * r + m[13] * sourceQ) / q;
+        if (unitIndex == 0) { vertex.u = transformedU; vertex.v = transformedV; }
+        else { vertex.u1 = transformedU; vertex.v1 = transformedV; }
     }
 
     private int resolvePrimaryColor(int vertexIndex) {

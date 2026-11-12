@@ -62,7 +62,7 @@ public class MediaPlayer {
     /**
      * Gets the stopped position of the previous native playback.
      *
-     * @return always {@code 0} on this host
+     * @return the stopped position in milliseconds
      */
     public long getLastStoppedPosition() {
         return _OptionalDeviceSupport.lastStoppedPosition();

@@ -63,9 +63,8 @@ public class MLD
     static final int EVENT_CUEPOINT = 0xD0;
 
     /**
-     * Native lib002 treats `0xDC` as an extended wait opcode: the parameter is
-     * the high byte of the next track delay, and the following raw track byte is
-     * the low byte. It is not a normal sampler control event.
+     * In classic versions 3..5, lib002 extends this event's own delta with
+     * its parameter as the high byte. The following event has a separate delta.
      */
     static final int EVENT_EXTENDED_WAIT = 0xDC;
 
@@ -104,7 +103,7 @@ public class MLD
 
     static final int EVENT_STOP = 0xBE;
 
-    static final int EVENT_TIMEBASE_TEMPO = 0xC0;
+    public static final int EVENT_TIMEBASE_TEMPO = 0xC0;
 
     static final int EVENT_TYPE_RESOURCE = 3;
 
@@ -347,6 +346,20 @@ public class MLD
 
     public MLD(byte[] data, int offset, int length)
     {
+        this(data, offset, length, false);
+    }
+
+    private boolean initializeClassicSource;
+
+    /** Container23b70 followed by the public classic source's24570 initialization. */
+    public static MLD fromClassicSource(byte[] data)
+    {
+        return new MLD(data, 0, data.length, true);
+    }
+
+    private MLD(byte[] data, int offset, int length, boolean initializeClassicSource)
+    {
+        this.initializeClassicSource = initializeClassicSource;
 
         // Error checking
         if (data == null)
@@ -479,6 +492,15 @@ public class MLD
         event.offset = reader.offset;
         event.delta = reader.u8();
         event.status = reader.u8();
+
+        // Initialized version1 sources skip one byte after each short
+        // non-note status (3f/7f/bf); these are not recorded-audio commands.
+        if (this.initializeClassicSource && this.vers != null && this.vers.startsWith("01") &&
+            (event.status & 63) == 63 && event.status != 255) {
+            event.type = MLD.EVENT_TYPE_UNKNOWN;
+            event.id = reader.u8();
+            return this.finishEvent(event, reader);
+        }
 
         if (event.status == 0x7F)
         {
@@ -820,14 +842,9 @@ public class MLD
             this.hasOtherVocals = (bits & 0x40) != 0;
         }
 
-        // The vendor player accepts the common 0x0101 music-only header as
-        // well as the 0x0201 variant seen in bundled DoJa assets.
-        if (this.contentType != 0x0101 && this.contentType != 0x0201)
-        {
-            throw new RuntimeException(
-                String.format("Unsupported content type: 0x%04X",
-                    this.contentType));
-        }
+        // lib002 0x10023b70 skips both content-type bytes. In particular a
+        // wave-bearing 0x0202/0x0203 header must not prevent resource playback.
+        // Retain the metadata flags above without using them as a format gate.
 
         // Number of tracks
         int numTracks = reader.u8();
@@ -1012,8 +1029,15 @@ public class MLD
     {
         double tempo = 60.0 / (48 * 128);
         long tickNow = 0;
-        int[] trkPos = new int[this.tracks.length];
-        int[] trkUntil = new int[this.tracks.length];
+        boolean[] trkCueStarted = new boolean[this.tracks.length];
+        int[][] deltas = new int[this.tracks.length][];
+        for (int track = 0; track < this.tracks.length; track++)
+        {
+            deltas[track] = new int[this.tracks[track].size()];
+            for (int event = 0; event < deltas[track].length; event++)
+                deltas[track][event] = this.tracks[track].get(event).delta;
+        }
+        var cursor = new opendoja.audio.mld.fuetrek.FueTrekMfiEventCursor(deltas);
         // Resource-only MLDs can end the track on the same tick as the start
         // command, so duration must also account for live top-level adat clips.
         ArrayList<ResourceClipSpan> resourceClips = new ArrayList<>();
@@ -1023,127 +1047,88 @@ public class MLD
         this.tickEnd = 0;
         this.tickLoop = -1;
 
-        // Record the start time of each track's first event
-        for (int x = 0; x < this.tracks.length; x++)
-        {
-            MLDTrack track = this.tracks[x];
-            if (track.size() != 0)
-            {
-                trkPos[x] = 0;
-                trkUntil[x] = track.get(0).delta;
-            }
-            else
-                trkUntil[x] = -1;
-        }
-
         // Inspect all events
         for (; ; )
         {
-
-            // Determine the number of ticks until the next event
-            int until = -1;
-            for (int x = 0; x < this.tracks.length; x++)
-            {
-                int tu = trkUntil[x];
-                if (tu != -1 && (until == -1 || tu < until))
-                    until = tu;
-            }
-
-            // All tracks have finished
-            if (until == -1)
+            var next = cursor.next();
+            if (next == null)
                 break;
 
             // Advance to the next event
-            this.duration += until * tempo;
-            tickNow += until;
+            this.duration += next.delta() * tempo;
+            tickNow += next.delta();
             this.tickEnd = Math.max(this.tickEnd, tickNow);
-            for (int x = 0; x < this.tracks.length; x++)
+            MLDEvent event = this.tracks[next.track()].get(next.index());
+
+            // end-of-track
+            if (event.type == MLD.EVENT_TYPE_EXT_B && event.id == MLD.EVENT_END_OF_TRACK)
             {
-                if (trkUntil[x] != -1)
-                    trkUntil[x] -= until;
+                cursor.finishTrack(next.track());
+                continue;
             }
 
-            // Process all relevant events that happen right now
-            for (int x = 0; x < this.tracks.length; x++)
+            // note
+            if (event.type == MLD.EVENT_TYPE_NOTE)
             {
-
-                // No more events right now on this track
-                if (trkUntil[x] != 0)
-                    continue;
-
-                // Retrieve the next event
-                MLDTrack track = this.tracks[x];
-                MLDEvent event = track.get(trkPos[x]++);
-
-                // Additional events on this track
-                if (trkPos[x] < track.size())
-                    trkUntil[x] = track.get(trkPos[x]).delta;
-
-                    // No more events ever on this track
-                else
-                    trkUntil[x] = -1;
-
-                // end-of-track
-                if (event.type == MLD.EVENT_TYPE_EXT_B && event.id == MLD.EVENT_END_OF_TRACK)
-                {
-                    trkUntil[x] = -1;
-                    continue;
-                }
-
-                // Check this track again next iteration
-                x--;
-
-                // note
-                if (event.type == MLD.EVENT_TYPE_NOTE)
-                {
-                    this.tickEnd = Math.max(this.tickEnd,
-                        tickNow + event.gateTime);
-                    continue;
-                }
-
-                // top-level resource audio
-                if (event.type == MLD.EVENT_TYPE_RESOURCE)
-                {
-                    this.inspectResource(resourceClips, event);
-                    continue;
-                }
-
-                // Next must be ext-B
-                if (event.type != MLD.EVENT_TYPE_EXT_B)
-                    continue;
-
-                // timebase-tempo
-                if ((event.id & 0xF0) == MLD.EVENT_TIMEBASE_TEMPO)
-                {
-                    tempo = 60.0 / (event.timebase * event.tempo);
-                    continue;
-                }
-
-                // Next must be cuepoint
-                if (event.id != MLD.EVENT_CUEPOINT)
-                    continue;
-
-                // cuepoint start
-                if (event.cuepoint == MLD.CUEPOINT_START)
-                {
-                    this.tickLoop = tickNow;
-                    continue;
-                }
-
-                // cuepoint end, but the loop point isn't set
-                if (this.tickLoop == -1)
-                    continue;
-
-                // If a cuepoint end and note both happen on the
-                // same tick and the cuepoint end is "first", does
-                // it still play the note?
-
-                // cuepoint end
-                this.tickEnd = tickNow;
-                this.finishResourceInspection(resourceClips);
-                return;
+                this.tickEnd = Math.max(this.tickEnd,
+                    tickNow + event.gateTime);
+                continue;
             }
 
+            // top-level resource audio
+            if (event.type == MLD.EVENT_TYPE_RESOURCE)
+            {
+                this.inspectResource(resourceClips, event);
+                continue;
+            }
+
+            // Next must be ext-B
+            if (event.type != MLD.EVENT_TYPE_EXT_B)
+                continue;
+
+            // timebase-tempo
+            if ((event.id & 0xF0) == MLD.EVENT_TIMEBASE_TEMPO)
+            {
+                tempo = 60.0 / (event.timebase * event.tempo);
+                continue;
+            }
+
+            // Next must be cuepoint
+            if (event.id != MLD.EVENT_CUEPOINT)
+                continue;
+
+            // cuepoint start
+            if (event.cuepoint == MLD.CUEPOINT_START)
+            {
+                trkCueStarted[next.track()] = true;
+                this.tickLoop = tickNow;
+                continue;
+            }
+
+            // Unused tracks can contain a cue end without a start of their
+            // own. It must not truncate another track's cue region.
+            if (event.cuepoint != MLD.CUEPOINT_END || this.tickLoop == -1 ||
+                !trkCueStarted[next.track()])
+                continue;
+
+            // Some recorded voice files put both cue markers at tick 0,
+            // before the resource start. This empty region must not hide
+            // the remaining sequence or make the sound appear lengthless.
+            if (tickNow == this.tickLoop)
+            {
+                trkCueStarted[next.track()] = false;
+                this.tickLoop = -1;
+                continue;
+            }
+
+            // If a cuepoint end and note both happen on the
+            // same tick and the cuepoint end is "first", does
+            // it still play the note?
+
+            // cuepoint end
+            this.tickEnd = tickNow;
+            this.finishResourceInspection(resourceClips);
+            return;
         }
 
         // The entire sequence was scanned
@@ -1189,6 +1174,11 @@ public class MLD
 
         // Parse the file
         this.header(reader);
+        //24570 overrides these header widths in the version1 public source.
+        if (this.initializeClassicSource && this.vers != null && this.vers.startsWith("01")) {
+            this.note = MLD.NOTE_3;
+            this.exstCount = 0; // Native+4 is one body byte; Java stores the extra count.
+        }
         for (int x = 0; x < this.adpcms.length; x++)
             this.adpcms[x] = this.adpcm(reader);
         for (int x = 0; x < this.tracks.length; x++)
@@ -1314,7 +1304,7 @@ public class MLD
         ret.index = index;
         reader = reader.reader(reader.u32());
         int cue = reader.offset + this.cuep[index];
-        int pendingExtendedDelta = -1;
+        int version = this.vers == null ? 5 : Integer.parseInt(this.vers.substring(0, 2));
 
         // Parse events
         while (!reader.isEOF())
@@ -1322,21 +1312,14 @@ public class MLD
             if (reader.offset == cue)
                 ret.cue = ret.size();
             MLDEvent event = this.event(note, index, reader);
-            if (pendingExtendedDelta >= 0)
-            {
-                event.delta |= pendingExtendedDelta;
-                pendingExtendedDelta = -1;
-            }
-            if (event.type == MLD.EVENT_TYPE_EXT_B &&
+            // Native24650/24f60 peeks ahead at DC to extend the delay before
+            // that command. Keep DC as its own event, including at EOF and
+            // when another DC follows; folding it loses independent delays.
+            if (version >= 3 && event.type == MLD.EVENT_TYPE_EXT_B &&
                 event.id == MLD.EVENT_EXTENDED_WAIT)
-            {
-                pendingExtendedDelta = (event.param & 0xFF) << 8;
-                continue;
-            }
+                event.delta |= (event.param & 0xFF) << 8;
             ret.add(event);
         }
-        if (pendingExtendedDelta >= 0)
-            throw new RuntimeException("Dangling extended wait at end of track.");
         return ret;
     }
 

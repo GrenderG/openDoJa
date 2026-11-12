@@ -2,6 +2,7 @@ package com.nttdocomo.ui;
 
 import com.nttdocomo.lang.UnsupportedOperationException;
 import opendoja.host.DoJaProfile;
+import opendoja.host.ApplicationProfile;
 import opendoja.host.DesktopSurface;
 
 import java.awt.Color;
@@ -360,7 +361,8 @@ final class DesktopImage extends Image {
     void ensureNotDisposed() {
         // DoJa-2.0+ mandates ILLEGAL_STATE after dispose(); DoJa-1.0 leaves use-after-dispose
         // machine-dependent, so keep legacy access available on pre-2.0 profiles.
-        if (disposed && DoJaProfile.current().isAtLeast(2, 0)) {
+        if (disposed && (ApplicationProfile.current() == ApplicationProfile.STAR
+                || DoJaProfile.current().isAtLeast(2, 0))) {
             throw new UIException(UIException.ILLEGAL_STATE, "Image is disposed");
         }
     }
@@ -403,7 +405,7 @@ final class DesktopImage extends Image {
     }
 
     private static boolean supportsImageAlpha() {
-        return DoJaProfile.current().isAtLeast(5, 0);
+        return ApplicationProfile.current() == ApplicationProfile.STAR || DoJaProfile.current().isAtLeast(5, 0);
     }
 
     private static boolean hasTransparentPixels(BufferedImage image) {

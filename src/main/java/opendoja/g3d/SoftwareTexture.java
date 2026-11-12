@@ -78,6 +78,11 @@ public final class SoftwareTexture {
         return image.getHeight();
     }
 
+    public boolean hasPaletteZeroColor(int rgb) {
+        return indexedPixels != null && indexedColorModel != null
+                && (indexedColorModel.getRGB(0) & 0xffffff) == (rgb & 0xffffff);
+    }
+
     public int sampleColor(float u, float v) {
         return sampleColor(u, v, false);
     }

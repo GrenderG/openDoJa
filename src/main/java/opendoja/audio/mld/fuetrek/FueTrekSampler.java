@@ -1,12 +1,14 @@
 package opendoja.audio.mld.fuetrek;
 
 import opendoja.audio.mld.MLD;
+import opendoja.audio.mld.MLDNativeADPCMDecoder;
 import opendoja.audio.mld.MLDPlaybackEngine;
 import opendoja.audio.mld.MLDRawExtBHandler;
 import opendoja.audio.mld.Sampler;
 import opendoja.host.OpenDoJaLog;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Arrays;
 
 /**
@@ -17,6 +19,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
     private static final boolean DEBUG_CONTROL = opendoja.host.OpenDoJaLaunchArgs.getBoolean(opendoja.host.OpenDoJaLaunchArgs.DEBUG_FUE_TREK_CONTROL);
     private static final int CHANNEL_COUNT = 16;
     private static final int CUSTOM_SLOT_COUNT = 16;
+    private static final int PHYSICAL_VOICE_COUNT = 96;
     private static final int MIDI_A4 = 69;
     private static final float ROM_SAMPLE_RATE = FueTrekSamplerProvider.SAMPLE_RATE;
     private static final float OUTPUT_SCALE = 1.0f / 32768.0f;
@@ -24,12 +27,17 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
 
     private final FueTrekRom rom;
     private final ChannelState[] channels = new ChannelState[CHANNEL_COUNT];
+    private final PresetState[] presetSlots = new PresetState[CHANNEL_COUNT];
+    private final UploadedWave[] uploadedWaves = new UploadedWave[64];
+    private int lastUploadedWave = -1;
     private final Voice[] voiceSlots;
+    private final Voice[] voiceHistory = new Voice[PHYSICAL_VOICE_COUNT];
+    private final ArrayDeque<Integer> freeVoiceSlots = new ArrayDeque<>();
+    private final ArrayList<Integer> allocatedVoiceSlots;
     private final ArrayList<CustomSlotVoice> customVoices = new ArrayList<>();
     private final MixState mixState = new MixState();
     private final WrapperState wrapperState = new WrapperState();
     private final SelectorCache selectorCache = new SelectorCache();
-    private final int maxPolyphony;
     private final float sampleRate;
     private final float romStepScale;
 
@@ -43,12 +51,15 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
     FueTrekSampler(FueTrekRom rom, float sampleRate, int maxPolyphony) {
         this.rom = rom;
         this.sampleRate = sampleRate;
-        this.maxPolyphony = maxPolyphony;
-        this.voiceSlots = new Voice[maxPolyphony];
+        this.allocatedVoiceSlots = new ArrayList<>(maxPolyphony);
+        this.voiceSlots = new Voice[PHYSICAL_VOICE_COUNT];
         this.romStepScale = ROM_SAMPLE_RATE / sampleRate;
         for (int i = 0; i < channels.length; i++) {
             channels[i] = new ChannelState(i);
+            presetSlots[i] = new PresetState();
         }
+        for (int i = 0; i < uploadedWaves.length; i++) uploadedWaves[i] = new UploadedWave();
+        for (int i = 0; i < voiceSlots.length; i++) freeVoiceSlots.addLast(i);
     }
 
     @Override
@@ -57,6 +68,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         if (state == null) {
             return;
         }
+        state.mfiSelection = false;
         state.bank = bank & 0x3f;
     }
 
@@ -79,6 +91,15 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         return customVoices.isEmpty();
     }
 
+    int customFramesUntilSilence() {
+        int remaining = 0;
+        for (CustomSlotVoice voice : customVoices) {
+            remaining = Math.max(remaining, (int) Math.min(Integer.MAX_VALUE,
+                    Math.ceil((voice.decodedFrames.length - voice.position) / voice.step)));
+        }
+        return remaining;
+    }
+
     @Override
     public MLDPlaybackEngine createPlaybackEngine(MLD mld, float sampleRate) {
         return new FueTrekMLDPlaybackEngine(this, mld, sampleRate);
@@ -87,8 +108,139 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
     @Override
     public void keyOff(int channel, int key) {
         for (Voice voice : voiceSlots) {
-            if (voice != null && voice.channelIndex == channel && voice.key == key) {
+            if (voice != null && !voice.choked && voice.channelIndex == channel && voice.key == key) {
                 voice.release();
+            }
+        }
+    }
+
+    void driverKeyOff(int channel, int absoluteNote) {
+        for (Voice voice : voiceSlots) {
+            if (voice != null && !voice.choked && voice.channelIndex == channel && voice.midiKey == absoluteNote)
+                voice.release();
+        }
+    }
+
+    void driverKeyOn(int channel, int absoluteNote, int velocity) {
+        ChannelState state = channel(channel);
+        if (state == null) return;
+        int bias = state.noteFamilyMode() != 0 ? 59 : 69;
+        keyOn(channel, absoluteNote - bias, velocity / 127.0f);
+    }
+
+    void setMfiResourceGlobal(int command, int value) {
+        if (command == 14) wrapperState.global0 = value & 127;
+        else if (command == 15) wrapperState.global1 = value & 127;
+    }
+
+    /** SynthModule callbacks from the byte driver, independent of MFi producer caches. */
+    void driverModuleCall(int entry, int... args) {
+        int channel = args[0];
+        ChannelState state = channel(channel);
+        switch (entry) {
+            case 0x10 -> {
+                if (args[0] == 1) mixState.global339Byte = args[1] & 255;
+            }
+            case 0x1c -> {
+                if (args[0] == 0) channels[args[1] & 15].nativePanModeIndex = args[2] & 255;
+            }
+            case 0x20 -> {
+                // Port reset retains physical DSP history, shared presets,
+                // uploaded waves, and the separately configured host gain.
+                Arrays.fill(voiceSlots, null);
+                masterTuneSemitones = 0;
+                hostGlobalVolumeByte = rawGlobalLaneB0 = 127;
+                rawGlobalLaneB1 = 64;
+                mixState.globalVolumeByte = 127;
+                mixState.masterPanByte = 0;
+                selectorCache.reset();
+                for (ChannelState lane : channels) {
+                    lane.reset();
+                    lane.mfiSelection = true;
+                    lane.mfiNotesEnabled = true;
+                    lane.mfiGroup = lane.channelIndex == 9 ? 0x78 : 0x79;
+                    lane.mfiSubGroup = lane.mfiProgramIndex = 0;
+                    lane.mfiActiveFamily = lane.channelIndex == 9 ? 1 : 0;
+                }
+            }
+            case 0x24 -> driverKeyOn(channel, args[1], args[2]);
+            case 0x28 -> driverKeyOff(channel, args[1]);
+            case 0x2c -> {
+                state.mfiSelection = true;
+                state.mfiNotesEnabled = true;
+                state.mfiGroup = args[1] & 255;
+                state.mfiSubGroup = args[2] & 255;
+                state.mfiProgramIndex = args[3] & 255;
+                state.drum = (state.mfiGroup & 1) == 0;
+                state.mfiActiveFamily = state.drum ? 1 : 0;
+            }
+            case 0x30 -> state.channelVolumeByte = args[1] & 255;
+            case 0x34 -> state.channelPanByte = (byte)(args[1] - 64);
+            case 0x38 -> state.expressionByte = args[1] & 255;
+            case 0x48 -> sustain(channel, Math.min(127, args[1]));
+            case 0x4c -> { state.setRawPitchWord(args[1]); commitChannelPitch(state); }
+            case 0x50 -> state.setBendRangeByte(args[1]);
+            case 0x54 -> {
+                state.modPair18Byte = args[1] & 255;
+                updateActiveVoiceModSeed(state, false);
+            }
+            case 0x58 -> {
+                // Native04e00 ignores its requested channel and enters rapid
+                // envelope state7 for every voice on this port, retaining flags.
+                for (Voice voice : voiceSlots) if (voice != null) {
+                    voice.envA.state = voice.envB.state = 7;
+                }
+            }
+            case 0x5c -> {
+                for (Voice voice : voiceSlots)
+                    if (voice != null && voice.channelIndex == channel && !voice.released && !voice.choked) {
+                        voice.releaseEnvelopes();
+                        voice.released = voice.releasePending = true;
+                        voice.sustainHeld = false;
+                    }
+            }
+            case 0x60 -> {
+                state.expressionByte = 127;
+                state.modPair18Byte = state.modPair19Byte = 0;
+                state.sustain = false;
+                state.rawPitchWord = 8192;
+                for (Voice voice : voiceSlots) if (voice != null && voice.channelIndex == channel) {
+                    voice.applyPitchRange(state.bendRangeByte, state.rawPitchWord);
+                    if (voice.sustainHeld) {
+                        voice.releaseEnvelopes();
+                        voice.released = voice.releasePending = true;
+                        voice.sustainHeld = false;
+                    }
+                }
+            }
+            case 0x64 -> {
+                rawGlobalLaneB0 = args[0] & 255;
+                refreshGlobalVolumeByte();
+            }
+            case 0x68 -> {
+                rawGlobalLaneB1 = args[0] & 255;
+                mixState.masterPanByte = (byte)(args[0] - 64);
+            }
+            default -> throw new IllegalArgumentException("Unknown SynthModule callback " + entry);
+        }
+    }
+
+    @Override
+    public void sustain(int channel, int value) {
+        if (value < 0 || value > 127) throw new IllegalArgumentException("Invalid hold-pedal value");
+        ChannelState state = channel(channel);
+        if (state == null) return;
+        state.sustain = value >= 64;
+        for (Voice voice : voiceSlots) {
+            if (voice == null || voice.channelIndex != channel) continue;
+            if (state.sustain) {
+                if (!voice.released && !voice.choked) voice.sustainHeld = true;
+            } else if (voice.sustainHeld) {
+                voice.sustainHeld = false;
+                if (voice.releasePending) {
+                    voice.releaseEnvelopes();
+                    voice.releasePending = false;
+                }
             }
         }
     }
@@ -106,7 +258,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         // relative to A4. The lib002/raw-parser `0x2d/0x23` bases apply one
         // stage earlier while decoding the packed MLD note bytes, so the live
         // sampler input still needs the MIDI A4 base here.
-        int noteByte = wrapPlayableNoteByte(MIDI_A4 + key - (state.familyMode == 1 ? 10 : 0));
+        int noteByte = wrapPlayableNoteByte(MIDI_A4 + key - (state.noteFamilyMode() != 0 ? 10 : 0));
         SelectorState selector = selectorCache.apply(state.selectorState(noteByte));
         ResolvedZone resolved = resolveZone(state, selector);
         if (resolved == null || resolved.zone.sampleA == null) {
@@ -114,8 +266,11 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         }
         cullNativeEvenGroupConflicts(channel, resolved);
         if (!state.drum) {
-            keyOff(channel, key);
+            // Synth04140 matches an absolute MIDI note even after a family change.
+            driverKeyOff(channel, noteByte);
         }
+        int slotIndex = allocateVoiceSlot();
+        if (slotIndex < 0) return;
         Voice voice = new Voice(
                 rom,
                 mixState,
@@ -124,10 +279,11 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 key,
                 FueTrekMixTables.noteVelocityByte(velocity),
                 resolved,
-                state.snapshotTemplate(resolved),
+                VoiceTemplate.fromZone(resolved.zone),
                 romStepScale,
                 MIX_PROFILE_MODE,
-                nextVoiceAge++);
+                nextVoiceAge++,
+                voiceHistory[slotIndex]);
         if (DEBUG_NOTES) {
             OpenDoJaLog.debug(FueTrekSampler.class, String.format(
                     "[FueTrekNote] ch=%d key=%d noteByte=%d group=0x%02x sub=%d sel=%d rootA=%d rootB=%d tuneA=%d tuneB=%d baseNote=%d staticQ16=%d oscBMode=%d",
@@ -145,11 +301,8 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                     voice.staticPitchQ16,
                     voice.oscBMode));
         }
-        int slotIndex = allocateVoiceSlot();
-        if (slotIndex < 0) {
-            return;
-        }
         voiceSlots[slotIndex] = voice;
+        voiceHistory[slotIndex] = voice;
     }
 
     @Override
@@ -167,6 +320,13 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         }
         hostGlobalVolumeByte = FueTrekMixTables.amplitudeToGainByte(volume);
         refreshGlobalVolumeByte();
+    }
+
+    void setHostVolumeLevel(int level) {
+        // Component189f0 ->2b130 ->register0d/e630 ->SynthModule2d90.
+        // This is a separate stage from the MFi B0 master-volume event.
+        mixState.global339Byte = level * 127 / 100;
+        wrapperState.hostVolumePercent = level;
     }
 
     @Override
@@ -204,7 +364,6 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             return;
         }
         state.setBendRangeByte(Math.round(range));
-        updateActiveVoicePitchRange(state);
     }
 
     @Override
@@ -213,6 +372,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         if (state == null) {
             return;
         }
+        state.mfiSelection = false;
         state.program = program & 0x3f;
     }
 
@@ -257,19 +417,24 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             boolean active = true;
             for (int frame = 0; frame < frames; frame++) {
                 if (active) {
-                    active = voice.render(masterTuneSemitones, controlCounter);
+                    // Native 0x1000a050 renders 128 frames per voice, so each
+                    // voice sees the same 7-bit control phase. Preserve that
+                    // phase when the sequencer divides a block at an event.
+                    active = voice.render(masterTuneSemitones, (controlCounter + frame) & 0x7f);
                     if (active) {
                         int sampleIndex = offset + frame * 2;
                         samples[sampleIndex] += voice.outLeft * left;
                         samples[sampleIndex + 1] += voice.outRight * right;
                     }
                 }
-                controlCounter = (controlCounter + 1) & 0x7F;
             }
             if (!active) {
                 voiceSlots[i] = null;
             }
+            voice.hasRendered = true;
+            voice.priority = voice.envA.state == 0 ? 0 : 7 - voice.envA.state;
         }
+        controlCounter = (controlCounter + frames) & 0x7f;
         for (int i = 0; i < customVoices.size(); i++) {
             CustomSlotVoice voice = customVoices.get(i);
             boolean active = true;
@@ -283,7 +448,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                     }
                 }
             }
-            if (!active) {
+            if (!active || voice.position >= voice.decodedFrames.length) {
                 customVoices.remove(i--);
             }
         }
@@ -310,6 +475,11 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         for (ChannelState state : channels) {
             state.reset();
         }
+        for (PresetState slot : presetSlots) {
+            slot.clearControlTemplate();
+        }
+        for (UploadedWave wave : uploadedWaves) wave.reset();
+        lastUploadedWave = -1;
     }
 
     @Override
@@ -327,38 +497,79 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         if (message == null || message.length < 2) {
             return;
         }
-        if ((message[0] & 0xff) == 0x71) {
+        int manufacturer = message[0] & 0xff;
+        if ((manufacturer == 0x01 || manufacturer == 0x71) && (message[1] & 0xff) == 0x10) {
+            applyWaveMessage(message);
+            return;
+        }
+        if ((manufacturer == 0x01 || manufacturer == 0x71) && (message[1] & 0xff) == 0x11) {
+            applyPresetMessage(message);
+            return;
+        }
+        if (manufacturer == 0x71) {
             debugControl("wrapper", -1, message[1] & 0xff, message, 2);
             applyWrapperMessage(message);
             return;
         }
-        int channelIndex = message[0] & 0xff;
-        if (channelIndex < 0 || channelIndex >= channels.length) {
-            return;
+    }
+
+    private void applyPresetMessage(byte[] message) {
+        if (message.length < 3 || message[2] < 0 || message[2] >= presetSlots.length) return;
+        int slot = message[2];
+        for (int offset = 3; offset < message.length;) {
+            int command = message[offset++] & 0xff;
+            int minimum = switch (command) {
+                case 0x00, 0x01 -> 0;
+                case 0x02 -> 44;
+                case 0x10 -> 6;
+                case 0x11, 0x30, 0x52, 0x53, 0x54, 0x61, 0x62, 0x63 -> 2;
+                case 0x20, 0x21, 0x51, 0x60, 0x64 -> 1;
+                case 0x40, 0x50 -> 7;
+                case 0x55 -> 3;
+                default -> -1;
+            };
+            // 0x10033fa0 stops at an unknown or incomplete subcommand.
+            if (minimum < 0 || offset >= message.length) return;
+            // Table kind 1 uses an unsigned byte payload length (0x100341c0),
+            // including the zero length on reset/reload subcommands.
+            int length = message[offset++] & 0xff;
+            if (length > message.length - offset) return;
+            if (length >= minimum) {
+                applyPresetControl(slot, command, Arrays.copyOfRange(message, offset, offset + length));
+            }
+            offset += length;
         }
-        ChannelState state = channels[channelIndex];
-        int controlId = message[1] & 0xff;
-        byte[] payload = new byte[message.length - 2];
-        System.arraycopy(message, 2, payload, 0, payload.length);
-        debugControl("sysex", channelIndex, controlId, message, 2);
+    }
+
+    private void applyPresetControl(int channelIndex, int controlId, byte[] payload) {
+        PresetState state = presetSlots[channelIndex];
         switch (controlId) {
             case 0x02:
-                state.applyLargeControl(rom, channels, channelIndex, payload);
+                state.applyLargeControl(rom, presetSlots, channelIndex, uploadedWaves, payload);
                 break;
             case 0x00:
+                int retainedLink = state.linkSource;
                 state.clearControlTemplate();
+                // 0x10006690 clears references to this slot. The slot's own
+                // reference to a different source survives and is restored
+                // into oscillator B by the next select command.
+                state.linkSource = retainedLink;
+                for (PresetState other : presetSlots) {
+                    if (other.linkSource == channelIndex) other.clearLinkedSample();
+                }
                 break;
             case 0x01:
                 state.reloadSelectedTemplate();
+                state.propagateAuxPair(presetSlots, channelIndex);
                 break;
             case 0x10:
-                state.applySelectControl(rom, payload);
+                state.applySelectControl(rom, presetSlots, channelIndex, uploadedWaves, payload);
                 break;
             case 0x11:
-                state.applyPitchPairControl(rom, channels, channelIndex, payload);
+                state.applyPitchPairControl(rom, presetSlots, channelIndex, payload);
                 break;
             case 0x20:
-                state.applyLinkControl(channels, payload);
+                state.applyLinkControl(presetSlots, payload);
                 break;
             case 0x21:
                 state.applyOscBalanceControl(payload);
@@ -405,6 +616,56 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             default:
                 break;
         }
+        // 0x10008d50 -> 0x1000a570 updates envelope, modulation and filter
+        // coefficients on existing slot voices, preserving their DSP history.
+        for (Voice voice : voiceSlots) {
+            if (voice != null && voice.groupId == 0x11 && voice.subGroupId == 0
+                    && voice.selectorIndex == channelIndex) {
+                ResolvedZone resolved = resolveZone(voice.channel,
+                        new SelectorState(0x11, 0, channelIndex, voice.midiKey));
+                if (resolved != null) voice.applyPresetTemplate(VoiceTemplate.fromZone(resolved.zone));
+            }
+        }
+    }
+
+    private void applyWaveMessage(byte[] message) {
+        if (message.length < 4 || message[2] < 0 || message[2] >= uploadedWaves.length) return;
+        int slot = message[2];
+        for (int offset = 3; offset < message.length;) {
+            int command = message[offset++] & 0xff;
+            UploadedWave wave = uploadedWaves[slot];
+            if (command == 0) {
+                for (UploadedWave other : uploadedWaves) other.reset();
+                for (PresetState preset : presetSlots) {
+                    preset.presetSampleA = PresetState.SILENT_SAMPLE;
+                    preset.presetSampleB = PresetState.SILENT_SAMPLE;
+                }
+                lastUploadedWave = -1;
+            } else if (command == 1) {
+                if (message.length - offset < 9) return;
+                wave.allocate(read24(message, offset), read24(message, offset + 3), read24(message, offset + 6));
+                offset += 9;
+            } else {
+                if (message.length - offset < 2) return;
+                int length = ((message[offset] & 0xff) << 8) | (message[offset + 1] & 0xff);
+                offset += 2;
+                if (length > message.length - offset) return;
+                if (wave.state != 0 && wave.state != 0xff && wave.state != 2) {
+                    if (lastUploadedWave >= 0 && lastUploadedWave != slot) uploadedWaves[lastUploadedWave].state = 2;
+                    lastUploadedWave = slot;
+                    wave.append(command - 2, message, offset, length);
+                } else if (wave.state == 2) {
+                    wave.state = 0xff;
+                    wave.sample = null;
+                }
+                offset += length;
+            }
+        }
+    }
+
+    private static int read24(byte[] message, int offset) {
+        return ((message[offset] & 0xff) << 16) | ((message[offset + 1] & 0xff) << 8)
+                | (message[offset + 2] & 0xff);
     }
 
     private static void debugControl(String source, int channelIndex, int controlId, byte[] message, int offset) {
@@ -427,17 +688,16 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
 
     public void handleRawExtBEvent(int eventId, int channel, int rawParam) {
         if ((eventId & 0xff) == MLD.EVENT_X_DRUM_ENABLE) {
+            if ((rawParam & 0x80) != 0) return;
             int targetChannel = (rawParam >> 3) & 0xf;
             ChannelState target = channel(targetChannel);
             if (target == null) {
                 return;
             }
-            // lib002 player `0x1000f48a` / synth sink `0x10002d14` prove `0xba`
-            // targets the encoded channel `(raw >> 3) & 0xf`, keeps the full
-            // 3-bit family mode, and forwards the raw upper nibble as the
-            // per-channel profile index `+ 3`.
-            target.applyFamilyMode(rawParam & 0x7);
-            target.nativePanModeIndex = clampRange((rawParam >> 4) + 3, 0, 0xff);
+            target.beginMfiSelection();
+            // Classic parser 10024fa0 normalizes family 2..7 to mode2.
+            target.familyMode = Math.min(rawParam & 7, 2);
+            if (target.familyMode == 1) target.commitMfiSelection();
             return;
         }
         ChannelState state = channel(channel);
@@ -447,33 +707,33 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         int value = rawParam & 0x3f;
         switch (eventId & 0xff) {
             case MLD.EVENT_MASTER_VOLUME:
-                // The old split player multiplies this live lane with a host-owned
-                // `0x7f` byte and forwards the resulting descriptor `+0x05` volume.
-                // lib002 only exposes the cache write, but the shared defaults and
-                // sink ownership still line up with that contract.
+                // Classic command14 -> driver01 -> SynthModule+64 ->039c0.
                 rawGlobalLaneB0 = rawParam & 0x7f;
+                wrapperState.global0 = rawGlobalLaneB0;
                 refreshGlobalVolumeByte();
                 return;
             case 0xb1:
-                // Same visible contract as 0xb0, but cached into player +0xf55.
+                // Classic command15 reaches the distinct SynthModule+68 entry.
                 rawGlobalLaneB1 = rawParam & 0x7f;
+                mixState.masterPanByte = rawGlobalLaneB1 - 64;
+                wrapperState.global1 = rawGlobalLaneB1;
                 return;
             case MLD.EVENT_PROGRAM_CHANGE:
+                state.beginMfiSelection();
                 state.program = value;
+                state.commitMfiSelection();
                 return;
             case MLD.EVENT_BANK_CHANGE:
+                state.beginMfiSelection();
                 state.bank = value;
+                if (state.familyMode == 1) state.commitMfiSelection();
                 return;
             case MLD.EVENT_VOLUME:
                 state.rawLevel6 = value;
                 state.updateRawLevelChannelVolume();
                 return;
             case MLD.EVENT_PANPOT:
-                // The old split player+synth pair proves `0xe3` is a real signed
-                // pan lane: the player expands the raw 6-bit value by `<< 1`, and
-                // the synth sink stores `(value - 0x40)` into the per-channel pan
-                // byte. `lib002` keeps the same caller-side lane setup even though
-                // the visible wrapper call falls into a local stub in this build.
+                // Classic command8 -> driver40 -> SynthModule+34 ->05100.
                 state.setRawPan6(value);
                 return;
             case MLD.EVENT_PITCHBEND:
@@ -486,28 +746,25 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 state.updateRawLevelChannelVolume();
                 return;
             case MLD.EVENT_PITCHBEND_RANGE:
-                // Native split/lib002 synths map `0xe7` to the channel `+0x19`
-                // seed lane, not to pitch-bend range. The live sink clamps the
-                // sum of `+0x18/+0x19` and refreshes voice vtbl `+0x34`.
-                state.modPair19Byte = clampRange(value << 1, 0, 0x7f);
-                updateActiveVoiceModSeed(state);
+                // 10024fa0 -> command12 -> driver F0/00 -> SynthModule1930.
+                // Values 25..63 are ignored. 05690 only caches the range;
+                // held voices change pitch on a later bend commit.
+                if (value < 25) state.setBendRangeByte(value);
                 return;
             case MLD.EVENT_WAVE_CHANNEL_VOLUME:
-                // lib002 player `0x1003d1ac` writes the low 6-bit pitch cache
-                // at `+0xd5`, rebuilds `(((hi << 5) + lo) << 3) - 0x100`, and
-                // commits that word immediately through the synth pitch setter.
+                // Classic24fa0 writes the low pitch cache and commits the pair
+                // through command11 -> driverE0 -> SynthModule+4c ->055c0.
                 state.rawPitchLow6 = value;
                 state.updateRawPitchBend();
                 commitChannelPitch(state);
                 return;
             case MLD.EVENT_WAVE_CHANNEL_PANPOT:
-                // lib002 player `0x1003d200` only updates the cached low 6-bit
-                // lane at `+0xd5`; it does not commit the paired pitch word.
+                // Classic24fa0 updates the low pitch cache without committing.
                 state.rawPitchLow6 = value;
                 return;
             case 0xea:
                 state.modPair18Byte = clampRange(value << 1, 0, 0x7f);
-                updateActiveVoiceModSeed(state);
+                updateActiveVoiceModSeed(state, false);
                 return;
             default:
                 return;
@@ -553,24 +810,34 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
 
     private void commitChannelPitch(ChannelState state) {
         for (Voice voice : voiceSlots) {
-            if (voice != null && voice.channelIndex == state.channelIndex) {
-                voice.applyPitchCommit(state.rawPitchWord);
-            }
-        }
-    }
-
-    private void updateActiveVoicePitchRange(ChannelState state) {
-        for (Voice voice : voiceSlots) {
-            if (voice != null && voice.channelIndex == state.channelIndex) {
+            // Native055c0 tests descriptor flag1. Pedal-up clears that flag
+            // after releasing a held key, allowing later pitch changes again.
+            if (voice != null && !voice.releasePending && voice.channelIndex == state.channelIndex) {
                 voice.applyPitchRange(state.bendRangeByte, state.rawPitchWord);
             }
         }
     }
 
+    // Independent SynthModule modulation19 control (100052e0). It is not
+    // the public SDK MFi E7 event, which addresses pitch range instead.
+    void setModulation19(int channel, int value) {
+        ChannelState state = channel(channel);
+        if (state == null) return;
+        state.modPair19Byte = clampRange(value, 0, 127);
+        updateActiveVoiceModSeed(state);
+    }
+
     private void updateActiveVoiceModSeed(ChannelState state) {
+        updateActiveVoiceModSeed(state, true);
+    }
+
+    private void updateActiveVoiceModSeed(ChannelState state, boolean includeReleased) {
         int modSeedByte = state.modSeedByte();
         for (Voice voice : voiceSlots) {
-            if (voice != null && voice.channelIndex == state.channelIndex) {
+            // 0x100052e0 updates every matching voice; 0x10005380 skips
+            // descriptor flag1. These are distinct SynthModule setters.
+            if (voice != null && (includeReleased || !voice.releasePending)
+                    && voice.channelIndex == state.channelIndex) {
                 voice.applyModSeedByte(modSeedByte);
             }
         }
@@ -588,55 +855,71 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         if (selector == null) {
             return null;
         }
-        if (state.selectedZoneOverride != null) {
-            return state.selectedZoneOverride.withNoteByte(selector.noteByte);
-        }
         int groupId = selector.groupId;
         if (groupId < 0) {
             return null;
         }
-        FueTrekRom.Group group = rom.group(groupId);
-        if (group == null) {
-            groupId = (groupId & 1) != 0 ? 0x79 : 0x78;
-            group = rom.group(groupId);
-        }
-        if (group == null) {
-            return null;
-        }
-
         int noteByte = selector.noteByte;
-        int index = ((group.id & 1) != 0) ? selector.selectorIndex : noteByte;
-        FueTrekRom.ObjectHeader header = group.entry(index);
-        if (header == null || noteByte < header.lowKey) {
-            return null;
+        int index = ((groupId & 1) != 0) ? selector.selectorIndex : noteByte;
+        if (groupId == 0x11) {
+            // 0x100062e0 permits only the initialized 16 writable slots.
+            // A fresh slot uses a silent sample, never the GM fallback.
+            if (index >= presetSlots.length || index < 0) {
+                return null;
+            }
+            if (noteByte <= 120) return new ResolvedZone(presetSlots[index].presetZone(),
+                    groupId, selector.subGroupId, index, noteByte);
         }
-        for (FueTrekRom.Zone zone : header.zones) {
-            if (zone == null) {
+        int fallbackGroup = (groupId & 1) != 0 ? 0x79 : 0x78;
+        // 0x1000a720 retries the standard bank when the requested group,
+        // program, key range, or zone is missing. The voice descriptor keeps
+        // the requested group for its gain/pan rules (0x100062e0).
+        for (int candidate : new int[]{groupId, fallbackGroup}) {
+            FueTrekRom.Group group = rom.group(candidate);
+            if (group == null) {
                 continue;
             }
-            if (noteByte <= zone.keyHigh) {
-                return new ResolvedZone(zone, group.id, selector.subGroupId, index, noteByte);
+            FueTrekRom.ObjectHeader header = group.entry(index);
+            if (header == null || noteByte < header.lowKey) {
+                continue;
+            }
+            for (FueTrekRom.Zone zone : header.zones) {
+                if (zone != null && noteByte <= zone.keyHigh) {
+                    return new ResolvedZone(zone, groupId, selector.subGroupId, index, noteByte);
+                }
             }
         }
         return null;
     }
 
     private int allocateVoiceSlot() {
-        for (int i = 0; i < voiceSlots.length; i++) {
-            if (voiceSlots[i] == null) {
-                return i;
+        // 0x10005d40 returns finished descriptors to the tail of a shared
+        // 96-slot free list. 0x100059d0 enables borrowing for this port, so
+        // its advertised 32-voice reservation is not a hard ceiling.
+        for (var iterator = allocatedVoiceSlots.iterator(); iterator.hasNext();) {
+            int index = iterator.next();
+            if (voiceSlots[index] == null) {
+                freeVoiceSlots.addLast(index);
+                iterator.remove();
             }
         }
-        int oldestIndex = -1;
-        long oldestAge = Long.MAX_VALUE;
-        for (int i = 0; i < voiceSlots.length; i++) {
-            Voice voice = voiceSlots[i];
-            if (voice != null && voice.age < oldestAge) {
-                oldestAge = voice.age;
-                oldestIndex = i;
+        int selected = -1;
+        if (!freeVoiceSlots.isEmpty()) {
+            selected = freeVoiceSlots.removeFirst();
+        } else {
+            int bestPriority = Integer.MAX_VALUE;
+            for (int index : allocatedVoiceSlots) {
+                Voice voice = voiceSlots[index];
+                if (voice.hasRendered && voice.priority < bestPriority) {
+                    selected = index;
+                    bestPriority = voice.priority;
+                }
             }
+            if (selected < 0 && !allocatedVoiceSlots.isEmpty()) selected = allocatedVoiceSlots.getFirst();
+            allocatedVoiceSlots.remove((Integer) selected);
         }
-        return oldestIndex;
+        if (selected >= 0) allocatedVoiceSlots.add(selected);
+        return selected;
     }
 
     private void cullNativeEvenGroupConflicts(int channel, ResolvedZone resolved) {
@@ -645,16 +928,49 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         }
         for (int i = 0; i < voiceSlots.length; i++) {
             Voice voice = voiceSlots[i];
-            if (voice == null || voice.channelIndex != channel || voice.groupId != resolved.groupId) {
+            if (voice == null || voice.choked
+                    || channels[voice.channelIndex].selectorState(voice.midiKey).groupId != resolved.groupId) {
                 continue;
             }
-            // Native even-group note-on walks the live voice list and forces an
-            // exact same-note conflict through the hard-stop vtable slot before
-            // allocating the new voice (`0x10004140 -> 0x10004276..0x1000428a`).
+            // 04140 walks all channels whose CURRENT descriptor uses this
+            // even group, including voices created before a bank change.
             if (voice.midiKey == resolved.noteByte) {
                 voiceSlots[i] = null;
+            } else if (resolved.groupId == 0x78 && isChokeVictim(resolved.noteByte, voice.midiKey)) {
+                // Initialized SDK tables13238/13638 choose hard stop versus
+                // the rapid envelope state7 used by 06260 -> 0a240.
+                if (isHardChoke(resolved.noteByte)) {
+                    voiceSlots[i] = null;
+                } else {
+                    voice.choked = true;
+                    voice.sustainHeld = false;
+                    voice.releasePending = false;
+                    voice.envA.state = 7;
+                    voice.envB.state = 7;
+                }
             }
         }
+    }
+
+    private static boolean isChokeVictim(int note, int previous) {
+        return switch (note) {
+            case 42 -> previous == 44 || previous == 46;
+            case 44 -> previous == 42 || previous == 46;
+            case 46 -> previous == 42 || previous == 44;
+            case 71 -> previous == 72;
+            case 72 -> previous == 71;
+            case 73 -> previous == 74;
+            case 74 -> previous == 73;
+            case 78 -> previous == 79;
+            case 79 -> previous == 78;
+            case 80 -> previous == 81;
+            case 81 -> previous == 80;
+            default -> false;
+        };
+    }
+
+    private static boolean isHardChoke(int note) {
+        return note == 44 || (note >= 71 && note <= 74) || note == 78 || note == 79;
     }
 
     private void clearAllVoices() {
@@ -674,7 +990,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             case 0x83:
             case 0x84:
                 CustomSlot slot = wrapperState.installCustomSlot(message, 2, command);
-                if (slot != null && slot.autoplay) {
+                if (slot != null) {
                     installOrReplaceCustomVoice(slot);
                 }
                 break;
@@ -764,13 +1080,20 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         }
         for (int i = 0; i < customVoices.size(); i++) {
             if (customVoices.get(i).slot.slotId == slot.slotId) {
+                if (slot.append) {
+                    customVoices.get(i).append(slot);
+                    return;
+                }
                 customVoices.remove(i);
                 break;
             }
         }
+        // Driver2f9d0 discards an append whose predecessor has already ended
+        // (also true for a cache-only predecessor with no active descriptor).
+        if (slot.append) return;
         // Native wrapper installs cache per-slot owners/state separately from the
         // synth voice pool (`+0x260/+0x35c/+0x458`), so do not steal melodic voices.
-        customVoices.add(new CustomSlotVoice(slot, wrapperState, mixState, sampleRate, nextVoiceAge++));
+        customVoices.add(new CustomSlotVoice(slot, wrapperState, sampleRate, nextVoiceAge++));
     }
 
     private static final class SelectorState {
@@ -895,8 +1218,10 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         final int[] lane1 = new int[CUSTOM_SLOT_COUNT];
         final int[] slotStates = new int[CUSTOM_SLOT_COUNT];
         final CustomSlot[] slots = new CustomSlot[CUSTOM_SLOT_COUNT];
+        final CustomSlot[] tails = new CustomSlot[CUSTOM_SLOT_COUNT];
         int global0;
         int global1;
+        int hostVolumePercent;
         boolean hostFlag20;
 
         WrapperState() {
@@ -908,8 +1233,10 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             Arrays.fill(lane1, 0x40);
             Arrays.fill(slotStates, 0);
             Arrays.fill(slots, null);
+            Arrays.fill(tails, null);
             global0 = 0x7f;
             global1 = 0x40;
+            hostVolumePercent = 100;
             hostFlag20 = false;
         }
 
@@ -953,44 +1280,56 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
 
         CustomSlot installCustomSlot(byte[] message, int offset, int command) {
             boolean hasMetadata = (command & 0xff) == 0x84;
-            if (offset + (hasMetadata ? 7 : 3) > message.length) {
+            if (offset + (hasMetadata ? 7 : 2) > message.length) {
                 return null;
             }
             int slotId = message[offset] & 0x3f;
             if (slotId < 0 || slotId >= slots.length) {
                 return null;
             }
-            int modeA = wrapperMode(message[offset] >>> 6);
-            int installMode = wrapperMode(message[offset + 1] >>> 6);
+            int modeA = (message[offset] & 0xff) >>> 6;
+            int installMode = wrapperMode((message[offset + 1] & 0xff) >>> 6);
             int formatId = message[offset + 1] & 0x3f;
-            if (installMode == 2) {
-                // `0x10026e2a..0x10026e36` forces the native mode-2 path to
-                // use low6 format id `4` before `0x10027360` translates it.
-                formatId = 4;
+            if (installMode == 2 && slotStates[slotId] != 1) {
+                // 0x10026fcc restarts the descriptor cached at owner +0x35c.
+                // Its forced format byte validates the command; it does not
+                // replace the cached stream with the restart packet's bytes.
+                CustomSlot previous = slots[slotId];
+                if (previous == null || (offset + 2 < message.length &&
+                        (message[offset + 2] & 0xfe) != 0)) {
+                    return null;
+                }
+                int metadata = hasMetadata ? readMetadata(message, offset + 3) : -1;
+                slotStates[slotId] = 0;
+                return new CustomSlot(slotId, modeA, 3, previous.format, 0,
+                        metadata, previous.payload).replayChain(previous.next);
             }
+            if (installMode == 2) formatId = 4;
             CustomFormat format = CustomFormat.decode(formatId);
-            if (modeA < 0 || installMode < 0 || format == null) {
+            if (installMode < 0 || format == null || offset + 3 > message.length) {
                 return null;
             }
             int flags = message[offset + 2] & 0xff;
-            if (installMode == 2) {
-                flags = 0;
-                installMode = 3;
-            }
             if ((flags & 0xfe) != 0) {
                 return null;
             }
+            if (installMode == 2) flags = 0;
             int metadata = -1;
             int payloadOffset = offset + 3;
             if (hasMetadata) {
-                metadata = ((message[offset + 3] & 0xff) << 24)
-                        | ((message[offset + 4] & 0xff) << 16)
-                        | ((message[offset + 5] & 0xff) << 8)
-                        | (message[offset + 6] & 0xff);
+                metadata = readMetadata(message, offset + 3);
                 payloadOffset = offset + 7;
             }
             byte[] payload = Arrays.copyOfRange(message, payloadOffset, message.length);
             int previousState = slotStates[slotId];
+            // 0x10021dc0 rejects a replacement with a different codec/rate.
+            if (previousState == 1 && tails[slotId] != null &&
+                    tails[slotId].format.formatId != format.formatId) {
+                // The parser still commits the packet's continuation flag
+                // after the native21dc0 codec-mismatch rejection.
+                slotStates[slotId] = flags;
+                return null;
+            }
             CustomSlot slot = new CustomSlot(
                     slotId,
                     modeA,
@@ -998,23 +1337,34 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                     format,
                     flags,
                     metadata,
-                    payload,
-                    hostFlag20);
-            slots[slotId] = slot;
+                    payload);
+            slot.append = previousState == 1;
+            if (slot.append && tails[slotId] != null) {
+                tails[slotId].next = slot;
+            } else {
+                slots[slotId] = slot;
+            }
+            tails[slotId] = slot;
             slotStates[slotId] = flags;
-            if (!hostFlag20 || payload.length == 0) {
+            if (payload.length == 0) {
                 return null;
             }
             if (previousState == 1) {
-                // Existing slot-state `1` takes the native `0x10021dc0` update
-                // path instead of the fresh install path, but in both cases the
-                // active slot source for this id is replaced in-place.
+                // 21dc0 links this packet behind its predecessor; 2f9d0 queues
+                // it on the active descriptor without resetting the decoder.
                 return slot;
             }
             if (installMode == 1) {
                 return slot;
             }
             return null;
+        }
+
+        private static int readMetadata(byte[] message, int offset) {
+            return ((message[offset] & 0xff) << 24)
+                    | ((message[offset + 1] & 0xff) << 16)
+                    | ((message[offset + 2] & 0xff) << 8)
+                    | (message[offset + 3] & 0xff);
         }
 
         private static void applyCompactLane(byte[] message, int offset, int[] target) {
@@ -1050,20 +1400,12 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         }
 
         int nativeScaledMetadata(int metadata) {
-            if (metadata < 0) {
-                return metadata;
-            }
-            int shift = 1;
-            if (frameKind == 4) {
-                shift++;
-            }
-            if (rateKHz != 32) {
-                shift += 2;
-            }
-            if (rateKHz == 16) {
-                shift++;
-            }
-            return (metadata * 1000) >> shift;
+            // 0x10021920 converts coded-byte counts to microseconds and
+            // shifts before multiplication for large unsigned arguments.
+            int shift = 1 + (frameKind == 4 ? 1 : 0)
+                    + (rateKHz == 16 ? 1 : rateKHz == 32 ? 2 : 0);
+            return Integer.compareUnsigned(metadata, 0x000ffffe) > 0
+                    ? (metadata >>> shift) * 1000 : (metadata * 1000) >>> shift;
         }
 
         static CustomFormat decode(int id) {
@@ -1088,7 +1430,8 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         final int metadata;
         final int nativeScaledMetadata;
         final byte[] payload;
-        final boolean autoplay;
+        boolean append;
+        CustomSlot next;
 
         CustomSlot(
                 int slotId,
@@ -1097,8 +1440,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 CustomFormat format,
                 int flags,
                 int metadata,
-                byte[] payload,
-                boolean autoplay) {
+                byte[] payload) {
             this.slotId = slotId;
             this.modeA = modeA;
             this.installMode = installMode;
@@ -1107,15 +1449,20 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             this.metadata = metadata;
             this.nativeScaledMetadata = format.nativeScaledMetadata(metadata);
             this.payload = payload;
-            this.autoplay = autoplay;
+        }
+
+        CustomSlot replayChain(CustomSlot next) {
+            this.next = next;
+            return this;
         }
     }
 
     private static final class CustomSlotVoice {
         final CustomSlot slot;
         final WrapperState wrapperState;
-        final MixState mixState;
         final float step;
+        int[] decodedFrames = new int[0];
+        final MLDNativeADPCMDecoder.LiveMonoStream decoder;
         final long age;
         double position = 0.0;
         float outLeft;
@@ -1124,59 +1471,50 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         CustomSlotVoice(
                 CustomSlot slot,
                 WrapperState wrapperState,
-                MixState mixState,
                 float outputSampleRate,
                 long age) {
             this.slot = slot;
             this.wrapperState = wrapperState;
-            this.mixState = mixState;
-            // The native path definitely treats the wrapper payload as a custom
-            // stream descriptor/input, not confirmed PCM8. Java still renders it
-            // as a best-effort byte stream until the downstream codec path is
-            // ported instruction-for-instruction.
-            this.step = (slot.format.rateKHz * 1000.0f) / outputSampleRate;
+            this.decoder = new MLDNativeADPCMDecoder.LiveMonoStream(slot.format.rateKHz * 1000, slot.format.frameKind);
+            for (CustomSlot chunk = slot; chunk != null; chunk = chunk.next) append(chunk);
+            this.step = ROM_SAMPLE_RATE / outputSampleRate;
             this.age = age;
         }
 
+        void append(CustomSlot chunk) {
+            int[] next = decoder.decodeNextBufferRawPcm16(chunk.payload,
+                    Math.multiplyExact(chunk.payload.length, decoder.framesPerByte()));
+            int end = decodedFrames.length;
+            decodedFrames = Arrays.copyOf(decodedFrames, end + next.length);
+            System.arraycopy(next, 0, decodedFrames, end, next.length);
+        }
+
         boolean render() {
-            if (slot.payload.length == 0 || position >= slot.payload.length) {
+            if (position >= decodedFrames.length) {
                 outLeft = 0.0f;
                 outRight = 0.0f;
                 return false;
             }
             int index = (int) position;
             float frac = (float) (position - index);
-            int s0 = slot.payload[index];
-            int s1 = (index + 1 < slot.payload.length) ? slot.payload[index + 1] : 0;
-            float mono = (s0 + (s1 - s0) * frac) / 128.0f;
-
-            int gain = mulWord(
-                    FueTrekMixTables.gainWord(wrapperState.lane0Byte(slot.slotId)),
-                    FueTrekMixTables.gainWord(mixState.globalVolumeByte));
-            gain = mulWord(gain, FueTrekMixTables.gainWord(mixState.global338Byte));
-            gain = mulWord(gain, FueTrekMixTables.gainWord(mixState.global339Byte));
-
-            int panByte = clampRange(wrapperState.lane1Byte(slot.slotId) - 0x40, -0x40, 0x3f);
-            int leftWord = mulWord(gain, FueTrekMixTables.stereoWord(-mixState.masterPanByte));
-            int rightWord = mulWord(gain, FueTrekMixTables.stereoWord(mixState.masterPanByte));
-            leftWord = mulWord(leftWord, FueTrekMixTables.stereoWord(-panByte));
-            rightWord = mulWord(rightWord, FueTrekMixTables.stereoWord(panByte));
-
-            outLeft = mono * (leftWord / 32767.0f);
-            outRight = mono * (rightWord / 32767.0f);
+            int s0 = decodedFrames[index];
+            int s1 = (index + 1 < decodedFrames.length) ? decodedFrames[index + 1] : 0;
+            int mono = (int) (s0 + (s1 - s0) * frac);
+            // Resource channel is the packet's high two bits, not cache slot.
+            int level = wrapperState.lane0Byte(slot.modeA) * wrapperState.hostVolumePercent
+                    * wrapperState.global0 / 127 / 100 & 127;
+            int pan = wrapperState.lane1Byte(slot.modeA);
+            int leftPan = FueTrekCustomAudioTables.outputPanQ12(level, pan, wrapperState.global1, false);
+            int rightPan = FueTrekCustomAudioTables.outputPanQ12(level, pan, wrapperState.global1, true);
+            // 307e0 truncates toward zero; host1ca00 then multiplies signed16
+            // PCM by16384. The sampler exports native mix lanes /2097152.
+            outLeft = (mono * leftPan / 4096) / 128.0f;
+            outRight = (mono * rightPan / 4096) / 128.0f;
 
             position += step;
-            if (position >= slot.payload.length) {
-                outLeft = 0.0f;
-                outRight = 0.0f;
-                return false;
-            }
             return true;
         }
 
-        private static int mulWord(int lhs, int rhs) {
-            return (lhs * rhs) >> 15;
-        }
     }
 
     private static final class ChannelState {
@@ -1184,6 +1522,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         int bank = 0;
         int program = 0;
         boolean drum = false;
+        boolean sustain;
         int familyMode = 0;
         int rawPitchWord = 0x2000;
         int bendRangeByte = 2;
@@ -1199,12 +1538,12 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         boolean nativeVelocityRemapEnabled = false;
         int nativeVelocityRemapBaseNote = 0;
         double nativeVelocityRemapSlope = 0.0;
-        ResolvedZone selectedZoneOverride;
-        final TemplateState template = new TemplateState();
-        int linkSource = -1;
-        int auxPitchWord = 0x400;
-        int auxNote = 0x15;
-
+        boolean mfiSelection;
+        boolean mfiNotesEnabled;
+        int mfiGroup;
+        int mfiProgramIndex;
+        int mfiActiveFamily;
+        int mfiSubGroup;
         ChannelState(int channelIndex) {
             this.channelIndex = channelIndex;
             reset();
@@ -1213,6 +1552,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         void reset() {
             bank = 0;
             program = 0;
+            sustain = false;
             // Native channel reset marks channel 9 as the drum family by default.
             applyFamilyMode(channelIndex == 9 ? 1 : 0);
             rawPitchWord = 0x2000;
@@ -1229,12 +1569,51 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             nativeVelocityRemapEnabled = false;
             nativeVelocityRemapBaseNote = 0;
             nativeVelocityRemapSlope = 0.0;
-            clearControlTemplate();
+            mfiSelection = false;
         }
 
         void applyFamilyMode(int mode) {
             familyMode = mode & 0x7;
             drum = familyMode == 1;
+        }
+
+        int noteFamilyMode() {
+            return mfiSelection ? mfiActiveFamily : familyMode;
+        }
+
+        void beginMfiSelection() {
+            if (mfiSelection) return;
+            SelectorState selected = selectorState(69);
+            mfiGroup = selected.groupId;
+            mfiSubGroup = selected.subGroupId;
+            mfiProgramIndex = selected.selectorIndex;
+            mfiActiveFamily = familyMode;
+            mfiNotesEnabled = true;
+            mfiSelection = true;
+        }
+
+        void commitMfiSelection() {
+            boolean percussion = familyMode != 0;
+            mfiGroup = switch (bank) {
+                case 0, 1 -> percussion ? 0x78 : 0x7d;
+                case 0x34 -> percussion ? 0x14 : 0x79;
+                case 0x36, 0x37 -> percussion ? 0x10 : 0x11;
+                default -> percussion ? 0x78 : 0x79;
+            };
+            // Serializer28d10 emits a subsequent drum-mode command. Driver
+            // F0/07 preserves groups11/14/7d, but rewrites group10 to GM78.
+            if (mfiGroup == 0x10) mfiGroup = 0x78;
+            mfiProgramIndex = (bank == 0 ? Math.min(program, 5) : program) + (bank & 1) * 64;
+            mfiSubGroup = 0;
+            mfiActiveFamily = familyMode;
+            drum = percussion;
+            // Native 10026520 controls driver10019240's note-enable cache.
+            mfiNotesEnabled = familyMode == 0 ? bank <= 0x33 || bank == 0x36
+                : familyMode == 1 && (bank == 2 || bank == 0x34 || bank == 0x36
+                    || (bank >= 3 && bank <= 0x33 && (bank & 1) == 0));
+            // Driver0e850's program command independently disables group7d
+            // indices above5, even when the parser's bank check permits them.
+            if (mfiGroup == 0x7d && mfiProgramIndex > 5) mfiNotesEnabled = false;
         }
 
         void updateRawPitchBend() {
@@ -1262,31 +1641,10 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             this.bendRangeByte = clampRange(bendRangeByte, 0, 0x18);
         }
 
-        VoiceTemplate snapshotTemplate(ResolvedZone resolved) {
-            if (!template.loaded && selectedZoneOverride != null) {
-                template.loadFromZone(selectedZoneOverride);
-            }
-            if (template.loaded) {
-                return template.snapshot();
-            }
-            return VoiceTemplate.fromZone(resolved.zone);
-        }
-
-        void clearControlTemplate() {
-            selectedZoneOverride = null;
-            linkSource = -1;
-            auxPitchWord = 0x400;
-            auxNote = 0x15;
-            template.clear();
-        }
-
-        void reloadSelectedTemplate() {
-            if (selectedZoneOverride != null) {
-                template.loadFromZone(selectedZoneOverride);
-            }
-        }
-
         SelectorState selectorState(int noteByte) {
+            if (mfiSelection) {
+                return new SelectorState(mfiGroup, mfiSubGroup, mfiProgramIndex, noteByte);
+            }
             int bankByte = bank & 0xff;
             int programIndex = program & 0x7f;
             if ((bankByte & 1) != 0) {
@@ -1325,15 +1683,132 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             return new SelectorState(-1, 0, 0, noteByte);
         }
 
-        void applySelectControl(FueTrekRom rom, byte[] payload) {
+    }
+
+    private static final class UploadedWave {
+        int state;
+        int sequence = 255;
+        int position;
+        int length;
+        FueTrekRom.Sample sample;
+
+        void reset() {
+            state = 0;
+            sequence = 255;
+            position = length = 0;
+            sample = null;
+        }
+
+        void allocate(int length, int loopStart, int loopEnd) {
+            if (state == 255 || length < 2 || length >= 0xfffc) return;
+            if (loopStart >= length) loopStart = 0;
+            if (loopEnd >= length) loopEnd = length - 1;
+            if (loopStart >= loopEnd) return;
+            this.length = length;
+            // The native interpolation reads four consecutive bytes. Keep a
+            // zero guard beyond the declared buffer, as in the reference heap.
+            sample = new FueTrekRom.Sample(new byte[length + 3], loopStart, loopEnd, 1024, 0, 0);
+            state = 1;
+            sequence = 255;
+            position = 0;
+        }
+
+        void append(int sequence, byte[] data, int offset, int count) {
+            if (this.sequence != 255 && this.sequence + 1 != sequence) {
+                state = 255;
+                sample = null;
+                return;
+            }
+            if (count < 2 || count > 0xfffb) return;
+            count = Math.min(count, length - position);
+            for (int i = 0; i < count; i++) sample.pcm8[position + i] = (byte) (data[offset + i] / 4);
+            position += count;
+            this.sequence = sequence;
+        }
+    }
+
+    private static final class PresetState {
+        ResolvedZone selectedZoneOverride;
+        private static final FueTrekRom.Sample SILENT_SAMPLE =
+                new FueTrekRom.Sample(new byte[5], 0, 1, 1024, 64, 0);
+        FueTrekRom.Sample presetSampleA = SILENT_SAMPLE;
+        FueTrekRom.Sample presetSampleB = SILENT_SAMPLE;
+        FueTrekRom.Sample originalSample = SILENT_SAMPLE;
+        final TemplateState template = new TemplateState();
+        int linkSource = -1;
+        int auxPitchWord = 0x400;
+        int auxNote = 0x15;
+
+        PresetState() {
+            clearControlTemplate();
+        }
+
+        void clearControlTemplate() {
+            selectedZoneOverride = null;
+            linkSource = -1;
+            auxPitchWord = 0x400;
+            auxNote = 64;
+            presetSampleA = SILENT_SAMPLE;
+            presetSampleB = SILENT_SAMPLE;
+            originalSample = SILENT_SAMPLE;
+            template.clear();
+        }
+
+        void clearLinkedSample() {
+            linkSource = -1;
+            presetSampleB = SILENT_SAMPLE;
+        }
+
+        FueTrekRom.Zone presetZone() {
+            byte[] raw = selectedZoneOverride == null ? new byte[0x44]
+                    : Arrays.copyOf(selectedZoneOverride.zone.raw, 0x44);
+            raw[0] = 120;
+            raw[0x10] = 0;
+            raw[0x12] = raw[0x13] = 0;
+            if (selectedZoneOverride == null) Arrays.fill(raw, 0x3c, 0x40, (byte) 0xff);
+            template.writeTo(raw);
+            return new FueTrekRom.Zone(raw, 120, presetSampleA, presetSampleB);
+        }
+
+        private static FueTrekRom.Sample withPitch(FueTrekRom.Sample sample, int note, int tune) {
+            return sample.withPitch(note, tune);
+        }
+
+        void reloadSelectedTemplate() {
+            if (selectedZoneOverride != null) {
+                FueTrekRom.Zone zone = selectedZoneOverride.zone;
+                template.ampA = 511;
+                template.ampB = 0;
+                template.zoneGainByte = zone.s8(0x14);
+                template.envA6 = zone.s16(0x28);
+                template.envA8 = zone.s16(0x2a);
+                template.envAA = zone.s16(0x2c);
+                template.envAE = zone.s8(0x2f);
+                template.envB2 = zone.s16(0x16);
+                template.envB4 = zone.s16(0x1e);
+                template.envB6 = zone.s16(0x18);
+                template.envBA = zone.s8(0x22);
+                presetSampleA = withPitch(presetSampleA, originalSample.rootKey, originalSample.tune1024);
+                auxNote = presetSampleA.rootKey;
+                auxPitchWord = presetSampleA.tune1024;
+            }
+        }
+
+        void applySelectControl(FueTrekRom rom, PresetState[] slots, int slotIndex,
+                                UploadedWave[] waves, byte[] payload) {
             if (!isValidSelectPayload(payload)) {
                 return;
             }
             int flags = payload[0] & 0xff;
             if ((flags & 1) != 0) {
-                // The preset-slot branch depends on runtime slot uploads handled by
-                // other lib002 control messages. The fixed ROM backend only supports
-                // the direct branch here.
+                int source = payload[1] & 0x7f;
+                if (source >= 16 || waves[source].state == 0 || waves[source].state == 255
+                        || waves[source].sample == null) return;
+                FueTrekRom.Sample wave = waves[source].sample;
+                presetSampleA = presetSampleA.withWaveform(wave);
+                selectedZoneOverride = null;
+                presetSampleB = linkSource < 0 ? SILENT_SAMPLE : slots[linkSource].presetSampleA;
+                propagateSample(slots, slotIndex);
                 return;
             }
             int groupId = directSelectGroupId(payload);
@@ -1354,16 +1829,27 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 if (zone != null && key <= zone.keyHigh) {
                     selectedZoneOverride = new ResolvedZone(zone, groupId, 0, objectIndex, key);
                     template.loadFromZone(selectedZoneOverride);
+                    template.ampA = 511;
+                    template.ampB = 0;
+                    FueTrekRom.Sample source = (flags & 2) == 0 ? zone.sampleA : zone.sampleB;
+                    if (source == null) source = SILENT_SAMPLE;
+                    presetSampleA = withPitch(source, source.rootKey + zone.s8(0x10),
+                            source.tune1024 + zone.s16(0x12));
+                    originalSample = presetSampleA;
+                    auxNote = presetSampleA.rootKey;
+                    auxPitchWord = presetSampleA.tune1024;
+                    presetSampleB = linkSource < 0 ? SILENT_SAMPLE : slots[linkSource].presetSampleA;
+                    propagateSample(slots, slotIndex);
                     return;
                 }
             }
         }
 
-        void applyPitchPairControl(FueTrekRom rom, ChannelState[] channels, int channelIndex, byte[] payload) {
+        void applyPitchPairControl(FueTrekRom rom, PresetState[] channels, int channelIndex, byte[] payload) {
             applyPitchPairControl(rom, channels, channelIndex, payload, 0);
         }
 
-        void applyLinkControl(ChannelState[] channels, byte[] payload) {
+        void applyLinkControl(PresetState[] channels, byte[] payload) {
             applyLinkControl(channels, payload, 0);
         }
 
@@ -1375,7 +1861,8 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             applyTemplateByte38(payload, 0);
         }
 
-        void applyLargeControl(FueTrekRom rom, ChannelState[] channels, int channelIndex, byte[] payload) {
+        void applyLargeControl(FueTrekRom rom, PresetState[] channels, int channelIndex,
+                               UploadedWave[] waves, byte[] payload) {
             if (payload == null || payload.length < 0x2c || !isValidSelectPayload(payload)) {
                 return;
             }
@@ -1397,12 +1884,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                     || !isValidByte38Payload(payload, 43)) {
                 return;
             }
-            if ((payload[0] & 1) != 0) {
-                // Runtime upload slots are managed by other control families that
-                // are still outside the packed fixed-ROM backend.
-                return;
-            }
-            applySelectControl(rom, payload);
+            applySelectControl(rom, channels, channelIndex, waves, payload);
             applyPitchPairControl(rom, channels, channelIndex, payload, 6);
             applyLinkControl(channels, payload, 8);
             applyOscBalanceControl(payload, 9);
@@ -1471,7 +1953,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
 
         private void applyPitchPairControl(
                 FueTrekRom rom,
-                ChannelState[] channels,
+                PresetState[] channels,
                 int channelIndex,
                 byte[] payload,
                 int offset) {
@@ -1482,18 +1964,18 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             int encoded = payload[offset + 1] & 0xff;
             auxNote = note;
             auxPitchWord = rom.nativeRootKeyWord(encoded);
+            presetSampleA = withPitch(presetSampleA, auxNote, auxPitchWord);
             propagateAuxPair(channels, channelIndex);
         }
 
-        private void applyLinkControl(ChannelState[] channels, byte[] payload, int offset) {
+        private void applyLinkControl(PresetState[] channels, byte[] payload, int offset) {
             if (!isValidLinkPayload(payload, offset)) {
                 return;
             }
             int source = payload[offset] & 0x7f;
-            ChannelState leader = channels[source];
+            PresetState leader = channels[source];
             linkSource = source;
-            auxNote = leader.auxNote;
-            auxPitchWord = leader.auxPitchWord;
+            presetSampleB = leader.presetSampleA;
         }
 
         private void applyOscBalanceControl(byte[] payload, int offset) {
@@ -1635,11 +2117,21 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             template.modDelay = payload[offset] & 0x7f;
         }
 
-        private void propagateAuxPair(ChannelState[] channels, int sourceIndex) {
+        private void propagateAuxPair(PresetState[] channels, int sourceIndex) {
             for (int i = 0; i < channels.length; i++) {
                 if (i != sourceIndex && channels[i].linkSource == sourceIndex) {
-                    channels[i].auxNote = auxNote;
-                    channels[i].auxPitchWord = auxPitchWord;
+                    PresetState target = channels[i];
+                    target.presetSampleB = withPitch(target.presetSampleB, auxNote, auxPitchWord);
+                    break;
+                }
+            }
+        }
+
+        private void propagateSample(PresetState[] slots, int sourceIndex) {
+            for (int i = 0; i < slots.length; i++) {
+                if (i != sourceIndex && slots[i].linkSource == sourceIndex) {
+                    slots[i].presetSampleB = presetSampleA;
+                    break;
                 }
             }
         }
@@ -1658,12 +2150,10 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 return false;
             }
             int note = payload[5] & 0x7f;
-            if (note < 0x15 || note > 0x78) {
-                return false;
-            }
             if ((flags & 1) != 0) {
                 return (payload[0] & 0x7f) < 0x10;
             }
+            if (note < 0x15 || note > 0x78) return false;
             int mode = payload[2] & 7;
             int byte3 = payload[3] & 0x3f;
             int byte4 = payload[4] & 0x3f;
@@ -1671,13 +2161,13 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 if (byte3 == 0) {
                     return byte4 <= 5;
                 }
-                return byte3 == 1 || byte3 == 2;
+                return byte3 == 2 || byte3 == 3;
             }
             if (mode == 1) {
-                if (byte4 == 2) {
+                if (byte3 == 2) {
                     return note >= 0x23 && note <= 0x51;
                 }
-                if (byte4 == 0x32) {
+                if (byte3 == 0x34) {
                     return note >= 0x23 && note <= 0x42;
                 }
             }
@@ -1690,13 +2180,14 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             }
             int note = payload[offset] & 0x7f;
             int encoded = payload[offset + 1] & 0xff;
-            return note >= 0x15 && note <= 0x78 && encoded >= 0x1d && encoded <= 0x80;
+            return payload[offset] >= 0 && note >= 0x15 && note <= 0x78 && encoded >= 0x1d && encoded <= 0x80;
         }
 
         private static boolean isValidLinkPayload(byte[] payload, int offset) {
             return payload != null
                     && offset >= 0
                     && offset < payload.length
+                    && payload[offset] >= 0
                     && (payload[offset] & 0x7f) < CHANNEL_COUNT;
         }
 
@@ -1751,16 +2242,16 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 if (byte3 == 0) {
                     return 0x7d;
                 }
-                if (byte3 == 1 || byte3 == 2) {
+                if (byte3 == 2 || byte3 == 3) {
                     return 0x79;
                 }
                 return -1;
             }
             if (mode == 1) {
-                if (byte4 == 2) {
+                if (byte3 == 2) {
                     return 0x78;
                 }
-                if (byte4 == 0x32) {
+                if (byte3 == 0x34) {
                     return 0x14;
                 }
             }
@@ -1776,7 +2267,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 if (byte3 == 0) {
                     return byte4;
                 }
-                if (byte3 == 1) {
+                if (byte3 == 3) {
                     return byte4 + 0x40;
                 }
                 if (byte3 == 2) {
@@ -1784,7 +2275,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 }
                 return -1;
             }
-            if (mode == 1 && (byte4 == 2 || byte4 == 0x32)) {
+            if (mode == 1 && (byte3 == 2 || byte3 == 0x34)) {
                 return note;
             }
             return -1;
@@ -1905,6 +2396,25 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                     shapeW2,
                     shapeW4);
         }
+
+        void writeTo(byte[] raw) {
+            put16(raw, 0x0c, ampA); put16(raw, 0x0e, ampB);
+            raw[0x14] = (byte) zoneGainByte; raw[0x15] = (byte) shapeMode;
+            put16(raw, 0x16, envB2); put16(raw, 0x18, envB6);
+            put16(raw, 0x1a, shapeW2); put16(raw, 0x1c, notePitchMulWord);
+            put16(raw, 0x1e, envB4); put16(raw, 0x20, shapeW4);
+            raw[0x22] = (byte) envBA; put16(raw, 0x24, envBC);
+            put16(raw, 0x28, envA6); put16(raw, 0x2a, envA8); put16(raw, 0x2c, envAA);
+            raw[0x2f] = (byte) envAE; raw[0x30] = (byte) modMode;
+            put16(raw, 0x32, modA); put16(raw, 0x34, mod8); put16(raw, 0x36, modScale2);
+            raw[0x38] = (byte) modDelay; raw[0x40] = (byte) envBE;
+            put16(raw, 0x42, envB10);
+        }
+
+        private static void put16(byte[] raw, int offset, int value) {
+            raw[offset] = (byte) value;
+            raw[offset + 1] = (byte) (value >> 8);
+        }
     }
 
     private static final class VoiceTemplate {
@@ -1989,6 +2499,12 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
     }
 
     private static final class Voice {
+        boolean released;
+        boolean releasePending;
+        boolean choked;
+        boolean sustainHeld;
+        boolean hasRendered;
+        int priority = 0x7fff;
         final FueTrekRom rom;
         final MixState mixState;
         final ChannelState channel;
@@ -2011,7 +2527,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         final int ampB;
         final int oscBMode;
         final int zoneGainByte;
-        final int baseNote;
+        int baseNote;
         final ModState modState;
         final EnvAState envA;
         final EnvBState envB;
@@ -2039,10 +2555,12 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 VoiceTemplate template,
                 float romStepScale,
                 int mixProfileMode,
-                long age) {
+                long age,
+                Voice previous) {
             this.rom = rom;
             this.mixState = mixState;
             this.channel = channel;
+            this.sustainHeld = channel.sustain && !channel.drum;
             this.channelIndex = channelIndex;
             this.key = key;
             this.midiKey = resolved.noteByte;
@@ -2073,6 +2591,12 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
             this.staticPitchQ16 = 0;
             this.modState = new ModState(template);
             this.envA = new EnvAState(template);
+            if (previous != null) {
+                // 0x1000a280 resets value0/output but retains these two words
+                // in the physical DSP slot, including across note stealing.
+                this.envA.value2 = previous.envA.value2;
+                this.envA.value4 = previous.envA.value4;
+            }
             this.envB = new EnvBState(template);
             this.toneShape = new ShapeState(template);
             for (int i = 0; i < noiseState.length; i++) {
@@ -2088,6 +2612,13 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         }
 
         void release() {
+            if (released) return;
+            released = true;
+            releasePending = true;
+            if (!sustainHeld) releaseEnvelopes();
+        }
+
+        void releaseEnvelopes() {
             envA.state = 6;
             envB.state = 6;
         }
@@ -2098,12 +2629,40 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         }
 
         void applyPitchRange(int bendRangeByte, int rawPitchWord) {
+            // Native06590 ->0a690 uses the descriptor's raw note on a live
+            // pitch commit, even when note-on used the zone's fixed note.
+            baseNote = midiKey;
             this.bendRangeByte = clampRange(bendRangeByte, 0, 0x18);
             applyPitchCommit(rawPitchWord);
         }
 
         void applyModSeedByte(int modSeedByte) {
             modState.applySeedByte(modSeedByte);
+        }
+
+        void applyPresetTemplate(VoiceTemplate template) {
+            envA.value6 = (short) (template.envA6 << 4);
+            envA.value8 = template.envA8;
+            envA.valueA = template.envAA;
+            envA.valueC = 0x1f;
+            envA.valueE = (short) (template.envAE << 10);
+            envB.value2 = (short) (template.envB2 << 4);
+            envB.value4 = template.envB4;
+            envB.value6 = template.envB6;
+            envB.value8 = 0x1f;
+            envB.valueA = (short) (template.envBA << 10);
+            envB.valueC = template.envBC;
+            envB.valueE = template.envBE;
+            envB.value10 = (short) (template.envB10 << 4);
+            modState.scale2 = template.modScale2;
+            modState.countdown4 = template.modDelay;
+            modState.baseMod8 = template.mod8;
+            modState.applySeedByte(channel.modSeedByte());
+            modState.valueA = template.modA;
+            modState.state10 = template.modMode;
+            toneShape.w4 = (short) (template.shapeW4 << 4);
+            toneShape.w2 = template.shapeW2;
+            toneShape.mode = template.shapeMode;
         }
 
         boolean render(float masterTuneSemitones, int controlCounter) {
@@ -2227,11 +2786,11 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 rightWord = (rightWord * scale) >> 13;
             }
             if (groupId == 0x78 && subGroupId == 0) {
+                // 0x100062e0 -> 0x10006170 applies this table once. The
+                // former note-shape pass was a second copy of the same pan
+                // table and attenuated ordinary percussion twice.
                 leftWord = scaleUnsignedWord(leftWord, rom.panLawTable[0x7f - drumPanIndex]);
                 rightWord = scaleUnsignedWord(rightWord, rom.panLawTable[drumPanIndex]);
-                int shapeIndex = FueTrekNoteShapeTables.noteShapeIndex(midiKey);
-                leftWord = FueTrekNoteShapeTables.scaleReverse(leftWord, shapeIndex);
-                rightWord = FueTrekNoteShapeTables.scaleForward(rightWord, shapeIndex);
             }
             mixLeftWord = clampRange(leftWord << 1, 0, 0x7fff);
             mixRightWord = clampRange(rightWord << 1, 0, 0x7fff);
@@ -2260,7 +2819,9 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
 
         int next(int note, int root, int fine, int tune, int pitchMod, int[] pitchRatioTable) {
             int stepQ12 = nativeStepQ12(note, root, fine, tune, pitchMod, pitchRatioTable);
-            if (stepQ12 <= 0 || sample.sampleCount() < 4) {
+            // 0x100092c0 interpolates even when the quantized step is zero:
+            // the oscillator holds its current sample rather than going silent.
+            if (sample.sampleCount() < 4) {
                 return 0;
             }
             int index = phaseQ12 >> 12;
@@ -2395,7 +2956,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         int state10;
         int phase14;
         int scale2;
-        final int baseMod8;
+        int baseMod8;
 
         ModState(VoiceTemplate template) {
             int mode = template.modMode;
@@ -2648,22 +3209,26 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
         }
 
         int step(int controlCounter, int note, int shapeMix) {
+            boolean refresh = controlCounter == 0x78;
             if (state >= 0 && state <= 7) {
                 switch (state) {
                     case 0:
                         if ((controlCounter & 1) == 0) {
+                            refresh = true;
                             state = 1;
                             value0 = 0;
                         }
                         break;
                     case 1:
                         if ((controlCounter & 1) == 0) {
+                            refresh = true;
                             state = 2;
                             value0 = 0;
                         }
                         break;
                     case 2:
                         if ((controlCounter & 1) == 0) {
+                            refresh = true;
                             int curve = clamp16(mulSignRoundShift((short) value0, 0x7ff, 11) + (short) value2);
                             value0 = (short) curve;
                             if ((short) value0 >= 0x7c00) {
@@ -2676,6 +3241,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                         break;
                     case 3:
                         if ((controlCounter & 0x7f) == 0) {
+                            refresh = true;
                             int curve = clamp16(mulSignRoundShift((short) value0, 0x7ff, 11) + (short) value2);
                             value0 = (short) curve;
                             if ((short) value0 >= 0x7c00) {
@@ -2686,6 +3252,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                         break;
                     case 4:
                         if ((controlCounter & 0x7f) == 0) {
+                            refresh = true;
                             int curve = clamp16(mulSignRoundShift((short) value4, (short) value0, 11));
                             value0 = (short) curve;
                             if ((short) value0 <= (short) valueA) {
@@ -2696,11 +3263,13 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                         break;
                     case 5:
                         if ((controlCounter & 0x7f) == 0) {
+                            refresh = true;
                             // Native keeps state 5 as sustain-like branch.
                         }
                         break;
                     case 6:
                         if ((controlCounter & 0x7f) == 0) {
+                            refresh = true;
                             int curve = clamp16(mulSignRoundShift((short) value6, (short) value0, 11));
                             value0 = (short) curve;
                             if ((short) value0 <= 0) {
@@ -2711,6 +3280,7 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                         break;
                     case 7:
                         if ((controlCounter & 1) == 0) {
+                            refresh = true;
                             int curve = clamp16(mulSignRoundShift((short) value0, 0x7dc, 11));
                             value0 = (short) curve;
                             if ((short) value0 <= 0) {
@@ -2724,10 +3294,14 @@ final class FueTrekSampler implements Sampler, MLDRawExtBHandler {
                 }
             }
 
-            int pitchProduct = ((valueE - (note & 0xff)) * value10) << 7;
-            int pitchCurve = clamp16(roundNearestShift(pitchProduct, 8) + shapeMix);
-            int levelCurve = mulRoundShift((short) valueC, (short) value0, 11);
-            output = (short) clamp16(levelCurve + pitchCurve);
+            if (refresh) {
+                int pitchProduct = ((valueE - (byte) note) * value10) << 7;
+                int pitchCurve = clamp16(roundNearestShift(pitchProduct, 8) + shapeMix);
+                int levelCurve = mulRoundShift((short) valueC, (short) value0, 11);
+                // 0x10009820 saturates the pitch contribution, then adds the
+                // envelope contribution as a wrapping signed 16-bit word.
+                output = (short) (levelCurve + pitchCurve);
+            }
             return (short) output;
         }
     }

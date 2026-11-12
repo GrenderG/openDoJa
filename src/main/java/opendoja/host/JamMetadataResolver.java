@@ -155,6 +155,9 @@ public final class JamMetadataResolver {
     }
 
     private static String inferProfileVersion(Properties properties, String inferredTargetDevice) {
+        if (ApplicationProfile.fromJamProperties(properties) == ApplicationProfile.STAR) {
+            return null;
+        }
         String configured = properties.getProperty("ProfileVer");
         if (configured != null && !configured.isBlank()) {
             return null;

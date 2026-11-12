@@ -88,7 +88,7 @@ public final class DoJaProfile {
     }
 
     public static DoJaProfile fromParameters(Map<String, String> parameters) {
-        if (parameters == null) {
+        if (parameters == null || ApplicationProfile.fromParameters(parameters) == ApplicationProfile.STAR) {
             return UNKNOWN;
         }
         return parse(parameters.get("ProfileVer"));
@@ -100,6 +100,9 @@ public final class DoJaProfile {
      * series through {@code TargetDevice} or {@code PackageURL}.
      */
     public static DoJaProfile fromParametersOrDocumentedDeviceIdentity(Map<String, String> parameters) {
+        if (ApplicationProfile.fromParameters(parameters) == ApplicationProfile.STAR) {
+            return UNKNOWN;
+        }
         DoJaProfile configured = fromParameters(parameters);
         if (configured.isKnown()) {
             return configured;
@@ -188,6 +191,9 @@ public final class DoJaProfile {
             return UNKNOWN;
         }
         int dash = trimmed.indexOf('-');
+        if (dash >= 0 && trimmed.substring(0, dash).equalsIgnoreCase("Star")) {
+            return UNKNOWN;
+        }
         String version = dash >= 0 ? trimmed.substring(dash + 1).trim() : trimmed;
         if (version.isEmpty()) {
             return UNKNOWN;

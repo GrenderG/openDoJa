@@ -40,10 +40,17 @@ package opendoja.audio.mld;
  */
 public class MLDPlayerTrack
 {
+    public int getIndex() { return this.index; }
+
     /**
      * Starting cuepoint
      */
     int cuepoint;
+
+    /**
+     * Track has encountered its own cue-start event.
+     */
+    boolean cueStarted;
 
     /**
      * Track has no more events

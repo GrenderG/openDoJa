@@ -9,6 +9,7 @@ public class Palette {
     private static final int BLUE_565_MASK = 0x001F;
 
     private final int[] entries;
+    private volatile long revision;
 
     /**
      * Creates a palette with the specified number of entries.
@@ -70,7 +71,15 @@ public class Palette {
      * @param color the color value
      */
     public void setEntry(int index, int color) {
-        entries[index] = normalizeEntry(color);
+        int normalized = normalizeEntry(color);
+        if (entries[index] != normalized) {
+            entries[index] = normalized;
+            revision++;
+        }
+    }
+
+    final long revision() {
+        return revision;
     }
 
     int[] copyEntries() {

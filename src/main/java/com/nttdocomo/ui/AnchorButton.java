@@ -79,6 +79,7 @@ public final class AnchorButton extends Component implements Interactable {
      */
     public void setText(String text) {
         this.text = text == null ? "" : text;
+        hostChanged();
     }
 
     /**
@@ -98,6 +99,7 @@ public final class AnchorButton extends Component implements Interactable {
     public void setImage(Image image) {
         _ImageInternalAccess.requireUsable(image);
         this.image = image;
+        hostChanged();
     }
 
     /**
@@ -108,6 +110,8 @@ public final class AnchorButton extends Component implements Interactable {
     @Override
     public void setEnabled(boolean b) {
         this.enabled = b;
+        if (!b && ownerPanel() != null) ownerPanel().componentBecameUnavailable(this);
+        hostChanged();
     }
 
     /**
@@ -132,4 +136,7 @@ public final class AnchorButton extends Component implements Interactable {
     boolean acceptsFocusOn(Panel panel) {
         return enabled && super.acceptsFocusOn(panel);
     }
+    Image hostImage() { return image; }
+    String hostText() { return text; }
+    boolean hostEnabled() { return enabled; }
 }

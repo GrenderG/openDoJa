@@ -30,7 +30,8 @@ public final class FueTrekResourceAudioEngine
     private static final int PLUGIN_EXPORT_GAIN_SHIFT = 2;
     private static final int NATIVE_OUTPUT_SAMPLE_RATE = 32000;
     private static final float INV_MIX_SCALE = 1.0f / 8388608.0f;
-    // lib002 creates the DS handle with packet[0x0c] = 8, so DSModule keeps the block size at 4096 frames.
+    // DSModule rounds its output block up to a multiple of the callback size
+    // covering at least 4096 frames (10003fd0). The SDK default callback is512.
     private static final int NATIVE_MOTION_BLOCK_FRAMES = 4096;
     private final DecodedResourceAudio[] decodedCatalog;
     private final ChannelState[] channelStates = new ChannelState[64];
@@ -38,6 +39,9 @@ public final class FueTrekResourceAudioEngine
     private final int[] initialAudioRouteRaw = new int[64];
     private final int[] initialSynthRouteRaw = new int[64];
     private final int outputSampleRate;
+    private int hostVolumePercent = 100;
+    private int masterLevel = 127;
+    private int masterPan = 64;
 
     public FueTrekResourceAudioEngine(MLD mld, float sampleRate) {
         this.outputSampleRate = Math.max(1, Math.round(sampleRate));
@@ -57,6 +61,8 @@ public final class FueTrekResourceAudioEngine
 
     public void reset() {
         this.activeClips.clear();
+        this.masterLevel = 127;
+        this.masterPan = 64;
         for (ChannelState state : this.channelStates) {
             state.level = DEFAULT_LEVEL;
             state.pan = DEFAULT_PAN;
@@ -67,6 +73,10 @@ public final class FueTrekResourceAudioEngine
             this.channelStates[i].synthRouteRaw = this.initialSynthRouteRaw[i];
         }
     }
+
+    public void setHostVolumeLevel(int value) { this.hostVolumePercent = value; }
+    public void setMasterLevel(int value) { this.masterLevel = value & 127; }
+    public void setMasterPan(int value) { this.masterPan = value & 127; }
 
     public void handleEvent(long framePosition, MLDEvent event) {
         int logicalChannel = clamp(0, this.channelStates.length - 1,
@@ -144,11 +154,29 @@ public final class FueTrekResourceAudioEngine
                 StereoGain spatialGain = this.computeSpatialGain(clip);
                 int leftGainQ16 = combineQ16(clip.leftGainQ16, spatialGain.leftQ16);
                 int rightGainQ16 = combineQ16(clip.rightGainQ16, spatialGain.rightQ16);
+                ChannelState channel = this.channelStates[clip.logicalChannel];
+                //30320 combines channel/host/master before2f4f0 applies the
+                //descriptor's start level. Apply curves after byte truncations.
+                int level = channel.level * this.hostVolumePercent * this.masterLevel / 127 / 100 & 127;
+                level = clip.startLevel * level / 127;
+                int leftPan = FueTrekCustomAudioTables.outputPanQ12(level, channel.pan, this.masterPan, false);
+                int rightPan = FueTrekCustomAudioTables.outputPanQ12(level, channel.pan, this.masterPan, true);
                 for (int frame = 0; frame < segmentFrames; frame++) {
                     int sample = clip.audio.frames[segmentInputIndex + frame];
+                    int rightSample = clip.audio.rightFrames[segmentInputIndex + frame];
                     int base = segmentOutputIndex + frame * 2;
-                    samples[base] += scaleMixedSample(sample, leftGainQ16) * leftScale;
-                    samples[base + 1] += scaleMixedSample(sample, rightGainQ16) * rightScale;
+                    if (clip.audio.nativePcm) {
+                        //307e0 truncates the Q12 multiply;1ca00 exports the
+                        //signed16 PCM*16384, or float PCM/128 in our mix units.
+                        samples[base] += (sample * leftPan / 4096) / 128.0f * left;
+                        samples[base + 1] += (rightSample * rightPan / 4096) / 128.0f * right;
+                    } else {
+                        //The alternative PCM selector retains the earlier
+                        //adapter until its decoder binding is verified.
+                        float host = this.hostVolumePercent / 100.0f;
+                        samples[base] += scaleMixedSample(sample, leftGainQ16) * leftScale * host;
+                        samples[base + 1] += scaleMixedSample(rightSample, rightGainQ16) * rightScale * host;
+                    }
                     if (clamp) {
                         samples[base] = clampSample(samples[base]);
                         samples[base + 1] = clampSample(samples[base + 1]);
@@ -183,7 +211,9 @@ public final class FueTrekResourceAudioEngine
     }
 
     private void startClip(long framePosition, int logicalChannel, MLDEvent event) {
+        int startLevel = event.getResourceStartLevel();
         if (event.getResourceIndex() < 0 ||
+            event.getResourceIndex() >= 63 || startLevel < 0 ||
             event.getResourceIndex() >= this.decodedCatalog.length) {
             return;
         }
@@ -203,7 +233,7 @@ public final class FueTrekResourceAudioEngine
         ActiveClip clip = new ActiveClip(
                 logicalChannel,
                 event.getResourceIndex(),
-                event.getResourcePitchByte(),
+                startLevel,
                 framePosition,
                 decoded,
                 this.channelStates[logicalChannel].audioRouteRaw,
@@ -243,17 +273,8 @@ public final class FueTrekResourceAudioEngine
             }
             clip.liveMotion.clear();
             clip.nextMotionIndex = 0;
-            clip.motionCurrentX = 0;
-            clip.motionCurrentY = 0;
-            clip.motionCurrentZ = 0;
-            clip.motionTargetX = 0;
-            clip.motionTargetY = 0;
-            clip.motionTargetZ = 0;
-            clip.motionDeltaX = 0;
-            clip.motionDeltaY = 0;
-            clip.motionDeltaZ = 0;
-            clip.motionRemainingBlocks = 0;
-            clip.nextMotionBlockFrame = Long.MAX_VALUE;
+            clip.motion.set(0, 0, 0, 0, 0, this.outputSampleRate, NATIVE_MOTION_BLOCK_FRAMES);
+            clip.nextMotionBlockFrame = framePosition + NATIVE_MOTION_BLOCK_FRAMES;
         }
     }
 
@@ -327,15 +348,6 @@ public final class FueTrekResourceAudioEngine
         return matching.toArray(new AuxMotionPoint[0]);
     }
 
-    private static int nativeMotionBlockCount(int durationMillis, int outputSampleRate) {
-        if (durationMillis <= 0) {
-            return 1;
-        }
-        long numerator = (long) outputSampleRate * durationMillis;
-        long denominator = (long) NATIVE_MOTION_BLOCK_FRAMES * 1000L;
-        return Math.max(1, (int) (numerator / denominator) + 1);
-    }
-
     private void pruneFinished(long framePosition) {
         for (int i = 0; i < this.activeClips.size(); i++) {
             ActiveClip clip = this.activeClips.get(i);
@@ -358,25 +370,9 @@ public final class FueTrekResourceAudioEngine
                 break;
             }
             this.advanceBlockMotion(clip, point.framePosition);
-            int remainingBlocks = nativeMotionBlockCount(point.durationRaw, this.outputSampleRate);
-            clip.motionTargetX = point.nativeXCentiUnits;
-            clip.motionTargetY = point.nativeYCentiUnits;
-            clip.motionTargetZ = point.nativeZCentiUnits;
-            clip.motionRemainingBlocks = remainingBlocks;
-            if (remainingBlocks <= 1) {
-                clip.motionCurrentX = clip.motionTargetX;
-                clip.motionCurrentY = clip.motionTargetY;
-                clip.motionCurrentZ = clip.motionTargetZ;
-                clip.motionDeltaX = 0;
-                clip.motionDeltaY = 0;
-                clip.motionDeltaZ = 0;
-                clip.nextMotionBlockFrame = Long.MAX_VALUE;
-            } else {
-                clip.motionDeltaX = (clip.motionTargetX - clip.motionCurrentX) / remainingBlocks;
-                clip.motionDeltaY = (clip.motionTargetY - clip.motionCurrentY) / remainingBlocks;
-                clip.motionDeltaZ = (clip.motionTargetZ - clip.motionCurrentZ) / remainingBlocks;
-                clip.nextMotionBlockFrame = point.framePosition + NATIVE_MOTION_BLOCK_FRAMES;
-            }
+            clip.motion.set(2, point.nativeXCentiUnits, point.nativeYCentiUnits,
+                    point.nativeZCentiUnits, point.durationRaw, this.outputSampleRate, NATIVE_MOTION_BLOCK_FRAMES);
+            clip.nextMotionBlockFrame = point.framePosition + NATIVE_MOTION_BLOCK_FRAMES;
             clip.nextMotionIndex++;
         }
         this.advanceBlockMotion(clip, framePosition);
@@ -384,30 +380,9 @@ public final class FueTrekResourceAudioEngine
 
     private void advanceBlockMotion(ActiveClip clip, long framePosition) {
         while (clip.nextMotionBlockFrame != Long.MAX_VALUE && clip.nextMotionBlockFrame <= framePosition) {
-            if (clip.motionRemainingBlocks <= 1) {
-                clip.motionCurrentX = clip.motionTargetX;
-                clip.motionCurrentY = clip.motionTargetY;
-                clip.motionCurrentZ = clip.motionTargetZ;
-                clip.motionDeltaX = 0;
-                clip.motionDeltaY = 0;
-                clip.motionDeltaZ = 0;
-                clip.motionRemainingBlocks = 0;
-                clip.nextMotionBlockFrame = Long.MAX_VALUE;
-                continue;
-            }
-            clip.motionCurrentX = clampNativeCentiInt(clip.motionCurrentX + clip.motionDeltaX);
-            clip.motionCurrentY = clampNativeCentiInt(clip.motionCurrentY + clip.motionDeltaY);
-            clip.motionCurrentZ = clampNativeCentiInt(clip.motionCurrentZ + clip.motionDeltaZ);
-            clip.motionRemainingBlocks--;
+            clip.motion.advanceBlock();
             clip.nextMotionBlockFrame += NATIVE_MOTION_BLOCK_FRAMES;
-            if (clip.motionRemainingBlocks <= 1) {
-                clip.motionCurrentX = clip.motionTargetX;
-                clip.motionCurrentY = clip.motionTargetY;
-                clip.motionCurrentZ = clip.motionTargetZ;
-                clip.motionDeltaX = 0;
-                clip.motionDeltaY = 0;
-                clip.motionDeltaZ = 0;
-                clip.motionRemainingBlocks = 0;
+            if (clip.motion.remainingBlocks == 0) {
                 clip.nextMotionBlockFrame = Long.MAX_VALUE;
             }
         }
@@ -433,33 +408,48 @@ public final class FueTrekResourceAudioEngine
 
     private DecodedResourceAudio decodeCatalogEntry(MLDADPCM adat) {
         if (adat == null || adat.sampleRateHz() <= 0 ||
-            adat.channelCount() != 1) {
+            (adat.channelCount() != 1 && adat.channelCount() != 2)) {
             return null;
         }
 
         int[] slotFrames;
+        int[] rightFrames;
         int decodedSampleRate;
+        boolean nativePcm = false;
         if (adat.selectorId() == 0x81 &&
                 !adat.variantBit() &&
                 MLDNativeADPCMDecoder.supportsLivePath(adat.sampleRateHz(),
                     adat.codedBits(), adat.channelCount())) {
-            int[] nativeFrames = MLDNativeADPCMDecoder.decodeLiveMonoNativeLane0(
-                    adat.sampleRateHz(),
-                    adat.codedBits(),
-                    adat.payload());
-            slotFrames = convertSlotFrames(nativeFrames);
+            byte[] payload = adat.payload();
+            int planeLength = payload.length / adat.channelCount();
+            byte[] leftPayload = adat.channelCount() == 1 ? payload
+                    : Arrays.copyOfRange(payload, 0, planeLength);
+            var decoder = new MLDNativeADPCMDecoder.LiveMonoStream(adat.sampleRateHz(), adat.codedBits());
+            slotFrames = decoder.decodeNextBufferRawPcm16(leftPayload, leftPayload.length * decoder.framesPerByte());
+            nativePcm = true;
+            // lib002 0x10027030: right plane starts halfway through the
+            // coded payload. Each plane has its own predictor/filter state.
+            if (adat.channelCount() == 1) rightFrames = slotFrames;
+            else {
+                byte[] rightPayload = Arrays.copyOfRange(payload, planeLength, planeLength * 2);
+                var rightDecoder = new MLDNativeADPCMDecoder.LiveMonoStream(adat.sampleRateHz(), adat.codedBits());
+                rightFrames = rightDecoder.decodeNextBufferRawPcm16(rightPayload, rightPayload.length * rightDecoder.framesPerByte());
+            }
             decodedSampleRate = NATIVE_OUTPUT_SAMPLE_RATE;
-        } else if (adat.selectorId() == 0x80 && adat.codedBits() == 16) {
+        } else if (adat.selectorId() == 0x80 && adat.codedBits() == 16 && adat.channelCount() == 1) {
             slotFrames = decodePcm16Mono(adat.payload());
+            rightFrames = slotFrames;
             decodedSampleRate = adat.sampleRateHz();
         } else {
             return null;
         }
 
         if (this.outputSampleRate == decodedSampleRate) {
-            return new DecodedResourceAudio(slotFrames);
+            return new DecodedResourceAudio(slotFrames, rightFrames, nativePcm);
         }
-        return new DecodedResourceAudio(resampleLinear(slotFrames, decodedSampleRate, this.outputSampleRate));
+        int[] resampledLeft = resampleLinear(slotFrames, decodedSampleRate, this.outputSampleRate);
+        return new DecodedResourceAudio(resampledLeft, rightFrames == slotFrames ? resampledLeft :
+                resampleLinear(rightFrames, decodedSampleRate, this.outputSampleRate), nativePcm);
     }
 
     private static int[] decodePcm16Mono(byte[] payload) {
@@ -528,17 +518,6 @@ public final class FueTrekResourceAudioEngine
         return FueTrekResourceAudioTables.levelQ16(value);
     }
 
-    private static int[] convertSlotFrames(int[] decodedFrames) {
-        if (decodedFrames.length == 0) {
-            return new int[0];
-        }
-        int[] converted = new int[decodedFrames.length];
-        for (int i = 4; i < decodedFrames.length; i++) {
-            converted[i] = decodedFrames[i - 4] >> 1;
-        }
-        return converted;
-    }
-
     private static int[] resampleLinear(int[] input, int inputRate, int outputRate) {
         if (input.length == 0 || inputRate == outputRate) {
             return Arrays.copyOf(input, input.length);
@@ -583,13 +562,13 @@ public final class FueTrekResourceAudioEngine
     private record StereoGain(int leftQ16, int rightQ16) {
     }
 
-    private record DecodedResourceAudio(int[] frames) {
+    private record DecodedResourceAudio(int[] frames, int[] rightFrames, boolean nativePcm) {
     }
 
     private static final class ActiveClip {
         final int logicalChannel;
         final int resourceIndex;
-        final int resourcePitchByte;
+        final int startLevel;
         final long startFrame;
         final DecodedResourceAudio audio;
         int audioRouteRaw;
@@ -599,23 +578,14 @@ public final class FueTrekResourceAudioEngine
         final int leftGainQ16;
         final int rightGainQ16;
         int nextMotionIndex;
-        int motionCurrentX;
-        int motionCurrentY;
-        int motionCurrentZ;
-        int motionTargetX;
-        int motionTargetY;
-        int motionTargetZ;
-        int motionDeltaX;
-        int motionDeltaY;
-        int motionDeltaZ;
-        int motionRemainingBlocks;
+        final FueTrekSpatialMotion motion = new FueTrekSpatialMotion();
         long nextMotionBlockFrame = Long.MAX_VALUE;
         long stopFrame = -1L;
 
         ActiveClip(
                 int logicalChannel,
                 int resourceIndex,
-                int resourcePitchByte,
+                int startLevel,
                 long startFrame,
                 DecodedResourceAudio audio,
                 int audioRouteRaw,
@@ -626,7 +596,7 @@ public final class FueTrekResourceAudioEngine
                 int rightGainQ16) {
             this.logicalChannel = logicalChannel;
             this.resourceIndex = resourceIndex;
-            this.resourcePitchByte = resourcePitchByte;
+            this.startLevel = startLevel;
             this.startFrame = startFrame;
             this.audio = audio;
             this.audioRouteRaw = audioRouteRaw;
@@ -698,7 +668,4 @@ public final class FueTrekResourceAudioEngine
         return (short) clamp(Short.MIN_VALUE, Short.MAX_VALUE, centiUnits);
     }
 
-    private static int clampNativeCentiInt(int value) {
-        return clamp(Short.MIN_VALUE, Short.MAX_VALUE, value);
-    }
 }

@@ -6,6 +6,7 @@ import com.nttdocomo.util.ScheduleDate;
 
 public final class StarApplicationManager {
     private final StarApplication application;
+    private final java.util.Map<Integer, StarEventObject> pushedEvents = new java.util.concurrent.ConcurrentHashMap<>();
 
     public StarApplicationManager(StarApplication application) {
         this.application = application;
@@ -53,6 +54,18 @@ public final class StarApplicationManager {
 
     public int getSuspendInfo() {
         return application.getSuspendInfo();
+    }
+
+    public StarEventObject getPushedEvent(int eventType) {
+        StarEventObject.checkType(eventType);
+        return pushedEvents.get(eventType);
+    }
+
+    /** Host integration: retain an actual event that caused this launch; normal launches have none. */
+    public void recordPushedEventForHost(StarEventObject event) {
+        java.util.Objects.requireNonNull(event, "event");
+        StarEventObject.checkType(event.getType());
+        pushedEvents.put(event.getType(), event);
     }
 
     public PushManager getPushManager() throws SecurityException {

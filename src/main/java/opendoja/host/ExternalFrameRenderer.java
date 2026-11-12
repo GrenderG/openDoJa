@@ -26,17 +26,38 @@ public final class ExternalFrameRenderer {
 
     private final List<HostOverlayRenderer> overlays = new CopyOnWriteArrayList<>();
     private final StatusBarIcons statusBarIcons;
+    private final BufferedImage starStatusIcon;
     private final LaunchConfig.IAppliType iAppliType;
     private final boolean standbyLaunch;
     private volatile boolean enabled;
+    private volatile String automaticRotation = OpenDoJaLaunchArgs.DISPLAY_ROTATION_NONE;
+
+    String displayRotation() {
+        String configured = OpenDoJaLaunchArgs.displayRotation();
+        return OpenDoJaLaunchArgs.DISPLAY_ROTATION_NONE.equals(configured) ? automaticRotation : configured;
+    }
+
+    boolean setAutomaticRotation(String rotation) {
+        if (automaticRotation.equals(rotation)) return false;
+        automaticRotation = rotation;
+        return true;
+    }
+
+    boolean hasAutomaticLandscape() { return !OpenDoJaLaunchArgs.DISPLAY_ROTATION_NONE.equals(automaticRotation); }
 
     public ExternalFrameRenderer(boolean enabled, String statusBarIconDevice, LaunchConfig.IAppliType iAppliType) {
         this(enabled, statusBarIconDevice, iAppliType, com.nttdocomo.ui.IApplication.LAUNCHED_FROM_MENU);
     }
 
     public ExternalFrameRenderer(boolean enabled, String statusBarIconDevice, LaunchConfig.IAppliType iAppliType, int launchType) {
+        this(enabled, statusBarIconDevice, iAppliType, launchType, ApplicationProfile.DOJA);
+    }
+
+    public ExternalFrameRenderer(boolean enabled, String statusBarIconDevice, LaunchConfig.IAppliType iAppliType,
+                                 int launchType, ApplicationProfile applicationProfile) {
         this.enabled = enabled;
         this.statusBarIcons = StatusBarIcons.load(statusBarIconDevice);
+        this.starStatusIcon = applicationProfile == ApplicationProfile.STAR ? loadStarStatusIcon() : null;
         this.iAppliType = iAppliType == null ? LaunchConfig.IAppliType.I_APPLI : iAppliType;
         this.standbyLaunch = launchType == com.nttdocomo.ui.IApplication.LAUNCHED_AS_CONCIERGE;
     }
@@ -63,7 +84,7 @@ public final class ExternalFrameRenderer {
 
     public ExternalFrameLayout layoutFor(int viewportWidth, int viewportHeight, double scale) {
         double clampedScale = Math.max(0.01d, scale);
-        String rotation = OpenDoJaLaunchArgs.displayRotation();
+        String rotation = displayRotation();
         int rotatedViewportWidth = swapsDimensions(rotation) ? viewportHeight : viewportWidth;
         int rotatedViewportHeight = swapsDimensions(rotation) ? viewportWidth : viewportHeight;
         if (!enabled) {
@@ -155,7 +176,7 @@ public final class ExternalFrameRenderer {
     }
 
     private void paintRotatedImage(Graphics2D g, Rectangle drawArea, BufferedImage drawImage) {
-        String rotation = OpenDoJaLaunchArgs.displayRotation();
+        String rotation = displayRotation();
         if (OpenDoJaLaunchArgs.DISPLAY_ROTATION_NONE.equals(rotation)) {
             g.drawImage(drawImage, drawArea.x, drawArea.y, drawArea.width, drawArea.height, null);
             return;
@@ -259,7 +280,19 @@ public final class ExternalFrameRenderer {
         if (left > statusArea.x) {
             left += STATUS_GROUP_GAP;
         }
-        paintStatusIconLeft(g, statusArea, left, iAppliStatusIcon(), false);
+        left = paintStatusIconLeft(g, statusArea, left, iAppliStatusIcon(), false);
+        if (starStatusIcon != null) {
+            paintStatusIconLeft(g, statusArea, left + STATUS_GROUP_GAP, starStatusIcon, false);
+        }
+    }
+
+    private static BufferedImage loadStarStatusIcon() {
+        try {
+            return StatusBarIcons.loadImage("defaults", "star.gif");
+        } catch (IOException failure) {
+            OpenDoJaLog.warn(ExternalFrameRenderer.class, "Failed to load STAR status icon", failure);
+            return null;
+        }
     }
 
     private int paintCoverageStatus(Graphics2D g, Rectangle statusArea, int left) {

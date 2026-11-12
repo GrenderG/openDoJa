@@ -5,13 +5,18 @@ import com.nttdocomo.io.HttpConnection;
 import java.io.*;
 import java.net.*;
 
-public final class DesktopHttpConnection implements HttpConnection {
+public final class DesktopHttpConnection implements HttpConnection, com.docomostar.io.HttpConnection {
     private static final String DEFAULT_USER_AGENT = "DoCoMo/2.0 DOJA_INET_CLIENT(c100;TJ)";
+    private static final String STAR_USER_AGENT = "DoCoMo/2.0 STAR_INET_CLIENT(c100;SJ)";
 
     private final URL url;
     private final int mode;
     private final boolean timeouts;
+    private final boolean star = ApplicationProfile.current() == ApplicationProfile.STAR;
+    private int responseCode = -1;
     private HttpURLConnection connection;
+    private InputStream responseInputStream;
+    private boolean closed;
     private String requestMethod = GET;
     private long ifModifiedSince = 0L;
     private boolean userAgentProvidedByGame;
@@ -26,34 +31,43 @@ public final class DesktopHttpConnection implements HttpConnection {
 
     @Override
     public void connect() throws IOException {
-        ensureConnection();
-        logRequestIfNeeded();
         try {
+            ensureConnection();
+            logRequestIfNeeded();
             connection.connect();
         } catch (IOException exception) {
             OpenDoJaLog.warn(DesktopHttpConnection.class, "HTTP connect failed " + requestSummary(), exception);
-            throw exception;
+            throw translate(exception);
         }
     }
 
     @Override
     public void close() throws IOException {
-        if (connection != null) {
-            connection.disconnect();
+        if (closed) return;
+        closed = true;
+        try {
+            if (responseInputStream != null) {
+                http(() -> { responseInputStream.close(); return null; });
+            }
+        } finally {
+            if (connection != null) connection.disconnect();
         }
     }
 
     @Override
     public InputStream openInputStream() throws IOException {
-        ensureConnection();
-        logRequestIfNeeded();
         try {
-            InputStream stream = normalizeResponseInputStream(connection.getInputStream());
+            ensureConnection();
+            logRequestIfNeeded();
+            if (star) responseCode = connection.getResponseCode();
+            if (responseInputStream == null) {
+                responseInputStream = normalizeResponseInputStream(connection.getInputStream());
+            }
             logResponseIfNeeded();
-            return stream;
+            return responseInput(responseInputStream);
         } catch (IOException exception) {
             OpenDoJaLog.warn(DesktopHttpConnection.class, "HTTP openInputStream failed " + requestSummary(), exception);
-            throw exception;
+            throw translate(exception);
         }
     }
 
@@ -64,14 +78,15 @@ public final class DesktopHttpConnection implements HttpConnection {
 
     @Override
     public OutputStream openOutputStream() throws IOException {
-        ensureConnection();
-        connection.setDoOutput(true);
-        logRequestIfNeeded();
         try {
-            return maybeWrapOutputStream(connection.getOutputStream());
+            ensureConnection();
+            connection.setDoOutput(true);
+            logRequestIfNeeded();
+            OutputStream stream = maybeWrapOutputStream(connection.getOutputStream());
+            return star ? starOutput(stream) : stream;
         } catch (IOException exception) {
             OpenDoJaLog.warn(DesktopHttpConnection.class, "HTTP openOutputStream failed " + requestSummary(), exception);
-            throw exception;
+            throw translate(exception);
         }
     }
 
@@ -89,7 +104,7 @@ public final class DesktopHttpConnection implements HttpConnection {
     public void setRequestMethod(String method) throws IOException {
         this.requestMethod = method;
         if (connection != null) {
-            connection.setRequestMethod(method);
+            http(() -> { connection.setRequestMethod(method); return null; });
         }
     }
 
@@ -98,28 +113,28 @@ public final class DesktopHttpConnection implements HttpConnection {
         if (isUserAgentHeader(key)) {
             userAgentProvidedByGame = true;
         }
-        ensureConnection();
+        http(() -> { ensureConnection(); return null; });
         connection.setRequestProperty(key, OpenDoJaIdentity.replaceDefaultUserIdToken(value));
     }
 
     @Override
     public int getResponseCode() throws IOException {
-        ensureConnection();
-        logRequestIfNeeded();
         try {
+            ensureConnection();
+            logRequestIfNeeded();
             int code = connection.getResponseCode();
+            responseCode = code;
             logResponseIfNeeded(code);
             return code;
         } catch (IOException exception) {
             OpenDoJaLog.warn(DesktopHttpConnection.class, "HTTP getResponseCode failed " + requestSummary(), exception);
-            throw exception;
+            throw translate(exception);
         }
     }
 
     @Override
     public String getResponseMessage() throws IOException {
-        ensureConnection();
-        return connection.getResponseMessage();
+        return http(() -> { ensureConnection(); return connection.getResponseMessage(); });
     }
 
     @Override
@@ -201,6 +216,7 @@ public final class DesktopHttpConnection implements HttpConnection {
     }
 
     private void ensureConnection() throws IOException {
+        if (closed) throw new IOException("Connection closed");
         if (connection != null) {
             return;
         }
@@ -223,8 +239,66 @@ public final class DesktopHttpConnection implements HttpConnection {
         }
         connection.setRequestProperty("Connection", "keep-alive");
         if (!userAgentProvidedByGame) {
-            connection.setRequestProperty("User-Agent", DEFAULT_USER_AGENT);
+            connection.setRequestProperty("User-Agent", star
+                    ? STAR_USER_AGENT : DEFAULT_USER_AGENT);
         }
+    }
+
+    // Each connection retains its caller's profile, including later stream failures.
+    // DoJa continues receiving the original host exceptions.
+    private IOException translate(IOException failure) {
+        if (!star || failure instanceof com.docomostar.io.ConnectionException) return failure;
+        if (failure instanceof com.nttdocomo.io.ConnectionException doja) {
+            return com.docomostar.io.ConnectionException.from(doja);
+        }
+        int status = com.docomostar.io.ConnectionException.UNDEFINED;
+        if (failure instanceof SocketTimeoutException) status = com.docomostar.io.ConnectionException.TIMEOUT;
+        else if (failure instanceof javax.net.ssl.SSLException) status = com.docomostar.io.ConnectionException.SSL_ERROR;
+        else if (failure instanceof InterruptedIOException) status = com.docomostar.io.ConnectionException.SYSTEM_ABORT;
+        else if (failure instanceof UnknownHostException || failure instanceof ConnectException || failure instanceof NoRouteToHostException)
+            status = com.docomostar.io.ConnectionException.OUT_OF_SERVICE;
+        else if (failure instanceof ProtocolException) status = com.docomostar.io.ConnectionException.ILLEGAL_STATE;
+        else if (responseCode >= 400) status = com.docomostar.io.ConnectionException.HTTP_ERROR;
+        var translated = new com.docomostar.io.ConnectionException(status, failure.getMessage());
+        translated.initCause(failure);
+        return translated;
+    }
+
+    @FunctionalInterface
+    private interface IOOperation<T> { T run() throws IOException; }
+
+    private <T> T http(IOOperation<T> operation) throws IOException {
+        try { return operation.run(); }
+        catch (IOException failure) { throw translate(failure); }
+    }
+
+    private InputStream responseInput(InputStream delegate) {
+        return new FilterInputStream(delegate) {
+            private boolean streamClosed;
+
+            private <T> T readResponse(IOOperation<T> operation) throws IOException {
+                return http(() -> {
+                    if (streamClosed || closed) throw new IOException("Stream closed");
+                    return operation.run();
+                });
+            }
+
+            @Override public int read() throws IOException { return readResponse(in::read); }
+            @Override public int read(byte[] b, int off, int len) throws IOException { return readResponse(() -> in.read(b, off, len)); }
+            @Override public long skip(long n) throws IOException { return readResponse(() -> in.skip(n)); }
+            @Override public int available() throws IOException { return readResponse(in::available); }
+            @Override public synchronized void reset() throws IOException { readResponse(() -> { in.reset(); return null; }); }
+            @Override public void close() { streamClosed = true; }
+        };
+    }
+
+    private OutputStream starOutput(OutputStream delegate) {
+        return new FilterOutputStream(delegate) {
+            @Override public void write(int b) throws IOException { http(() -> { out.write(b); return null; }); }
+            @Override public void write(byte[] b, int off, int len) throws IOException { http(() -> { out.write(b, off, len); return null; }); }
+            @Override public void flush() throws IOException { http(() -> { out.flush(); return null; }); }
+            @Override public void close() throws IOException { http(() -> { out.close(); return null; }); }
+        };
     }
 
     private static boolean isUserAgentHeader(String key) {
@@ -308,8 +382,14 @@ public final class DesktopHttpConnection implements HttpConnection {
     private String requestSummary() {
         return "method=" + requestMethod
                 + " url=" + url
-                + " type=" + valueOrUnset(connection.getRequestProperty("Content-Type"))
-                + " length=" + valueOrUnset(connection.getRequestProperty("Content-Length"));
+                + " type=" + valueOrUnset(requestProperty("Content-Type"))
+                + " length=" + valueOrUnset(requestProperty("Content-Length"));
+    }
+
+    private String requestProperty(String name) {
+        if (connection == null) return null;
+        try { return connection.getRequestProperty(name); }
+        catch (IllegalStateException alreadyConnected) { return null; }
     }
 
     private String responseSummary() {

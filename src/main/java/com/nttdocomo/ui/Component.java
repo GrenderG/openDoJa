@@ -15,6 +15,7 @@ public abstract class Component {
     private boolean visible = true;
     private Panel ownerPanel;
     private boolean focused;
+    private boolean explicitSize;
 
     /**
      * Applications cannot directly create instances of this class.
@@ -68,6 +69,7 @@ public abstract class Component {
      */
     public void setBackground(int color) {
         this.background = color;
+        hostChanged();
     }
 
     /**
@@ -78,6 +80,7 @@ public abstract class Component {
      */
     public void setForeground(int color) {
         this.foreground = color;
+        hostChanged();
     }
 
     /**
@@ -89,6 +92,7 @@ public abstract class Component {
     public void setLocation(int x, int y) {
         this.x = x;
         this.y = y;
+        hostChanged();
     }
 
     /**
@@ -100,6 +104,8 @@ public abstract class Component {
     public void setSize(int width, int height) {
         this.width = width;
         this.height = height;
+        explicitSize = true;
+        hostChanged();
     }
 
     /**
@@ -110,6 +116,7 @@ public abstract class Component {
     public void setFont(Font font) {
         if (font != null) {
             this.font = font;
+            hostChanged();
         }
     }
 
@@ -127,6 +134,7 @@ public abstract class Component {
         if (!visible && ownerPanel != null) {
             ownerPanel.componentBecameUnavailable(this);
         }
+        hostChanged();
     }
 
     int backgroundColor() {
@@ -155,6 +163,16 @@ public abstract class Component {
 
     final void setFocused(boolean focused) {
         this.focused = focused;
+    }
+
+    final void hostChanged() {
+        if (ownerPanel != null) ownerPanel.invalidateForHost();
+    }
+
+    final boolean hostExplicitSize() { return explicitSize; }
+
+    final void hostBounds(int x, int y, int width, int height) {
+        this.x = x; this.y = y; this.width = width; this.height = height;
     }
 
     final boolean focused() {

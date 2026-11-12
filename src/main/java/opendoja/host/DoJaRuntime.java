@@ -25,6 +25,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.*;
@@ -77,10 +78,14 @@ public final class DoJaRuntime {
     private final java.awt.event.WindowAdapter hostWindowFocusListener;
     private volatile boolean openGlesFpsEnabled;
     private volatile String hostScaleSetting;
+    private volatile String starDirectionRotation;
     private volatile IApplication application;
+    private volatile ControllerInputManager controllerInputManager;
+    private volatile boolean vibratorEnabled;
     private JFrame frameWindow;
     private GraphicsDevice fullScreenDevice;
-    private Frame currentFrame;
+    private volatile Frame currentFrame;
+    private volatile Canvas currentCanvas;
     // `presentedCanvas` / `presentedFrame` only tell us what is currently visible. We still need
     // one explicit bit to remember whether the active canvas has already presented from the
     // application-owned direct graphics path, because only that fact suppresses extra host paints.
@@ -88,10 +93,14 @@ public final class DoJaRuntime {
     private volatile Canvas presentedCanvas;
     private volatile BufferedImage presentedFrame;
     private volatile long keypadStateBits;
+    private final Map<Integer, Integer> heldHostKeys = new HashMap<>();
     private volatile long selectLatchedUntilNanos;
     private volatile Thread renderThread;
     private final Set<Integer> enabledKeypadGroups = ConcurrentHashMap.newKeySet();
     private final AtomicInteger modalDialogDepth = new AtomicInteger();
+    private final Object videoMonitor = new Object();
+    private volatile DesktopVideoPlayback videoPlayback;
+    private volatile Thread videoOwner;
     private volatile boolean keypadConfigurationLocked;
     private String previousMicroeditionPlatform;
     private String previousMicroeditionProfiles;
@@ -105,11 +114,14 @@ public final class DoJaRuntime {
         this.renderExecutor = Executors.newSingleThreadExecutor(r -> newRuntimeThread(r, "openDoJa-render"));
         this.enabledKeypadGroups.add(0);
         this.hostScaleSetting = resolveHostScale(config);
+        this.starDirectionRotation = OpenDoJaLaunchArgs.normalizeDisplayRotation(
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.INPUT_STAR_DIRECTION_ROTATION));
         this.externalFrameRenderer = new ExternalFrameRenderer(
                 resolveExternalFrameEnabled(config),
                 config.statusBarIconDevice(),
                 config.iAppliType(),
-                config.launchType());
+                config.launchType(),
+                config.applicationProfile());
         this.openGlesFpsOverlay = new OpenGlesFpsOverlay();
         this.openGlesFpsEnabled = OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS);
         if (openGlesFpsEnabled) {
@@ -131,11 +143,13 @@ public final class DoJaRuntime {
         this.hostWindowFocusListener = new java.awt.event.WindowAdapter() {
             @Override
             public void windowGainedFocus(java.awt.event.WindowEvent e) {
+                setControllerRumbleFocused(true);
                 updateFullScreenTopHint((JFrame) e.getWindow(), true);
             }
 
             @Override
             public void windowLostFocus(java.awt.event.WindowEvent e) {
+                setControllerRumbleFocused(false);
                 updateFullScreenTopHint((JFrame) e.getWindow(), false);
             }
         };
@@ -171,6 +185,7 @@ public final class DoJaRuntime {
         runtime.createWindowIfPossible();
         current = runtime;
         runtime.applyLaunchSystemProperties();
+        PhoneSystem.setAttribute(PhoneSystem.DEV_VIBRATOR, PhoneSystem.ATTR_VIBRATOR_OFF);
         PhoneSystem2.resetRuntimeDefaults();
         StereoScreen.resetRuntimeDefaults();
         return runtime;
@@ -189,6 +204,24 @@ public final class DoJaRuntime {
         return current;
     }
 
+    /** Host output shared by the DoJa and STAR PhoneSystem vibrator APIs. */
+    public synchronized void setVibratorEnabled(boolean enabled) {
+        if (shutdown.get()) return;
+        vibratorEnabled = enabled;
+        if (controllerInputManager != null) {
+            controllerInputManager.setVibratorEnabled(enabled);
+        }
+    }
+
+    public boolean isVibratorEnabled() {
+        return vibratorEnabled;
+    }
+
+    private void setControllerRumbleFocused(boolean focused) {
+        ControllerInputManager manager = controllerInputManager;
+        if (manager != null) manager.setRumbleFocused(focused);
+    }
+
     public LaunchConfig config() {
         return config;
     }
@@ -201,13 +234,66 @@ public final class DoJaRuntime {
         return surfaceLock;
     }
 
+    void beginVideoPlayback(DesktopVideoPlayback playback) throws IOException {
+        synchronized (videoMonitor) {
+            if (videoPlayback != null) throw new IOException("A video is already playing");
+            videoOwner = Thread.currentThread();
+            videoPlayback = playback;
+            clearVideoInput();
+        }
+        repaintWindow();
+    }
+
+    void endVideoPlayback(DesktopVideoPlayback playback) {
+        synchronized (videoMonitor) {
+            if (videoPlayback != playback) return;
+            videoPlayback = null;
+            videoOwner = null;
+            clearVideoInput();
+            videoMonitor.notifyAll();
+        }
+        repaintWindow();
+        if (!applicationCallbacks.isEmpty()) wakeApplicationCallbacks();
+    }
+
+    private void clearVideoInput() {
+        keypadStateBits = 0L;
+        selectLatchedUntilNanos = 0L;
+        synchronized (heldHostKeys) {
+            heldHostKeys.clear();
+        }
+    }
+
+    public boolean isVideoPlaying() {
+        return videoPlayback != null;
+    }
+
+    /** Cooperative pause at host API boundaries, without unsafe Thread.suspend(). */
+    public void awaitVideoPlayback() {
+        if (videoPlayback == null || SwingUtilities.isEventDispatchThread()) return;
+        synchronized (videoMonitor) {
+            while (videoPlayback != null && videoOwner != Thread.currentThread() && !shutdown.get()) {
+                try {
+                    videoMonitor.wait();
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
     public void postApplicationCallback(Runnable callback) {
         if (callback == null || shutdown.get()) {
             return;
         }
         applicationCallbacks.add(callback);
-        Frame frame = currentFrame;
-        if (frame instanceof Canvas canvas) {
+        wakeApplicationCallbacks();
+    }
+
+    private void wakeApplicationCallbacks() {
+        Canvas canvas = currentCanvas;
+        if (canvas != null) {
             // Once a canvas has actually presented from outside the runtime render
             // worker, queued callbacks can ride that app-owned lock/unlock path.
             // Forcing requestRender(canvas) after that would inject an extra host
@@ -218,7 +304,8 @@ public final class DoJaRuntime {
             // Non-direct canvas titles still need a render wakeup so the
             // callback is drained on the canvas/application path instead of
             // on an unrelated host thread.
-            requestRender(canvas);
+            if (currentFrame instanceof com.nttdocomo.ui.Panel) requestWidgetRepaint(canvas);
+            else requestRender(canvas);
             return;
         }
         // Non-canvas frames still need a host-side wakeup to service the queue.
@@ -226,7 +313,8 @@ public final class DoJaRuntime {
     }
 
     public void drainApplicationCallbacks() {
-        if (shutdown.get() || drainingApplicationCallbacks.get()) {
+        awaitVideoPlayback();
+        if (shutdown.get() || drainingApplicationCallbacks.get() || videoPlayback != null) {
             return;
         }
         drainingApplicationCallbacks.set(true);
@@ -312,8 +400,16 @@ public final class DoJaRuntime {
         return config.sourceUrl();
     }
 
+    public Path jamPath() {
+        return config.jamPath();
+    }
+
     public Map<String, String> parameters() {
         return config.parameters();
+    }
+
+    public ApplicationProfile applicationProfile() {
+        return config.applicationProfile();
     }
 
     public int launchType() {
@@ -350,7 +446,16 @@ public final class DoJaRuntime {
         if (!shutdown.compareAndSet(false, true)) {
             return;
         }
+        synchronized (this) {
+            vibratorEnabled = false;
+            if (current == this) {
+                PhoneSystem.setAttribute(PhoneSystem.DEV_VIBRATOR, PhoneSystem.ATTR_VIBRATOR_OFF);
+            }
+        }
         closeShutdownResources();
+        synchronized (videoMonitor) {
+            videoMonitor.notifyAll();
+        }
         scheduler.shutdownNow();
         eventExecutor.shutdownNow();
         renderExecutor.shutdownNow();
@@ -398,19 +503,23 @@ public final class DoJaRuntime {
         if (frame != null) {
             keypadConfigurationLocked = true;
         }
-        Frame previousFrame = this.currentFrame;
+        Canvas previousCanvas = this.currentCanvas;
         this.currentFrame = frame;
-        if (frame instanceof Canvas canvas) {
-            if (previousFrame != canvas) {
+        Canvas canvas = _PanelHost.canvasFor(frame);
+        this.currentCanvas = canvas;
+        if (canvas != null) {
+            if (previousCanvas != canvas) {
                 currentCanvasPresentedByApplication = false;
             }
             ensureCanvasSurface(canvas);
+            updatePresentationRotation(canvas);
             if (presentedCanvas != canvas || presentedFrame == null) {
                 presentedFrame = snapshotCanvasImage(canvas);
             }
             presentedCanvas = canvas;
-            requestRender(canvas);
+            requestWidgetRepaint(canvas);
         } else {
+            updatePresentationRotation(null);
             currentCanvasPresentedByApplication = false;
             presentedCanvas = null;
             presentedFrame = null;
@@ -423,10 +532,12 @@ public final class DoJaRuntime {
     }
 
     public void requestRepaint(Canvas canvas) {
+        awaitVideoPlayback();
         requestRender(new RepaintRequest(canvas, null), true);
     }
 
     public void requestRepaint(Canvas canvas, int x, int y, int width, int height) {
+        awaitVideoPlayback();
         requestRender(new RepaintRequest(canvas, new Rectangle(x, y, width, height)), true);
     }
 
@@ -434,11 +545,22 @@ public final class DoJaRuntime {
         requestRender(new RepaintRequest(canvas, null), false);
     }
 
+    /** Widget setters must coalesce updates without waiting while an application monitor is held. */
+    public void requestWidgetRepaint(Canvas canvas) {
+        requestRender(new RepaintRequest(canvas, null), true, false);
+    }
+
     private void requestRender(RepaintRequest repaint, boolean repaintRequest) {
+        requestRender(repaint, repaintRequest, true);
+    }
+
+    private void requestRender(RepaintRequest repaint, boolean repaintRequest, boolean allowBackpressure) {
         Canvas canvas = repaint.canvas();
         Runnable paintTask = () -> {
             renderThread = Thread.currentThread();
             try {
+                awaitVideoPlayback();
+                if (shutdown.get()) return;
                 synchronized (canvas) {
                     // Drain queued callbacks immediately before application
                     // paint code so titles observe them at a normal frame
@@ -482,7 +604,7 @@ public final class DoJaRuntime {
                 return;
             }
         } else if (repaintRequest) {
-            waitForBackpressure = rememberPendingRepaint(repaint) && shouldWaitForRepaintBackpressure(canvas);
+            waitForBackpressure = rememberPendingRepaint(repaint) && allowBackpressure && shouldWaitForRepaintBackpressure(canvas);
         }
         if (waitForBackpressure) {
             awaitRenderSlotAvailable();
@@ -528,6 +650,18 @@ public final class DoJaRuntime {
 
     public boolean isOpenGlesFpsEnabled() {
         return openGlesFpsEnabled;
+    }
+
+    public String starDirectionRotation() {
+        return config.applicationProfile() == ApplicationProfile.STAR
+                ? starDirectionRotation : OpenDoJaLaunchArgs.DISPLAY_ROTATION_NONE;
+    }
+
+    /** A session-local input choice; keys already held keep the code selected on press. */
+    public void setStarDirectionRotation(String rotation) {
+        if (config.applicationProfile() == ApplicationProfile.STAR) {
+            starDirectionRotation = OpenDoJaLaunchArgs.normalizeDisplayRotation(rotation);
+        }
     }
 
     public void setOpenGlesFpsEnabled(boolean enabled) {
@@ -580,6 +714,7 @@ public final class DoJaRuntime {
     }
 
     public int keypadState(int group) {
+        awaitVideoPlayback();
         if (!isKeypadGroupEnabled(group)) {
             return 0;
         }
@@ -622,6 +757,7 @@ public final class DoJaRuntime {
     }
 
     public void dispatchTimerEvent(Canvas canvas, int param) {
+        awaitVideoPlayback();
         if (shutdown.get()) {
             return;
         }
@@ -631,7 +767,55 @@ public final class DoJaRuntime {
         canvas.processEvent(Display.TIMER_EXPIRED_EVENT, param);
     }
 
+    /** Desktop directions are screen-relative; the shared DoJa dispatcher still receives handset keys. */
+    public void dispatchHostKey(int hostKey, int eventType) {
+        if (isVideoPlaying()) return;
+        synchronized (heldHostKeys) {
+            int handsetKey;
+            if (eventType == Display.KEY_PRESSED_EVENT) {
+                if (heldHostKeys.containsKey(hostKey)) return;
+                handsetKey = mapHostDirection(hostKey);
+                boolean alreadyHeld = heldHostKeys.containsValue(handsetKey);
+                heldHostKeys.put(hostKey, handsetKey);
+                if (alreadyHeld) return;
+            } else if (eventType == Display.KEY_RELEASED_EVENT) {
+                Integer pressedKey = heldHostKeys.remove(hostKey);
+                if (pressedKey == null || heldHostKeys.containsValue(pressedKey)) return;
+                // Release the code chosen on press, even if the layout changed during the hold.
+                handsetKey = pressedKey;
+            } else {
+                return;
+            }
+            dispatchSyntheticKey(handsetKey, eventType);
+        }
+    }
+
+    private int mapHostDirection(int key) {
+        if (config.applicationProfile() != ApplicationProfile.STAR) return key;
+        int direction = switch (key) {
+            case Display.KEY_UP -> 0;
+            case Display.KEY_RIGHT -> 1;
+            case Display.KEY_DOWN -> 2;
+            case Display.KEY_LEFT -> 3;
+            default -> -1;
+        };
+        if (direction < 0) return key;
+        int turns = switch (starDirectionRotation) {
+            case "right" -> 1;
+            case "upside-down" -> 2;
+            case "left" -> 3;
+            default -> 0;
+        };
+        return switch ((direction + turns) & 3) {
+            case 0 -> Display.KEY_UP;
+            case 1 -> Display.KEY_RIGHT;
+            case 2 -> Display.KEY_DOWN;
+            default -> Display.KEY_LEFT;
+        };
+    }
+
     public void dispatchSyntheticKey(int dojaKey, int eventType) {
+        if (isVideoPlaying()) return;
         if (!isKeypadGroupEnabled(keyGroup(dojaKey))) {
             return;
         }
@@ -651,7 +835,8 @@ public final class DoJaRuntime {
         } else if (eventType == Display.KEY_RELEASED_EVENT) {
             keypadStateBits &= ~mask;
         }
-        if (!(currentFrame instanceof Canvas canvas)) {
+        Canvas canvas = currentCanvas;
+        if (canvas == null) {
             return;
         }
         dispatchCanvasUiEvent(canvas, () -> {
@@ -671,8 +856,10 @@ public final class DoJaRuntime {
     }
 
     private void dispatchPointerEvent(int eventType, int x, int y) {
+        if (isVideoPlaying()) return;
         updatePointerPosition(x, y);
-        if (!(currentFrame instanceof Canvas canvas)) {
+        Canvas canvas = currentCanvas;
+        if (canvas == null) {
             return;
         }
         dispatchCanvasUiEvent(canvas, () -> {
@@ -687,6 +874,7 @@ public final class DoJaRuntime {
     }
 
     public void dispatchHostSoftKey(int softKey, int eventType) {
+        if (isVideoPlaying()) return;
         Frame frame = currentFrame;
         if (frame == null) {
             return;
@@ -698,8 +886,8 @@ public final class DoJaRuntime {
             }
             frame.processSoftKeyEvent(eventType, softKey);
             repaintWindow();
-            if (frame == currentFrame && frame instanceof Canvas canvas && !currentCanvasPresentedByApplication) {
-                requestRender(canvas);
+            if (frame == currentFrame && currentCanvas != null && !currentCanvasPresentedByApplication) {
+                requestRender(currentCanvas);
             }
         });
     }
@@ -720,7 +908,8 @@ public final class DoJaRuntime {
     }
 
     public void notifySurfaceFlush(Canvas canvas, BufferedImage frame) {
-        if (canvas == currentFrame && Thread.currentThread() != renderThread) {
+        awaitVideoPlayback();
+        if (canvas == currentCanvas && Thread.currentThread() != renderThread) {
             currentCanvasPresentedByApplication = true;
         }
         if (openGlesFpsEnabled) {
@@ -729,11 +918,28 @@ public final class DoJaRuntime {
         // Some games start a render thread from the Canvas constructor and flush direct-draw frames
         // before Display.setCurrent(canvas) runs. Preserve that latest frame so it is still visible
         // once the Canvas becomes current, instead of dropping it as "not current yet".
-        if (canvas == currentFrame || currentFrame == null) {
+        if (canvas == currentCanvas || currentFrame == null) {
+            updatePresentationRotation(canvas);
             presentedCanvas = canvas;
             presentedFrame = frame == null ? snapshotCanvasImage(canvas) : frame;
             repaintWindow();
         }
+    }
+
+    /** The app's native canvas dimensions stay fixed while the desktop follows its frame orientation. */
+    public boolean hasLandscapePresentation() { return externalFrameRenderer.hasAutomaticLandscape(); }
+
+    private void updatePresentationRotation(Canvas canvas) {
+        DesktopSurface surface = canvas == null ? null : getCanvasSurface(canvas);
+        String rotation = config.applicationProfile() == ApplicationProfile.STAR && surface != null
+                ? surface.presentationRotation() : OpenDoJaLaunchArgs.DISPLAY_ROTATION_NONE;
+        if (!externalFrameRenderer.setAutomaticRotation(rotation)) return;
+        SwingUtilities.invokeLater(() -> {
+            if (shutdown.get()) return;
+            hostPanel.refreshPreferredSize();
+            repackWindow();
+            repaintWindow();
+        });
     }
 
     private void ensureCanvasSurface(Canvas canvas) {
@@ -741,7 +947,7 @@ public final class DoJaRuntime {
     }
 
     private boolean rememberPendingRepaint(RepaintRequest repaint) {
-        if (shutdown.get() || currentFrame != repaint.canvas()) {
+        if (shutdown.get() || currentCanvas != repaint.canvas()) {
             return false;
         }
         pendingRepaint.accumulateAndGet(repaint, RepaintRequest::merge);
@@ -753,14 +959,14 @@ public final class DoJaRuntime {
         if (repaint == null) {
             return;
         }
-        if (!shutdown.get() && currentFrame == repaint.canvas()) {
+        if (!shutdown.get() && currentCanvas == repaint.canvas()) {
             requestRender(repaint, false);
         }
     }
 
     private boolean shouldWaitForRepaintBackpressure(Canvas canvas) {
         // Only public repaint calls are backpressured; host render wakeups stay async.
-        return currentFrame == canvas
+        return currentCanvas == canvas
                 && !shutdown.get()
                 && Thread.currentThread() != renderThread
                 && !Thread.holdsLock(canvas)
@@ -773,7 +979,7 @@ public final class DoJaRuntime {
             if (!shouldWakeCanvasAfterUiEvent(eventType)) {
                 return;
             }
-            if (canvas == currentFrame && !currentCanvasPresentedByApplication) {
+            if (canvas == currentCanvas && !currentCanvasPresentedByApplication) {
                 requestRender(canvas);
             }
         });
@@ -795,6 +1001,7 @@ public final class DoJaRuntime {
         try {
             eventExecutor.execute(() -> {
                 try {
+                    if (isVideoPlaying() || shutdown.get()) return;
                     eventTask.run();
                 } catch (Throwable throwable) {
                     OpenDoJaLog.error(DoJaRuntime.class, "Unhandled UI event failure", throwable);
@@ -1446,6 +1653,10 @@ public final class DoJaRuntime {
     }
 
     private String launchMicroeditionProfiles() {
+        if (config.applicationProfile() == ApplicationProfile.STAR) {
+            // STAR runtime identity; AppType selects this family even without ProfileVer.
+            return "Star-2.0";
+        }
         DoJaProfile resolved = DoJaProfile.fromParametersOrDocumentedDeviceIdentity(config.parameters());
         if (resolved.isKnown()) {
             // The system property uses the handset profile name, not the ADF's DoJa-* spelling.
@@ -1520,7 +1731,7 @@ public final class DoJaRuntime {
     }
 
     private Point2D hostPointToCanvasPoint(Point2D hostPoint, Rectangle drawArea) {
-        String rotation = OpenDoJaLaunchArgs.displayRotation();
+        String rotation = externalFrameRenderer.displayRotation();
         if ("none".equals(rotation)) {
             double x = (hostPoint.getX() - drawArea.x) * displayWidth() / Math.max(1, drawArea.width);
             double y = (hostPoint.getY() - drawArea.y) * displayHeight() / Math.max(1, drawArea.height);
@@ -1564,12 +1775,11 @@ public final class DoJaRuntime {
         private final DesktopKeyInputAdapter keyInputAdapter;
         private final DesktopKeyInputAdapter softKeyInputAdapter;
         private final HostInputRouter inputRouter;
-        private volatile ControllerInputManager controllerInputManager;
         private boolean touchPointerActive;
 
         private HostPanel(DoJaRuntime runtime) {
             this.runtime = runtime;
-            this.keyInputAdapter = new DesktopKeyInputAdapter(this::scheduleRelease, runtime::dispatchSyntheticKey,
+            this.keyInputAdapter = new DesktopKeyInputAdapter(this::scheduleRelease, runtime::dispatchHostKey,
                     KEY_REPEAT_RELEASE_DEBOUNCE_MS);
             this.softKeyInputAdapter = new DesktopKeyInputAdapter(this::scheduleRelease, runtime::dispatchHostSoftKey,
                     KEY_REPEAT_RELEASE_DEBOUNCE_MS);
@@ -1610,18 +1820,22 @@ public final class DoJaRuntime {
         }
 
         private void ensureControllerInput(JFrame ownerWindow) {
-            if (controllerInputManager != null || GraphicsEnvironment.isHeadless()) {
-                return;
-            }
-            ControllerInputManager manager = new ControllerInputManager(ownerWindow);
-            manager.addListener(new ControllerInputListener() {
-                @Override
-                public void onInput(ControllerInputEvent event) {
-                    SwingUtilities.invokeLater(() -> dispatchControllerEvent(event));
+            synchronized (runtime) {
+                if (runtime.shutdown.get() || runtime.controllerInputManager != null || GraphicsEnvironment.isHeadless()) {
+                    return;
                 }
-            });
-            runtime.registerShutdownResource(manager);
-            controllerInputManager = manager;
+                ControllerInputManager manager = new ControllerInputManager(ownerWindow);
+                manager.setRumbleFocused(ownerWindow.isFocused());
+                manager.setVibratorEnabled(runtime.vibratorEnabled);
+                manager.addListener(new ControllerInputListener() {
+                    @Override
+                    public void onInput(ControllerInputEvent event) {
+                        SwingUtilities.invokeLater(() -> dispatchControllerEvent(event));
+                    }
+                });
+                runtime.controllerInputManager = manager;
+                runtime.registerShutdownResource(manager);
+            }
         }
 
         private DesktopKeyInputAdapter.PendingRelease scheduleRelease(int delayMillis, Runnable task) {
@@ -1763,6 +1977,28 @@ public final class DoJaRuntime {
             });
             menu.add(showOpenGlesFpsItem);
             menu.addSeparator();
+            if (runtime.config.applicationProfile() == ApplicationProfile.STAR) {
+                JMenu rotationMenu = new JMenu("Control rotation");
+                ButtonGroup rotations = new ButtonGroup();
+                for (String rotation : new String[]{"none", "left", "right", "upside-down"}) {
+                    String label = switch (rotation) {
+                        case "left" -> "90° left";
+                        case "right" -> "90° right";
+                        case "upside-down" -> "180°";
+                        default -> "Normal";
+                    };
+                    JRadioButtonMenuItem item = new JRadioButtonMenuItem(label,
+                            rotation.equals(runtime.starDirectionRotation()));
+                    item.addActionListener(event -> {
+                        runtime.setStarDirectionRotation(rotation);
+                        HostPanel.this.requestFocusInWindow();
+                    });
+                    rotations.add(item);
+                    rotationMenu.add(item);
+                }
+                menu.add(rotationMenu);
+                menu.addSeparator();
+            }
             ButtonGroup group = new ButtonGroup();
             for (int scale = MIN_HOST_SCALE; scale <= MAX_HOST_SCALE; scale++) {
                 int selectedScale = scale;
@@ -1809,7 +2045,9 @@ public final class DoJaRuntime {
                 Point origin = frameOriginForHostScale(runtime.hostScaleSetting(), getSize(), frameSize);
                 g2.translate(origin.x, origin.y);
                 g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-                runtime.externalFrameRenderer.paint(g2, runtime.currentFrame, runtime.presentedFrame,
+                DesktopVideoPlayback video = runtime.videoPlayback;
+                runtime.externalFrameRenderer.paint(g2, runtime.currentFrame,
+                        video == null ? runtime.presentedFrame : video.frame(),
                         runtime.displayWidth(), runtime.displayHeight(), runtime.hostScaleFactor());
             } finally {
                 g2.dispose();

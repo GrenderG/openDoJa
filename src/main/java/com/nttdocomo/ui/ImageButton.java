@@ -37,6 +37,7 @@ public final class ImageButton extends Component implements Interactable {
         }
         _ImageInternalAccess.requireUsable(image);
         this.image = image;
+        hostChanged();
     }
 
     /**
@@ -47,6 +48,8 @@ public final class ImageButton extends Component implements Interactable {
     @Override
     public void setEnabled(boolean b) {
         this.enabled = b;
+        if (!b && ownerPanel() != null) ownerPanel().componentBecameUnavailable(this);
+        hostChanged();
     }
 
     /**
@@ -61,4 +64,6 @@ public final class ImageButton extends Component implements Interactable {
     boolean acceptsFocusOn(Panel panel) {
         return enabled && super.acceptsFocusOn(panel);
     }
+    Image hostImage() { return image; }
+    boolean hostEnabled() { return enabled; }
 }

@@ -46,6 +46,7 @@ public final class Button extends Component implements Interactable {
      */
     public void setLabel(String label) {
         this.label = label == null ? "" : label;
+        hostChanged();
     }
 
     /**
@@ -67,6 +68,8 @@ public final class Button extends Component implements Interactable {
     @Override
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+        if (!enabled && ownerPanel() != null) ownerPanel().componentBecameUnavailable(this);
+        hostChanged();
     }
 
     /**
@@ -94,4 +97,7 @@ public final class Button extends Component implements Interactable {
     boolean acceptsFocusOn(Panel panel) {
         return enabled && super.acceptsFocusOn(panel);
     }
+
+    String hostLabel() { return label; }
+    boolean hostEnabled() { return enabled; }
 }

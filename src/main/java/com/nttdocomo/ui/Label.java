@@ -123,6 +123,7 @@ public final class Label extends Component {
      */
     public void setText(String text) {
         this.text = text == null ? "" : text;
+        hostChanged();
     }
 
     /**
@@ -134,6 +135,7 @@ public final class Label extends Component {
      */
     public void setAlignment(int alignment) {
         this.alignment = validateAlignment(alignment);
+        hostChanged();
     }
 
     /** {@inheritDoc} */

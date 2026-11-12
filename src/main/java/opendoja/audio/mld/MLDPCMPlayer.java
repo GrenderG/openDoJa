@@ -2,12 +2,14 @@ package opendoja.audio.mld;
 
 import com.nttdocomo.ui.MediaManager;
 import opendoja.audio.mld.fuetrek.FueTrekSamplerProvider;
+import opendoja.audio.mld.fuetrek.FueTrekOutputMixer;
 import opendoja.audio.mld.ma3.MA3SamplerProvider;
 
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.SourceDataLine;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -230,6 +232,9 @@ public final class MLDPCMPlayer implements AutoCloseable {
                         for (PlaybackHandle handle : snapshot) {
                             handle.fail(exception, notifications);
                         }
+                    } finally {
+                        // Discard each block even when the host has no audio line.
+                        Arrays.fill(mixBuffer, 0, mixedFrames * 2, 0.0f);
                     }
                 }
 
@@ -294,13 +299,15 @@ public final class MLDPCMPlayer implements AutoCloseable {
         }
 
         private int encodePcm(int frames) {
+            if (SYNTH_PROFILE.synth == MLDSynth.FUETREK) {
+                return FueTrekOutputMixer.encodeExported(mixBuffer, 0, frames, pcmBuffer, 0);
+            }
             int output = 0;
             for (int i = 0; i < frames * 2; i++) {
                 float sample = Math.max(-1.0f, Math.min(1.0f, mixBuffer[i]));
                 int value = Math.round(sample * 32767.0f);
                 pcmBuffer[output++] = (byte) (value & 0xFF);
                 pcmBuffer[output++] = (byte) ((value >>> 8) & 0xFF);
-                mixBuffer[i] = 0.0f;
             }
             return output;
         }
@@ -516,7 +523,7 @@ public final class MLDPCMPlayer implements AutoCloseable {
 
         int renderInto(float[] buffer, int frames, List<Runnable> notifications) {
             PlaybackSession session;
-            float gain;
+            int volume;
             long playbackToken;
             synchronized (stateLock) {
                 if (closed) {
@@ -541,11 +548,19 @@ public final class MLDPCMPlayer implements AutoCloseable {
                     return 0;
                 }
                 session = activeSession;
-                gain = volumeLevel / 100.0f;
+                volume = volumeLevel;
                 playbackToken = activePlaybackToken;
             }
 
             while (true) {
+                float gain;
+                if (SYNTH_PROFILE.synth == MLDSynth.FUETREK) {
+                    // Reapply after a loop/reset, which rebuilds sampler state.
+                    session.player.playbackEngine.setHostVolumeLevel(volume);
+                    gain = 1.0f;
+                } else {
+                    gain = volume / 100.0f;
+                }
                 int rendered = session.player.render(buffer, 0, frames, gain, gain, true, false);
                 currentTimeMillis = (int) Math.round(session.player.getTime() * 1000.0);
 

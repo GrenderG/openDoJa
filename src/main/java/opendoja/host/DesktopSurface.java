@@ -20,6 +20,10 @@ public final class DesktopSurface {
     private long nextRenderSyncNanos;
     private boolean openGlesSeen;
     private int activeGraphicsLocks;
+    private volatile String presentationRotation = OpenDoJaLaunchArgs.DISPLAY_ROTATION_NONE;
+
+    public String presentationRotation() { return presentationRotation; }
+    public void setPresentationRotation(String rotation) { presentationRotation = rotation; }
     public DesktopSurface(int width, int height) {
         this.image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
     }
@@ -40,6 +44,7 @@ public final class DesktopSurface {
         this.nextRenderSyncNanos = 0L;
         this.openGlesSeen = false;
         this.activeGraphicsLocks = 0;
+        this.presentationRotation = OpenDoJaLaunchArgs.DISPLAY_ROTATION_NONE;
     }
 
     public BufferedImage image() {
@@ -85,6 +90,16 @@ public final class DesktopSurface {
 
     public synchronized void endDepthFrame() {
         depthFrameActive = false;
+    }
+
+    public synchronized void clearDepthBuffer(Rectangle region, float value) {
+        Rectangle bounds = new Rectangle(0, 0, width(), height());
+        Rectangle clipped = region == null ? bounds : region.intersection(bounds);
+        if (clipped.isEmpty()) return;
+        float[] depth = depthBufferForFrame();
+        for (int y = clipped.y; y < clipped.y + clipped.height; y++) {
+            Arrays.fill(depth, y * width() + clipped.x, y * width() + clipped.x + clipped.width, value);
+        }
     }
 
     public synchronized void markOpenGlesActivity() {

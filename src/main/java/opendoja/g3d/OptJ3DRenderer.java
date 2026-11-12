@@ -270,7 +270,11 @@ public final class OptJ3DRenderer {
                     setScreenCenter(commands[i++], commands[i++]);
                 }
                 case Graphics3D.COMMAND_TEXTURE -> setPrimitiveTexture(command & COMMAND_INLINE_VALUE_MASK);
-                case Graphics3D.COMMAND_VIEW_TRANS -> setViewTrans(command & COMMAND_INLINE_VALUE_MASK);
+                case Graphics3D.COMMAND_VIEW_TRANS -> {
+                    if (viewTransforms.length > 0) {
+                        setViewTrans(command & COMMAND_INLINE_VALUE_MASK);
+                    }
+                }
                 case Graphics3D.COMMAND_SCREEN_SCALE -> {
                     ensureCommandOperands(commands, i, 2, "COMMAND_SCREEN_SCALE");
                     setScreenScale(commands[i++], commands[i++]);

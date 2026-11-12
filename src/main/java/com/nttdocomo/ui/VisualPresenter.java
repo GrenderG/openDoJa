@@ -1,9 +1,10 @@
 package com.nttdocomo.ui;
 
-import opendoja.host.DesktopExternalVideoPlayback;
+import opendoja.host.DesktopVideoPlayback;
 import opendoja.host.DesktopVideoSupport;
 import opendoja.host.DoJaRuntime;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -76,9 +77,9 @@ public class VisualPresenter extends Component implements MediaPresenter {
     private final Map<Integer, Integer> attributes = new HashMap<>();
     private MediaResource resource;
     private MediaListener listener;
-    private boolean playing;
-    private boolean pendingPlay;
-    private DesktopExternalVideoPlayback externalVideoPlayback;
+    private volatile boolean playing;
+    private volatile boolean pendingPlay;
+    private volatile DesktopVideoPlayback videoPlayback;
 
     /**
      * Creates an empty presenter object.
@@ -265,7 +266,7 @@ public class VisualPresenter extends Component implements MediaPresenter {
         playing = true;
         pendingPlay = false;
         try {
-            startVideoPlaybackIfNeeded();
+            if (playVideoIfNeeded()) return;
         } catch (RuntimeException exception) {
             playing = false;
             pendingPlay = false;
@@ -274,26 +275,36 @@ public class VisualPresenter extends Component implements MediaPresenter {
         notifyListener(VISUAL_PLAYING, 0);
     }
 
-    private void startVideoPlaybackIfNeeded() {
+    private boolean playVideoIfNeeded() {
         stopVideoPlayback();
         DesktopVideoSupport.VideoMetadata metadata = videoMetadata();
         if (!metadata.isVideo()) {
-            return;
+            return false;
         }
         DoJaRuntime runtime = DoJaRuntime.current();
         if (runtime == null) {
-            return;
+            throw new UIException(UIException.ILLEGAL_STATE, "Video playback requires an active runtime");
         }
-        DesktopExternalVideoPlayback[] playbackRef = new DesktopExternalVideoPlayback[1];
-        DesktopExternalVideoPlayback playback = new DesktopExternalVideoPlayback(
-                runtime,
-                metadata.data(),
-                metadata.extension(),
-                metadata.durationMillis(),
-                () -> finishVideoPlayback(playbackRef[0]));
-        playbackRef[0] = playback;
-        externalVideoPlayback = playback;
-        playback.start();
+        DesktopVideoPlayback playback = new DesktopVideoPlayback(runtime, metadata.data(), metadata.extension(),
+                attributes.get(AUDIO_MODE) == ATTR_AUDIO_ON, 0L);
+        videoPlayback = playback;
+        try {
+            DesktopVideoPlayback.Result result = playback.playAndWait(() -> notifyListener(VISUAL_PLAYING, 0));
+            if (videoPlayback == playback) {
+                videoPlayback = null;
+                playing = false;
+                pendingPlay = false;
+                if (result == DesktopVideoPlayback.Result.FAILED) {
+                    throw new UIException(UIException.UNSUPPORTED_FORMAT, "The embedded player could not decode the video");
+                }
+                notifyListener(result == DesktopVideoPlayback.Result.COMPLETED ? VISUAL_COMPLETE : VISUAL_STOPPED, 0);
+            }
+        } catch (IOException exception) {
+            throw new UIException(UIException.UNSUPPORTED_FORMAT, exception.getMessage());
+        } finally {
+            if (videoPlayback == playback) videoPlayback = null;
+        }
+        return true;
     }
 
     private DesktopVideoSupport.VideoMetadata videoMetadata() {
@@ -307,20 +318,10 @@ public class VisualPresenter extends Component implements MediaPresenter {
     }
 
     private void stopVideoPlayback() {
-        DesktopExternalVideoPlayback playback = externalVideoPlayback;
-        externalVideoPlayback = null;
+        DesktopVideoPlayback playback = videoPlayback;
+        videoPlayback = null;
         if (playback != null) {
             playback.close();
         }
-    }
-
-    private void finishVideoPlayback(DesktopExternalVideoPlayback playback) {
-        if (playback == null || playback != externalVideoPlayback) {
-            return;
-        }
-        stopVideoPlayback();
-        playing = false;
-        pendingPlay = false;
-        notifyListener(VISUAL_COMPLETE, 0);
     }
 }
