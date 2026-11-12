@@ -1,0 +1,12 @@
+JPEXS Free Flash Decompiler Library 26.4.0, by Jindra Petrik and contributors.
+The library is built unmodified from the upstream version26.4.0 tag (via JitPack)
+and distributed under LGPL-3.0-or-later.
+License: LGPL-3.0.txt in this directory.
+Upstream: https://github.com/jindrapetrik/jpexs-decompiler
+Corresponding source: https://github.com/jindrapetrik/jpexs-decompiler/tree/version26.4.0/libsrc/ffdec_lib
+Distribution: https://github.com/jindrapetrik/jpexs-decompiler/releases/tag/version26.4.0
+
+openDoJa uses its Java timeline/vector/bitmap rendering. ActionScript execution,
+Flash network callbacks and audio/video playback are not implemented by this bridge.
+The library can be replaced by changing the jpexs-decompiler dependency in pom.xml
+and rebuilding openDoJa with Maven.
