@@ -1,5 +1,9 @@
 # openDoJa
 
+<p align="center">
+  <img src="src/main/resources/opendoja/images/branding/logo.svg" alt="openDoJa logo" width="160" />
+</p>
+
 `openDoJa` is a desktop-focused clean-room reimplementation of the DoJa 5.1 runtime and related APIs, aimed at running i-appli Java games on modern computers.
 
 <p align="center">
@@ -55,6 +59,17 @@ Print all available launcher options:
 ```bash
 java -jar opendoja-{version}.jar --help
 ```
+
+### Linux application launcher
+
+When running the JAR on Linux, choose **File → Create Application Launcher** to add
+openDoJa to your applications menu with its logo. This also gives GNOME the desktop
+entry it needs for the dock icon. Reopen openDoJa if GNOME does not refresh the icon immediately.
+
+The entry and icon are installed for your user, under `$XDG_DATA_HOME` (normally
+`~/.local/share`), without administrator permissions. Once created, the entry follows
+the JAR you open: after downloading a new version or moving the JAR, run it once to
+update the launcher. The menu option appears only on Linux when running a packaged JAR.
 
 STAR support is experimental. A JAM containing an `AppType` field selects STAR (which is unique to star);
 JAMs without that field use DoJa Profile. A compatibility layer is used over the shared graphics, audio,

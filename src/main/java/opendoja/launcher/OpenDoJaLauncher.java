@@ -61,6 +61,7 @@ public final class OpenDoJaLauncher {
             effectiveArgs.add(args[i]);
         }
         if (effectiveArgs.isEmpty() && args.length == 0) {
+            LinuxDesktopIntegration.refreshIfInstalled();
             configureLookAndFeel();
             SwingUtilities.invokeLater(() -> {
                 OpenDoJaLauncherFrame frame = new OpenDoJaLauncherFrame(

@@ -148,7 +148,7 @@ final class LauncherProcessSupport {
         command.add("-Dfile.encoding=" + fileEncoding);
     }
 
-    private Path resolveLauncherArtifact() throws IOException {
+    static Path resolveLauncherArtifact() throws IOException {
         try {
             URL location = OpenDoJaLauncher.class.getProtectionDomain().getCodeSource().getLocation();
             if (location != null) {

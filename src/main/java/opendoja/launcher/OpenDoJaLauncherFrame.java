@@ -1,6 +1,7 @@
 package opendoja.launcher;
 
 import opendoja.audio.mld.MLDSynth;
+import opendoja.host.DesktopBranding;
 import opendoja.host.DoJaRuntime;
 import opendoja.host.HostScale;
 import opendoja.host.LaunchConfig;
@@ -41,6 +42,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
                           LauncherSettingsController settingsController,
                           LauncherUpdateService updateService) {
         super(OpenDoJaLauncher.APP_NAME);
+        DesktopBranding.applyWindowIcon(this);
         this.jamLaunchService = jamLaunchService;
         this.settingsController = settingsController;
         this.updateService = updateService;
@@ -76,6 +78,14 @@ final class OpenDoJaLauncherFrame extends JFrame {
                 openSdCardFolder();
             }
         }));
+        if (LinuxDesktopIntegration.isAvailable()) {
+            fileMenu.add(new JMenuItem(new AbstractAction("Create Application Launcher") {
+                @Override
+                public void actionPerformed(ActionEvent event) {
+                    createApplicationLauncher(this);
+                }
+            }));
+        }
         fileMenu.addSeparator();
         fileMenu.add(new JMenuItem(new AbstractAction("Exit") {
             @Override
@@ -181,6 +191,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         dragDropHint.setFont(dragDropHint.getFont().deriveFont(13f));
 
         JPanel contentPanel = new JPanel(new BorderLayout(0, 10));
+        contentPanel.add(new JLabel(DesktopBranding.icon(128)), BorderLayout.NORTH);
         contentPanel.add(loadButton, BorderLayout.CENTER);
         contentPanel.add(dragDropHint, BorderLayout.SOUTH);
 
@@ -228,6 +239,25 @@ final class OpenDoJaLauncherFrame extends JFrame {
                     OpenDoJaLauncher.APP_NAME,
                     JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private void createApplicationLauncher(Action action) {
+        action.setEnabled(false);
+        Thread.ofVirtual().start(() -> {
+            try {
+                LinuxDesktopIntegration.install();
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                        "Application launcher created. Find openDoJa in your applications menu.\n"
+                                + "Close and reopen openDoJa if its dock icon has not refreshed yet.",
+                        OpenDoJaLauncher.APP_NAME, JOptionPane.INFORMATION_MESSAGE));
+            } catch (IOException | RuntimeException exception) {
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                        "Could not create application launcher.\n\n" + exception.getMessage(),
+                        OpenDoJaLauncher.APP_NAME, JOptionPane.ERROR_MESSAGE));
+            } finally {
+                SwingUtilities.invokeLater(() -> action.setEnabled(true));
+            }
+        });
     }
 
     private void clearLinkedJamSelections() {
@@ -731,6 +761,7 @@ final class OpenDoJaLauncherFrame extends JFrame {
         JScrollPane scrollPane = new JScrollPane(content);
         scrollPane.setBorder(null);
         scrollPane.setPreferredSize(new Dimension(420, 150));
-        JOptionPane.showMessageDialog(this, scrollPane, "About", JOptionPane.INFORMATION_MESSAGE);
+        JOptionPane.showMessageDialog(this, scrollPane, "About", JOptionPane.INFORMATION_MESSAGE,
+                DesktopBranding.icon(64));
     }
 }

@@ -1528,6 +1528,7 @@ public final class DoJaRuntime {
 
     private JFrame buildHostWindow(boolean fullscreen) {
         JFrame window = new JFrame(config.title());
+        DesktopBranding.applyWindowIcon(window);
         window.setUndecorated(fullscreen);
         window.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         window.getContentPane().setBackground(Color.BLACK);
