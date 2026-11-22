@@ -92,7 +92,7 @@ final class LauncherProcessSupport {
 
     private void appendLauncherSettings(List<String> command, LauncherSettings settings, Set<String> overriddenProperties) {
         if (settings == null) {
-            return;
+            settings = new JamLaunchService().loadSettings();
         }
         appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.HOST_SCALE, settings.hostScale());
         appendProperty(command, overriddenProperties, OpenDoJaLaunchArgs.DISPLAY_ROTATION, settings.displayRotation());
